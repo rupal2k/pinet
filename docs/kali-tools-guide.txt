@@ -1,0 +1,133 @@
+================================================================================
+  PINET Pi - KALI / PENTEST TOOLS - OPERATING GUIDE
+  (Raspberry Pi 3B "raspberrypi", user: rupal)          updated 2026-09-16
+================================================================================
+
+--------------------------------------------------------------------------------
+!!! AUTHORIZATION / LEGAL - READ FIRST !!!
+--------------------------------------------------------------------------------
+Only scan, capture, or attack networks and devices that YOU OWN or have
+EXPLICIT WRITTEN PERMISSION to test. Deauthing, capturing handshakes, or
+brute-forcing WPS on networks you do not own is illegal in most countries.
+Use these tools for: your own home network, a lab you control, or a client
+engagement with a signed scope. When in doubt, don't.
+
+--------------------------------------------------------------------------------
+WHAT'S INSTALLED (native apt, on PATH - no Docker)
+--------------------------------------------------------------------------------
+Network mapping : nmap  arp-scan  netdiscover  masscan
+WiFi auditing   : aircrack-ng (airmon-ng/airodump-ng/aireplay-ng/aircrack-ng)
+                  wifite  reaver  bully  mdk4  hcxdumptool  hcxtools
+Supporting      : iw  iwconfig  macchanger  tcpdump  net-tools
+
+--------------------------------------------------------------------------------
+HOW TO OPEN THE TOOLS
+--------------------------------------------------------------------------------
+Double-tap the "Kali Tools" icon (pirate skull) on the desktop.
+  -> opens a terminal in  ~/kali-work  with every tool on the PATH.
+Or from any terminal, just run the tool name (e.g.  sudo nmap ... ).
+Save captures/output under  ~/kali-work  (it persists).
+
+--------------------------------------------------------------------------------
+NETWORK INTERFACES (important)
+--------------------------------------------------------------------------------
+wlan0  = the PINET hotspot radio (onboard). NO monitor mode. Leave it alone.
+wlan1  = TP-Link Archer T2U Plus (RTL8821AU). The ONLY monitor-capable radio,
+         and also the Pi's home-WiFi/internet uplink.
+eth0   = wired (when a cable is attached).
+
+--------------------------------------------------------------------------------
+PENTEST POWER MODE  (needed for all WiFi-attack tools)
+--------------------------------------------------------------------------------
+WiFi capture/attack tools need wlan1 in MONITOR mode. Use the toggle:
+
+   sudo wifi-pentest-start     # wlan1 -> monitor, stops PINET, frees power,
+                               #          shows the pirate "PENTEST" screen on
+                               #          the e-ink panel
+   ...do your WiFi work on the monitor interface (see below)...
+   sudo wifi-pentest-stop      # wlan1 -> managed, reconnects home WiFi,
+                               #          restarts PINET, clears the e-ink flag
+
+*** CRITICAL: switching wlan1 to monitor mode KILLS the Pi's internet AND any
+    SSH session that reaches the Pi over wlan1 (192.168.29.x). Run pentest mode
+    from the PHYSICAL screen/keyboard, or over the PINET hotspot (10.10.10.1),
+    so you always have a way back. ***
+
+After wifi-pentest-start, find the monitor interface name:
+   iw dev            # look for the interface with "type monitor" (e.g. wlan1
+                     # or wlan1mon). Use that name below as <MON>.
+Verify injection is supported (for deauth/attacks):
+   sudo aireplay-ng --test <MON>
+
+--------------------------------------------------------------------------------
+NETWORK MAPPING (no monitor mode needed; run on your normal network)
+--------------------------------------------------------------------------------
+Find live hosts on the local subnet:
+   sudo arp-scan --localnet
+   sudo netdiscover -r 192.168.29.0/24
+Port/service scan a host you own:
+   sudo nmap -sV -O 192.168.29.50
+Quick scan of a range:
+   sudo nmap -sn 192.168.29.0/24            # ping sweep (who's up)
+   sudo nmap -p- --min-rate 1000 <target>   # all TCP ports
+Very fast port sweep (use responsibly, your own hosts):
+   sudo masscan 192.168.29.0/24 -p1-65535 --rate 1000
+
+--------------------------------------------------------------------------------
+WiFi AUDITING  (do  sudo wifi-pentest-start  first; use <MON> from `iw dev`)
+--------------------------------------------------------------------------------
+Easiest - automated (asks before attacking, your own AP only):
+   sudo wifite -i <MON>
+
+Manual aircrack-ng workflow (auditing YOUR OWN access point):
+   1) Survey the air, find your AP's BSSID + channel:
+        sudo airodump-ng <MON>
+   2) Capture handshakes on that AP/channel to a file:
+        sudo airodump-ng -c <CH> --bssid <BSSID> -w ~/kali-work/cap <MON>
+   3) (Optional) Force a reconnect to grab the handshake faster - ONLY your net:
+        sudo aireplay-ng --deauth 5 -a <BSSID> <MON>
+   4) Crack the captured handshake against a wordlist:
+        aircrack-ng -w /path/to/wordlist.txt ~/kali-work/cap*.cap
+
+WPS testing (your own router):
+   sudo reaver -i <MON> -b <BSSID> -vv
+   sudo bully  -b <BSSID> -c <CH> <MON>
+
+hcx (modern PMKID/handshake capture + convert for hashcat):
+   sudo hcxdumptool -i <MON> -o ~/kali-work/dump.pcapng
+   hcxpcapngtool -o ~/kali-work/hash.hc22000 ~/kali-work/dump.pcapng
+
+Stress/deauth testing tool (your own net only):
+   sudo mdk4 <MON> d -b <BSSID>
+
+--------------------------------------------------------------------------------
+SUPPORTING
+--------------------------------------------------------------------------------
+Randomise the wlan1 MAC (do while the interface is DOWN):
+   sudo ip link set wlan1 down
+   sudo macchanger -r wlan1
+   sudo ip link set wlan1 up
+Sniff traffic on an interface:
+   sudo tcpdump -i <iface> -w ~/kali-work/traffic.pcap
+
+--------------------------------------------------------------------------------
+WHEN DONE
+--------------------------------------------------------------------------------
+   sudo wifi-pentest-stop      # restores wlan1 to normal + brings PINET back
+Confirm the uplink is back:
+   iw dev ; nmcli device status ; ping -c1 1.1.1.1
+
+--------------------------------------------------------------------------------
+NOTES FOR THIS Pi
+--------------------------------------------------------------------------------
+* POWER: this Pi 3B has a marginal 5V supply (chronic under-voltage). Heavy,
+  sustained CPU load can brown it out and reset the board. Big WPA cracking
+  with a huge wordlist (e.g. rockyou.txt) is the most demanding job - prefer
+  smaller/targeted wordlists, and keep a good 5V/3A supply + short thick cable.
+* Wordlists are not preinstalled. Put your own under ~/kali-work or point
+  aircrack-ng/wifite at one you download.
+* Injection isn't guaranteed on every driver - always run `aireplay-ng --test`
+  before relying on deauth.
+* wifi-pentest-start stops PINET; wifi-pentest-stop brings it back. If you also
+  want PINET off independently, use the "Stop PINET" desktop shortcut.
+================================================================================

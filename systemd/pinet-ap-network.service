@@ -1,0 +1,15 @@
+[Unit]
+Description=Static IP for PINET hotspot on wlan0 (intranet-only, no NAT)
+After=network-pre.target
+Before=hostapd.service dnsmasq.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/ip addr flush dev wlan0
+ExecStart=/sbin/ip addr add 10.10.10.1/24 dev wlan0
+ExecStart=/sbin/ip link set wlan0 up
+
+[Install]
+WantedBy=multi-user.target

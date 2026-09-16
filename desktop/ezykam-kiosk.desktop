@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ezykam
+Comment=Open web.ezykam.com in a kiosk (closable)
+Exec=env DSI_CLOSE_CORNER=left /usr/local/bin/dsi-kiosk.sh ezykam https://web.ezykam.com/login
+Icon=/home/rupal/.local/share/icons/ezykam-cam.svg
+Terminal=false
+Categories=Network;

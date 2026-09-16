@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+  <!-- ceiling rail + drop mount -->
+  <path d="M14 8 h11"/>
+  <path d="M20 8 v8"/>
+  <!-- camera body (bullet), horizontal -->
+  <rect x="10" y="16" width="21" height="12" rx="3.5"/>
+  <!-- back cap -->
+  <path d="M10 19.5 h-3 a1.6 1.6 0 0 0 -1.6 1.6 v1.8 a1.6 1.6 0 0 0 1.6 1.6 h3"/>
+  <!-- lens at the front -->
+  <circle cx="25.5" cy="22" r="3.1"/>
+  <circle cx="25.5" cy="22" r="0.6" fill="#e8e8e8" stroke="none"/>
+  <!-- Wi-Fi waves from the front -->
+  <path d="M33 17.5 a6.5 6.5 0 0 1 4.8 5.3"/>
+  <path d="M35.6 13.8 a11.5 11.5 0 0 1 8.4 9"/>
+</svg>

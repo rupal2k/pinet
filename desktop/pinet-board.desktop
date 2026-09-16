@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=PINET Portal
+Comment=Open the PINET anonymous message board and file drop
+Exec=env DSI_CLOSE_CORNER=left DSI_KIOSK_SHED=no /usr/local/bin/dsi-kiosk.sh pinet-portal http://localhost/
+Icon=pinet-portal
+Terminal=false
+Categories=Network;

@@ -1,0 +1,21 @@
+# caches / build
+__pycache__/
+*.pyc
+# deploy backups + local backups
+*.bak
+*.bak-*
+# secrets — never commit
+*secret*
+*password*.txt
+board.conf
+guest.conf
+# runtime data / user content
+data/
+uploads/
+tmp/
+slideshow-cache/
+*.pcap
+*.pcapng
+*.cap
+# large media captures
+/mnt/

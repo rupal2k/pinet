@@ -1,0 +1,17 @@
+[Unit]
+Description=Show DOOM logo (dark mode) on the e-ink panel during shutdown/reboot
+DefaultDependencies=no
+Before=shutdown.target reboot.target halt.target poweroff.target pi-eink-dashboard.service
+Conflicts=shutdown.target reboot.target halt.target poweroff.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=pi
+WorkingDirectory=/home/pi/pi-eink-dashboard
+ExecStart=/bin/true
+ExecStop=/usr/bin/python3 /home/pi/pi-eink-dashboard/src/shutdown_splash.py
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

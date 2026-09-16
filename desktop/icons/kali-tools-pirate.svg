@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+  <!-- crossbones behind the skull -->
+  <line x1="11" y1="31" x2="37" y2="43"/>
+  <line x1="37" y1="31" x2="11" y2="43"/>
+  <circle cx="9.5" cy="29.5" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="11" cy="33" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="38.5" cy="29.5" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="37" cy="33" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="9.5" cy="44.5" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="11" cy="41" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="38.5" cy="44.5" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="37" cy="41" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <!-- skull dome + jaw -->
+  <path d="M13 22 C 13 12, 18 7, 24 7 C 30 7, 35 12, 35 22 C 35 26, 33 28, 31 29
+           L31 32 C 31 33.2, 30 34, 28.5 34 L19.5 34 C 18 34, 17 33.2, 17 32
+           L17 29 C 15 28, 13 26, 13 22 Z"/>
+  <!-- eye sockets -->
+  <circle cx="19.5" cy="21" r="3.3" fill="#e8e8e8" stroke="none"/>
+  <circle cx="28.5" cy="21" r="3.3" fill="#e8e8e8" stroke="none"/>
+  <!-- nose -->
+  <path d="M24 24 L22.3 27.5 L25.7 27.5 Z" fill="#e8e8e8" stroke="none"/>
+  <!-- teeth -->
+  <line x1="21" y1="34" x2="21" y2="37"/>
+  <line x1="24" y1="34" x2="24" y2="37.4"/>
+  <line x1="27" y1="34" x2="27" y2="37"/>
+</svg>

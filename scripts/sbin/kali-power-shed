@@ -1,0 +1,77 @@
+#!/bin/bash
+# Kali / WiFi-pentest power mode.
+#
+# Frees the power budget for a pentest session on this marginal-PSU Pi 3B by
+# stopping PINET (the wlan0 hotspot + board) and other non-essential services,
+# and drops a flag (/run/pentest-mode) that the e-ink dashboard reads to show
+# the pirate "PENTEST" carousel screen. Everything is recorded and restored on
+# stop, so it is fully reversible.
+#
+# Called by wifi-pentest-start / wifi-pentest-stop, but safe to run on its own:
+#   sudo kali-power-shed start   # shed + flag
+#   sudo kali-power-shed stop    # restore
+#
+# NOTE: this only touches wlan0/PINET and local services -- never wlan1 -- so it
+# does not disturb an SSH session reached over wlan1.
+set -u
+
+FLAG=/run/pentest-mode
+STATE=/run/pentest-shed.list
+uctl() { runuser -u rupal -- env XDG_RUNTIME_DIR=/run/user/1000 systemctl --user "$@"; }
+
+# Shed in this order; restored in reverse (so hostapd comes back before dnsmasq,
+# PINET before VNC, etc.). bluetooth is runtime-masked because the panel's
+# applet re-activates a plain-stopped bluetoothd within ~0.1s.
+SYS_UNITS="stunnel@pinet-board.service pinet-board.service dnsmasq.service hostapd.service wayvnc.service bluetooth.service"
+USER_UNITS="dsi-photo-frame.service rpi-connect-wayvnc.service"
+
+need_root() { [ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo kali-power-shed $1" >&2; exit 1; }; }
+
+shed() {
+    need_root start
+    if [ -e "$FLAG" ]; then
+        echo "Already in pentest power mode (nothing to shed)."
+        return 0
+    fi
+    : > "$STATE"
+    for u in $USER_UNITS; do
+        if uctl is-active --quiet "$u" 2>/dev/null; then
+            echo "user:$u" >> "$STATE"; uctl stop "$u" 2>/dev/null || true
+        fi
+    done
+    for u in $SYS_UNITS; do
+        if systemctl is-active --quiet "$u" 2>/dev/null; then
+            echo "sys:$u" >> "$STATE"
+            [ "$u" = bluetooth.service ] && systemctl mask --runtime bluetooth.service 2>/dev/null || true
+            systemctl stop "$u" 2>/dev/null || true
+        fi
+    done
+    touch "$FLAG"
+    echo "Pentest power mode ON: shed $(wc -l < "$STATE" 2>/dev/null || echo 0) service(s); e-ink -> PENTEST/pirate."
+}
+
+restore() {
+    need_root stop
+    if [ -f "$STATE" ]; then
+        tac "$STATE" | while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            scope=${line%%:*}; unit=${line#*:}
+            if [ "$scope" = user ]; then
+                uctl start "$unit" 2>/dev/null || true
+            else
+                [ "$unit" = bluetooth.service ] && systemctl unmask --runtime bluetooth.service 2>/dev/null || true
+                systemctl start "$unit" 2>/dev/null || true
+            fi
+            sleep 1
+        done
+        rm -f "$STATE"
+    fi
+    rm -f "$FLAG"
+    echo "Pentest power mode OFF: PINET and other services restored."
+}
+
+case "${1:-}" in
+    start|shed)    shed ;;
+    stop|restore)  restore ;;
+    *) echo "usage: kali-power-shed start|stop" >&2; exit 2 ;;
+esac

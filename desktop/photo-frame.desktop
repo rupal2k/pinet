@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Photo Frame Demo
+Comment=Start the DSI photo frame slideshow (windowed, closable)
+Exec=/usr/local/bin/dsi-photo-demo.sh
+Icon=image-x-generic
+Terminal=false
+Categories=Graphics;

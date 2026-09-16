@@ -1,0 +1,35 @@
+#!/bin/bash
+# APT hook (DPkg::Pre-Invoke / Post-Invoke, see /etc/apt/apt.conf.d/80dsi-install-guard).
+# Package installs are the heaviest SD-card writes this Pi does, and on its
+# marginal power supply they have stalled the SD controller and reset the
+# board. Around each dpkg run: flush, blank the DSI (backlight is its biggest
+# load), pause the slideshow and block wake (dsi-wake.sh checks $STATE).
+# Afterwards: flush writes to the card, then restore exactly what was on.
+set -u
+STATE=/run/dsi-install-guard
+USER_ENV=(XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0)
+as_user() { runuser -u rupal -- env "${USER_ENV[@]}" "$@"; }
+
+case "${1:-}" in
+    pre)
+        [ -e "$STATE" ] && exit 0
+        sync
+        screen=off
+        [ "$(cat /sys/class/backlight/*/bl_power 2>/dev/null)" = 0 ] && screen=on
+        slideshow=no
+        as_user systemctl --user is-active --quiet dsi-photo-frame.service && slideshow=yes
+        printf 'screen=%s\nslideshow=%s\n' "$screen" "$slideshow" > "$STATE"
+        [ "$slideshow" = yes ] && as_user systemctl --user stop dsi-photo-frame.service
+        as_user /usr/local/bin/dsi-sleep.sh || /usr/local/bin/dsi-backlight.sh off
+        ;;
+    post)
+        [ -e "$STATE" ] || exit 0
+        sync
+        # shellcheck source=/dev/null
+        . "$STATE"
+        rm -f "$STATE"
+        [ "$slideshow" = yes ] && as_user systemctl --user start dsi-photo-frame.service
+        [ "$screen" = on ] && as_user /usr/local/bin/dsi-wake.sh
+        ;;
+esac
+exit 0

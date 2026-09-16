@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Pi power manager: sheds power-hungry services while a DSI kiosk is open.
+
+This Pi 3B's supply sags under load; stacking a browser on top of the PINET
+hotspot, VNC, Bluetooth and the slideshow has stalled the SD card and reset
+the board. While the kiosk flag exists, those services are stopped (only the
+ones that were running) and "kiosk" is written to MODE so the kiosk launcher
+knows it may start the browser. When the flag goes away they come back one
+at a time, pausing while the firmware reports live under-voltage so restart
+inrush doesn't land on a sagging rail.
+
+Kept running on purpose: the e-ink dashboard (shows KIOSK MODE ON), wlan1
+internet, sshd, and rpi-connect's remote-access daemon.
+"""
+import json
+import subprocess
+import time
+from pathlib import Path
+
+KIOSK_FLAG = Path("/run/user/1000/kiosk-mode")
+RUN_DIR = Path("/run/pi-power-manager")
+STATE = RUN_DIR / "stopped.json"
+MODE = RUN_DIR / "mode"
+POLL_SECONDS = 2
+RESTORE_GAP_SECONDS = 2
+VOLTAGE_WAIT_MAX_SECONDS = 5
+
+# Stopped in this order, restored in reverse (hostapd before dnsmasq).
+SHED_UNITS = [
+    ("user", "dsi-photo-frame.service"),
+    ("user", "dsi-photo-sync.timer"),
+    ("user", "dsi-idle-sleep.service"),
+    ("user", "rpi-connect-wayvnc.service"),
+    ("system", "stunnel@pinet-board.service"),
+    ("system", "pinet-board.service"),
+    ("system", "dnsmasq.service"),
+    ("system", "hostapd.service"),
+    ("system", "wayvnc.service"),
+    ("system", "bluetooth.service"),
+]
+# D-Bus activated (dbus-org.bluez.service alias): the panel's bluetooth applet
+# restarts a plain-stopped bluetoothd within ~0.1s, so these are runtime-masked
+# while shed and unmasked just before restore (a reboot also clears the mask).
+MASK_WHILE_SHED = {"bluetooth.service"}
+USER_CMD = ["runuser", "-u", "rupal", "--", "env", "XDG_RUNTIME_DIR=/run/user/1000",
+            "WAYLAND_DISPLAY=wayland-0", "systemctl", "--user"]
+
+
+def systemctl(scope, *args):
+    cmd = (USER_CMD if scope == "user" else ["systemctl"]) + list(args)
+    return subprocess.run(cmd, capture_output=True, text=True).returncode
+
+
+def under_voltage_now():
+    try:
+        out = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True).stdout
+        return bool(int(out.strip().split("=")[1], 16) & 0x1)
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def load_stopped():
+    try:
+        return [tuple(x) for x in json.loads(STATE.read_text())]
+    except (OSError, ValueError):
+        return []
+
+
+def save_stopped(stopped):
+    STATE.write_text(json.dumps(stopped))
+
+
+def shed():
+    # Merge with anything still stopped from an interrupted restore.
+    stopped = load_stopped()
+    for scope, unit in SHED_UNITS:
+        if (scope, unit) not in stopped and systemctl(scope, "is-active", "--quiet", unit) == 0:
+            if unit in MASK_WHILE_SHED:
+                systemctl(scope, "mask", "--runtime", unit)
+            systemctl(scope, "stop", unit)
+            stopped.append((scope, unit))
+    stopped.sort(key=SHED_UNITS.index)
+    save_stopped(stopped)
+    MODE.write_text("kiosk\n")
+    print(f"kiosk mode: shed {', '.join(u for _, u in stopped) or 'nothing'}", flush=True)
+
+
+def restore():
+    """Returns False if a kiosk reopened mid-restore (the rest stays stopped)."""
+    stopped = load_stopped()
+    while stopped:
+        if KIOSK_FLAG.exists():
+            return False
+        scope, unit = stopped[-1]
+        waited = 0
+        while under_voltage_now() and waited < VOLTAGE_WAIT_MAX_SECONDS:
+            time.sleep(1)
+            waited += 1
+        if unit in MASK_WHILE_SHED:
+            systemctl(scope, "unmask", "--runtime", unit)
+        # --no-block: some units have their own startup delays (wayvnc sleeps
+        # 50s from the boot staggering); the gap below still paces the starts.
+        systemctl(scope, "start", "--no-block", unit)
+        stopped.pop()
+        save_stopped(stopped)
+        note = f" after waiting {waited}s for voltage" if waited else ""
+        print(f"restored {unit}{note}", flush=True)
+        time.sleep(RESTORE_GAP_SECONDS)
+    STATE.unlink(missing_ok=True)
+    MODE.write_text("normal\n")
+    return True
+
+
+def main():
+    RUN_DIR.mkdir(exist_ok=True)
+    kiosk = False
+    if STATE.exists() and not KIOSK_FLAG.exists():
+        restore()  # manager restarted while services were shed
+    MODE.write_text("normal\n" if not STATE.exists() else "kiosk\n")
+    while True:
+        want_kiosk = KIOSK_FLAG.exists()
+        if want_kiosk and not kiosk:
+            shed()
+            kiosk = True
+        elif not want_kiosk and kiosk:
+            restore()
+            kiosk = False
+        time.sleep(POLL_SECONDS)
+
+
+if __name__ == "__main__":
+    main()
