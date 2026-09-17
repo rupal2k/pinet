@@ -250,3 +250,36 @@ change (guest plaintext file + dashboard.py) -- flagged for the user.
 fixed -- guest password set and [[dashboard.py]] `get_board_password()` now
 displays the guest password (commit `00c5be0`, e-ink repo). See
 [[fixes session log]] entry 18.
+
+---
+
+## Update 2026-09-15 -- QA pass, phone-upload note, firewall
+
+- **QA**: 26 live HTTP checks against 10.10.10.1 all pass -- unauthenticated
+  requests (and captive probes over HTTP and HTTPS/stunnel) redirect to login;
+  login page branded PINET with self-hosted fonts; wrong password rejected;
+  guest can view/upload/download but sees no Delete and can't delete; SVG is
+  forced to download even via `/view` (+ `nosniff`); missing file → 404;
+  admin delete removes the DB row and the file on disk; logout ends the
+  session. The server sends `Connection: close` on every response.
+- **Accidental delete during QA** (my test cleanup): real upload id 10,
+  `Degree_Certificate.jpg`, restored from the identical copy in
+  `/mnt/pinet-media/slideshow/` and re-inserted under its original id, name,
+  size and upload time. See [[fixes session log]] entry 24.
+- **Phone uploads failing** from the Samsung sign-in popup with mobile data on
+  (the request never reaches the Pi). Added to `templates/board.html`, at the
+  top of the "Share a file" card: `<p class="upload-tip">` -- "On a phone? For
+  uploads, open 10.10.10.1 in your browser instead of the Wi-Fi sign-in popup,
+  and turn off mobile data." `static/app.js`: the XHR `error` handler now says
+  the phone lost its connection to PINET and what to do. `static/style.css`:
+  `.upload-tip` styles, plus a missing `h2 svg { width/height: 18px }` rule --
+  the "Share a file" heading icon had been rendering card-sized on phones.
+  Static files are served `Cache-Control: no-cache` (no cache-busting needed);
+  template changes need `systemctl restart pinet-board`.
+- **Firewall**: guests on PINET can no longer reach SSH (22) or VNC (5900);
+  the portal ports are unaffected. See [[fixes session log]] entry 27.
+- **Open code-review notes (low risk on an intranet-only network)**: `login()`
+  redirects to the raw `next` parameter (open redirect), and forms have no
+  CSRF token.
+- No `.bak` history remains in `/opt/pinet-board` (cleaned at the user's
+  request) -- keep rollback copies off the Pi before editing.

@@ -13,6 +13,12 @@ version across fix #11 and the 2026-09-06 evening session, fix #12), and a
 PINET hotspot join screen (restored to the rotation in fix #11 after being
 temporarily dropped).
 
+> [!info] This Pi now does far more than the e-ink dashboard.
+> It has grown into a five-subsystem appliance (status panel, PINET offline
+> network + portal, DSI touchscreen photo-frame/kiosks, Kali Wi-Fi toolbox,
+> Bluetooth music). For the whole-device description and everything it's
+> capable of, start at **[[Device Overview]]**.
+
 ## Where it lives
 
 | Fact | Value |
@@ -77,8 +83,18 @@ Font is Roboto project-wide as of 2026-09-06 evening (was DejaVu Sans).
   built by a separate concurrent session). Dedicated portal password, not
   root's; narrowly-scoped sudoers rule; a real `CapabilityBoundingSet`
   sudo bug found and fixed in QA; both UIs self-host Roboto.
+- [[pinet-board]] — the PINET portal as it runs today (message board, file
+  sharing, guest/admin roles, phone-upload note).
+- [[dsi photo frame]] — the 7" touchscreen: slideshow, sleep/double-tap wake,
+  camera/Ezykam/portal kiosks, pi-power-manager, install guard, theme, boot
+  splash (added 2026-09-15).
+- [[linkedin post]] — the LinkedIn post written about the project.
 
-## Adding a DSI display alongside the e-ink panel (not yet done, 2026-09-06)
+## Adding a DSI display alongside the e-ink panel (DONE 2026-09-14/15)
+
+**Built** -- the official 7" touchscreen is now a photo frame with on-demand
+camera/web kiosks and a power manager. Everything about the live system is in
+[[dsi photo frame]]; the planning notes below are kept for history.
 
 Asked whether a DSI display (e.g. the official touchscreen) could be added
 to the same Pi without conflicting with the e-ink setup. Should work fine.
@@ -145,3 +161,18 @@ notes; start at [[fixes session log]] (2026-09-12 session) for the full log:
   (cloud-init/wait-online off, lightdm/wayvnc delayed) to reduce the boot
   brownout spike, while keeping the GUI -- see [[power and undervoltage]] and
   [[systemd service]]. Lesson learned: don't force reboots on this Pi.
+
+## 2026-09-15 session (pointer)
+
+Start at [[fixes session log]] entries 21-28 and the new [[dsi photo frame]] note:
+- **DSI slideshow**: photos fitted to the screen (never cropped) over a blurred
+  background; small-window bug fixed; screen now re-sleeps after a double-tap wake.
+- **Cleanup**: temp files, old backups, `~/e-Paper`, Firefox, Docker and 19
+  orphaned packages removed -- SD card 73% → 43%. No desktop browser remains;
+  the PINET Portal shortcut opens a Qt web window.
+- **QA audit** of every function, live: passes; fixes for Bluetooth shedding
+  and a dead taskbar launcher; **firewall** now blocks SSH/VNC from PINET guests.
+- **PINET portal**: note for phone uploads (use a browser, mobile data off)
+  -- see [[pinet-board]].
+- **LinkedIn post** about the project: [[linkedin post]].
+- Currently on home Wi-Fi `SPECTRE24` via wlan1 (it moves between SPECTRE24/5G).

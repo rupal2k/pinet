@@ -246,3 +246,43 @@ then `14:04:02 Location resolved on retry: ... Guwahati` -- proving the status-
 phase retry recovers weather on its own (~90s), where the old code would have
 left it "Unavailable" until the next restart. Clean single boot, 0 failed units,
 throttled=0x0.
+
+
+---
+
+## Update 2026-09-17 -- Spotify now-playing panel on the hotspot screen
+
+When PINET is down (the on-demand default), `render_hotspot_screen`'s `else`
+(inactive) branch now keeps the "Hotspot inactive" notice and adds a Spotify
+panel: the `icons.spotify` glyph + "Spotify" + "> <output sink>", then the bold
+track name + artist + `[playing]`/`[paused]`, or "Nothing playing /
+raspotify (raspberrypi)" when idle, or "raspotify not running" when the service
+is down. New `get_spotify_status()` reads `/run/user/1000/raspotify-nowplaying`
+(written by the librespot `--onevent` hook `raspotify-nowplaying-hook` -- see
+[[fixes session log]] entries 41 and 33) and returns `None` when raspotify isn't
+running. Commit `58044df`. Verified by rendering every state (play / pause /
+idle / off, light + dark) at real 250x122 and viewing the PNGs; the arrow glyph
+is missing from Roboto (tofu) so the output line uses `>`.
+
+
+---
+
+## Update 2026-09-17 (later) -- Spotify live play-state + under-voltage debounce
+
+- `get_spotify_status()` now takes play/idle from the live PipeWire librespot
+  node (`_librespot_live_state()` via `pw-dump`, `state==running` -> playing),
+  not just the `--onevent` file, so audio already playing when the hook started
+  shows as Playing (a new no-title render case) instead of "Nothing playing". The
+  dashboard is `User=rupal`, so pw-dump reaches the user PipeWire with
+  `XDG_RUNTIME_DIR`. Device label is now "PINET" (`LIBRESPOT_NAME=PINET`).
+- **Under-voltage debounce**: `main()` samples `get_power_status()` every loop
+  iteration and keeps consecutive streaks; phase-2 shows LOW VOLTAGE/THROTTLED
+  only after `undervoltage_min_readings` (config, default 3) consecutive active
+  reads, so a one-time spike is ignored (the chronic condition still shows).
+  Commit `bf368a1`. See [[power and undervoltage]] and [[fixes session log]]
+  entries 42-43.
+
+**Spotify title (2026-09-17):** the panel's track name comes from the librespot
+`--onevent` hook, which resolves it from `TRACK_ID` via Spotify oEmbed (this
+librespot build omits `NAME`). `render_hotspot_screen` shows the name only while
+`state` is playing/paused. See [[fixes session log]] entry 45.

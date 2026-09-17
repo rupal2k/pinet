@@ -308,3 +308,29 @@ change or conditions). A clean boot with no undervoltage present does NOT by
 itself prove the staggering alone prevents brownouts -- it confirms the config
 is correct and the boot is healthy, but the improved supply is likely the bigger
 factor. Real cure remains a good PSU; the staggering is belt-and-suspenders.
+
+## Update 2026-09-15 -- load-triggered resets, shedding helps, Docker gone
+
+- **5 unclean resets in one day** (2026-09-15): two from Chromium, one from a
+  Firefox kiosk, one from a qt6 apt install and one from a multi-package
+  `dpkg --verify`. Heavy load or heavy SD I/O stalls the SD controller
+  ("Card stuck being busy") and the board resets. Mitigations: pi-power-manager
+  sheds services during kiosks, an APT install guard, small dirty write-back.
+  See [[dsi photo frame]].
+- **Shedding measurably helps**: during the QA run of the Ezykam kiosk, live
+  under-voltage cleared (`0x50005` → `0x50000`) while the hotspot, VNC,
+  Bluetooth and slideshow were stopped.
+- **Docker is now purged** (was only disabled): docker.io, containerd, runc,
+  buildx, cli and their orphans removed at the user's request; Firefox too.
+- Real cure unchanged: a known-good 5V/3A supply + short thick cable.
+
+## Update 2026-09-17 -- LOW VOLTAGE message debounced
+
+The carousel's phase-2 header showed LOW VOLTAGE/THROTTLED on any single
+instantaneous `get_power_status()` read with bit0/bit2 set. Now `main()` samples
+every loop iteration and only shows it after `undervoltage_min_readings`
+(config.ini, default 3) consecutive active reads -- a one-time spike is ignored,
+the chronic sustained `0x50005` still shows. `get_power_status()` already excluded
+the sticky "has occurred" bits (16/18). Checked 2026-09-17: still `0x50005` with
+the ARM clock pinned at 600 MHz (actively throttled) -- genuinely undervolted right
+now, not a spike. See [[dashboard.py]], [[fixes session log]] entry 43.

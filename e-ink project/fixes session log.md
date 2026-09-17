@@ -761,3 +761,307 @@ then `14:04:02 Location resolved on retry: ... Guwahati` -- proving the status-
 phase retry recovers weather on its own (~90s), where the old code would have
 left it "Unavailable" until the next restart. Clean single boot, 0 failed units,
 throttled=0x0.
+
+---
+
+# 2026-09-15 session -- DSI slideshow, cleanup, QA audit
+
+The DSI touchscreen work (built 2026-09-14/15) is documented in
+[[dsi photo frame]]; these entries cover the 2026-09-15 changes.
+
+## 21. Slideshow cropped photos -- now fitted, over a blurred background
+
+**Symptom** (user): slideshow images got cropped. **Cause**:
+`dsi-photo-normalize.sh` used `-resize 800x480^ -extent`, filling the panel
+and cutting off the rest; a portrait certificate lost most of its content.
+**Fix**: fit the whole photo (`-resize 800x480`); first with black bars, then,
+at the user's request, over a blurred, darkened copy of the same photo
+(80x48 thumbnail, `-blur 0x5`, scaled up, `-modulate 50`; cheap on a Pi 3,
+~5s per large photo, once). A `.render-mode` marker in the cache forces a
+rebuild when settings change. **Verified**: portrait and landscape renders
+checked by eye; the new rule is saved as a user requirement.
+
+## 22. Cleanup: temp files, old backups, Firefox, Docker, orphaned packages
+
+At the user's request. Deleted: a 256MB SD speed-test file, an aborted
+diagnostics report, 1.2GB apt cache, Chromium leftovers, 46 old `.bak*` files
+(kept the `*.bak-splash` boot-recovery set), the stale bootstrap copy, and
+`~/e-Paper` (2GB Waveshare repo; the driver is installed separately in
+`~/.local/lib/python3.13/site-packages/waveshare_epd`). Purged Firefox (+
+`rpi-firefox-mods`), Docker (docker.io, containerd, runc, buildx, cli) and 19
+orphaned packages (xdg-desktop-portal*, pipewire-libcamera, slurp, criu,
+needrestart, ...). SD card **73% → 43%** full. **pinet-board and
+`/usr/local` now have no `.bak` history**; keep rollback copies off the Pi.
+The PINET Portal desktop shortcut was repointed from Firefox to the Qt web
+window, see [[dsi photo frame]].
+
+## 23. Slideshow came up as a small window after a package install
+
+**Symptom** (user): slideshow not fullscreen (640x384 in a corner). **Cause**:
+the install guard restarted the slideshow while the screen was off; the script
+powers the output on for a fixed 4s while pqiv maps, but the Pi was still busy
+after apt, pqiv mapped late with the output off, and came up windowed.
+**Fix**: pqiv reads actions from a fifo; `dsi-wake.sh` sends
+`toggle_fullscreen(1)` on every wake (no-op if already fullscreen), only while
+the service is active since a stale fifo blocks writers. Unit gets
+`SuccessExitStatus=143`. **Verified**: reproduced the tiny-window state on
+purpose, then an ordinary wake restored fullscreen; also survived a real
+24-package apt run.
+
+## 24. QA audit -- everything exercised live
+
+User asked for a complete QA pass. Results:
+- System: 0 failed units, recent shutdowns clean, no SD errors, journal
+  persistent, NTP synced, write-back limits applied.
+- e-ink: running since boot, 0 restarts; all 4 carousel phases on schedule;
+  all 5 screens (incl. kiosk) rendered light+dark from live data; guest (not
+  admin) password shown; data sources in 2.3s.
+- PINET: AP on channel 6, WPA2; DHCP + option 114; every DNS name resolves
+  to 10.10.10.1; ip_forward 0, no NAT.
+- Portal: 26 live HTTP checks (unauth redirect over HTTP and HTTPS, wrong
+  password, guest/admin roles, upload/view/download/delete, SVG forced to
+  download, logout) all pass. See [[pinet-board]].
+- Slideshow add/remove; screen sleep, touch grab, single vs double tap;
+  Camera, Ezykam and Portal kiosks with shed + full restore: all pass.
+- Found and fixed: entries 25-27. Open: camera image very dark (physical?),
+  firewall untested from a real PINET client, boot splash unseen.
+
+**Mistake during QA**: a test cleanup scraped `/delete/<id>` from the board
+HTML and deleted a real upload (id 10, `Degree_Certificate.jpg`). Restored
+from the byte-identical slideshow copy (its mtime matched the 07:13:14 upload
+in the access log) and re-inserted under the original id, name, size and
+time; verified it lists and opens. Lesson: delete only exact IDs captured at
+creation time, never IDs scraped from a page.
+
+## 25. Screen stayed on forever after a double-tap wake
+
+**Cause**: while asleep the tap daemon grabs the touchscreen, so the wake
+tap never reaches the compositor and swayidle never re-arms. **Fix**:
+`dsi-wake.sh` ends with `systemctl --user try-restart dsi-idle-sleep.service`
+(no-op while a kiosk has idle-sleep stopped). **Verified**: >200s awake with
+no input before; 88s after the fix.
+
+## 26. Bluetooth was never really shed during kiosks
+
+**Cause**: `dbus-org.bluez.service` alias -- the taskbar applet restarted
+bluetoothd 0.13s after the power manager stopped it. **Fix**:
+pi-power-manager runtime-masks bluetooth while shed, unmasks before restore.
+**Verified**: stayed inactive for the whole shed; back active and still
+enabled after restore. Also removed the dead `x-www-browser` taskbar launcher
+left by the Firefox removal.
+
+## 27. SSH and VNC reachable from PINET guests -- firewall added
+
+**Risk**: sshd (password auth) and wayvnc listened on wlan0; guests can read
+the PINET Wi-Fi password on the e-ink, and rupal has NOPASSWD sudo; no
+firewall rules were loaded. **Fix** (user-approved): `/etc/nftables.conf`
+(`nftables.service` enabled) with one rule, `iifname "wlan0" tcp dport
+{ 22, 5900 } counter drop`, everything else accepted. **Verified**: SSH and
+VNC still work over home Wi-Fi, portal answers on 80/443. Not yet tested from
+a device on PINET. Note: `nft` is `/usr/sbin/nft`, not on the SSH PATH.
+
+## 28. Phone uploads fail with a connection error -- portal note added
+
+**Symptom** (user): after a long time in the phone's file picker, the upload
+shows a connection error. **Findings**: the phone's upload never reached the
+Pi. The server was ruled out: every response is `Connection: close`, and both
+a 6-minute idle then upload and a slow 90s upload succeed. The user uses the
+Samsung sign-in popup with mobile data on; most likely the popup (a restricted
+mini-browser) is cut off while in the file picker and/or the request leaves
+over mobile data. Not confirmed on the device. **Mitigation**: a note on the
+Files tab ("open 10.10.10.1 in your browser instead of the Wi-Fi sign-in
+popup, and turn off mobile data") and a specific network-error message; also
+fixed a card-sized heading icon. See [[pinet-board]].
+
+---
+
+# 2026-09-16 session
+
+## 29. Kali toolbox rebuilt NATIVE (Docker was purged)
+
+Docker (and its `kali-pentest` image) was removed 2026-09-15, so the container
+was gone. All 13 lean tools turned out to be in Debian trixie's own repos (no
+Kali repo → no repo-mixing risk), so they were installed natively via `apt`
+(nmap, arp-scan, netdiscover, masscan, aircrack-ng, mdk4, hcxdumptool, hcxtools,
+wifite, reaver, bully, macchanger, tcpdump). A mid-install power cut (loose plug)
+corrupted `python3-matplotlib`; repaired with `dpkg --configure -a` +
+`apt --reinstall`. **Verified**: 13/13 installed, dpkg clean.
+
+## 30. Kali power mode + pirate carousel
+
+New `/usr/local/sbin/kali-power-shed start|stop` frees the power budget for a
+pentest session: stops PINET + sheds VNC/BT/slideshow and drops `/run/pentest-mode`;
+restores in reverse. `wifi-pentest-start/stop` now call it (and the stale
+"docker start" line was fixed). `dashboard.py` shows a big skull-and-crossbones
+"PENTEST MODE" carousel screen while `/run/pentest-mode` exists or wlan1 is in
+monitor mode (committed `35f7025`). A **Kali Tools** desktop shortcut (pirate
+icon) opens a terminal in `~/kali-work`; `kali-tools-guide.txt` written to the
+desktop. **Verified**: shed/restore cycle; pirate screen via panel-res preview.
+
+## 31. Camera capture controls (Photo/Video → PINET storage)
+
+Added on-screen Photo/Record to the DSI Camera kiosk, saving to
+`/mnt/pinet-media/camera` (photos PIL-rotated upright; H.264 video with a
+display-matrix rotation, no re-encode). **Cause of much pain**: `cog` (WPE)
+does NOT deliver taps to web content, and a rich page even segfaults it, while
+QtWebEngine renders it but BROWNS THE Pi OUT. **Fix**: the buttons are NATIVE
+GTK layer-shell overlays (`dsi-cam-controls.py`, same path as the ✕ button) that
+POST to a bare-`<img>` cam-server; `dsi-cam-server.py` uses a single persistent
+worker thread + dual stream (an encoder started on a transient HTTP thread
+produces no output). Rotation set to 270°. **Verified**: native taps saved a
+photo + video; ✕ tears everything down and restores PINET.
+
+## 32. PINET made on-demand
+
+`do not start pinet by default`: `pinet-ap-network`, `hostapd`, `dnsmasq`,
+`pinet-board`, `stunnel@pinet-board` all `systemctl disable`d. New
+`pinet-start`/`pinet-stop` (root, NOPASSWD) + **Start PINET / Stop PINET**
+desktop shortcuts (monochrome wifi / slashed-wifi icons). **Verified**:
+start→active, stop→inactive, disabled at boot.
+
+## 33. raspotify → Bluetooth speaker
+
+`raspotify` connected from Spotify but dropped. **Causes**: backend was `alsa`
+(played to the built-in card, not BT); and `ProtectHome=true` in the unit hid
+`/run/user`, so librespot couldn't reach the PipeWire-pulse socket
+("PulseAudioSink Connection refused" → crash); plus `Restart=no` meant the boot
+race never recovered. **Fix** (override drop-in): `LIBRESPOT_BACKEND=pulseaudio`,
+`ProtectHome=no`, `Restart=on-failure`. Volume: BT sink → 150%, librespot
+`VOLUME_CTRL=linear` + full initial volume. Note: `pactl` isn't installed here —
+use `wpctl`/`pw-play`. **Verified**: plays to "Dubstep Pop 600"; test tone reached
+the speaker. See [[Device Overview]].
+
+## 34. Desktop / UX polish
+
+Execute-popup on shortcuts fixed (all launchers marked trusted + `quick_exec=1`;
+renamed a broken photo-frame launcher). 12-hour taskbar clock. Ezykam shortcut
+icon → a Wi-Fi security-camera design; Kali Tools → pirate skull. Epiphany
+(WebKitGTK, light) installed for desktop browsing. `lxterminal` shortcut needed
+`GDK_BACKEND=wayland` (Xwayland isn't running under labwc).
+
+## 35. Power incident, audits, cleanup, docs
+
+Several resets this session were a **loose power plug** (+ Chromium load), not the
+installs — confirmed the 5V-sag → 600 MHz throttle mechanism (no amperage readout
+on a Pi 3B). QA + code audit: both pass (0 failed units, dpkg clean, scripts
+parse). Session temp files + camera test captures cleaned (exact paths,
+`.bak-splash` preserved). New whole-device description written: [[Device Overview]].
+
+
+# 2026-09-17 session -- DSI passcode lock, Spotify e-ink panel, unified diagnostic
+
+## 36. Photo frame no longer sleeps while the album is showing
+
+`dsi-sleep.sh` now exits early (and `try-restart`s `dsi-idle-sleep` so it
+re-checks next window) whenever `dsi-photo-frame.service` is active, so the
+slideshow stays lit; normal idle-sleep resumes once the album is closed.
+**Verified** (entry 40 diagnostic): with the album running, `dsi-sleep.sh` is a
+no-op and the backlight stays on.
+
+## 37. Passcode lock on wake (opaque, blocks the desktop, PINET logo)
+
+`when i wake up ask for a password`. New `/usr/local/bin/dsi-lock.py`: a
+full-screen Wayland layer-shell (OVERLAY) **opaque** window with an on-screen
+number pad + the PINET hood logo; entering the code in `/etc/dsi-lock/passcode`
+(default `1234`) unlocks. Single-instance via `/run/user/1000/dsi-lock.pid`.
+Wired into `dsi-tap-wake.py` (`wake_and_lock()`) so ONLY a genuine
+double-tap-from-sleep locks -- not the boot/kiosk/demo/install-guard paths that
+also call `dsi-wake.sh`.
+- **First version showed the desktop through it** -- it copied
+  `dsi-close-button.py`'s transparent setup (`app_paintable` + rgba visual), so
+  only the buttons were opaque. Fixed to a plain opaque toplevel; the
+  all-four-edge anchoring already gives a full 800x480 surface. **Proven with a
+  `grim` screenshot**: all four corners sample `srgb(15,17,20)`, no bleed-through.
+- **Desktop flashed before the lock on wake** -- the backlight came on before the
+  lock had painted. Fixed with a handshake: `dsi-wake.sh` defers the backlight
+  when `DSI_DEFER_BACKLIGHT=1`; the lock touches `/run/user/1000/dsi-lock.ready`
+  on first `map-event`; `wake_and_lock` lights the panel only after that. (The
+  GTK `draw` signal needs pycairo, which errored here -- `map-event` avoids it.)
+  Re-wake while already locked re-lights.
+- Cold-start ~3s (Python/GTK on the Pi 3) on the first wake after an unlock;
+  re-wakes ~0.8s. Recovery if it ever won't unlock:
+  `ssh <pi> 'kill "$(cat /run/user/1000/dsi-lock.pid)"'`.
+
+## 38. Closing the album (the X) drops to the lock, not the desktop
+
+`when closing the album assign the same lock screen`. New shared helper
+`dsi-lock-show` raises the lock in its OWN `systemd-run --user --scope` (so it
+survives the photo-frame service being stopped -- a plain child would be in the
+slideshow's cgroup and get SIGTERM'd). New `dsi-photo-close` raises the lock
+FIRST (while the slideshow still covers the desktop) then stops the slideshow.
+`dsi-photo-frame.sh`'s X now runs `dsi-photo-close`; `wake_and_lock` uses the
+same helper. **Verified**: photo -> X -> lock (grim corners = lock bg), unlock ->
+desktop.
+
+## 39. +12 scenic photos in the slideshow
+
+Downloaded 4 each of space / mountains / beach (CC Flickr via loremflickr,
+800x480) into `/mnt/pinet-media/slideshow/scenic_*.jpg`, pre-rendered into the
+cache. 15 photos total; no brownout.
+
+## 40. Unified `pi-diagnostic` (replaces `dsi-qa-check`)
+
+`/usr/local/bin/pi-diagnostic [all|eink|network|dsi]` -- one health/QA
+diagnostic. **eink**: service active + NRestarts=0; carousel liveness from
+`Carousel phase=` journal lines; the invariant that `epd.sleep()` appears
+exactly once as code (finally-only, never in the loop -- in the loop it crashes
+`displayPartial`); `displayPartial` present (no white flash); no tracebacks.
+**network**: uplink/route/internet/DNS; PINET on-demand DOWN as INFO not FAIL;
+nftables; raspotify + the `--onevent` hook. **dsi**: the former `dsi-qa-check`
+(opaque lock via grim corner sampling, no-flash wake x3, re-wake x2, close->lock
+x2, photos, single-instance, unlock via injected keys) -- self-restoring. First
+combined run **48 PASS / 0 WARN / 0 FAIL**. eink+network read-only; dsi invasive.
+See [[test and preview scripts]].
+
+## 41. Spotify now-playing panel on the hotspot screen when PINET is down
+
+`when pinet is inactive show a spotify carousel ... keep the pinet-inactive
+message`. `render_hotspot_screen`'s inactive branch keeps "Hotspot inactive" and
+adds a Spotify panel: track / artist / `[playing|paused]`, or device + output
+when idle. Fed by a new librespot `--onevent` hook
+(`/usr/local/bin/raspotify-nowplaying-hook` -> `/run/user/1000/raspotify-nowplaying`;
+wiring it needed a raspotify restart, dropping the Connect session). New
+`get_spotify_status()` + `icons.spotify()`. **Committed** `58044df` (the DSI
+scripts stay out of git). Verified by rendering all states at 250x122 and viewing
+the PNGs; the arrow glyph was tofu in Roboto so the output line uses `>`. See
+[[dashboard.py]], [[icons.py]], and entry 33 for the raspotify setup.
+
+## 42. Spotify panel -- live play-state + device renamed PINET
+
+`still showing nothing playing` + `change the raspotify name to PINET`. The panel
+showed "Nothing playing" while audio was flowing, because the librespot
+`--onevent` file only updates on events and playback predated the hook. Fixed:
+`get_spotify_status()` now takes play/idle from the live PipeWire librespot node
+(`pw-dump`, `state==running`); the event file still gives the title. New "Playing"
+(no-title) render case. Device renamed to **PINET** (`LIBRESPOT_NAME=PINET`). The
+panel only renders when the hotspot is INACTIVE, so it's hidden while PINET is up.
+Commit `bf368a1`. See [[dashboard.py]].
+
+## 43. LOW VOLTAGE message debounced (ignore one-time spikes)
+
+`don't show low voltage if it's just a one-time spike`. `main()` now samples power
+every loop iteration and shows LOW VOLTAGE/THROTTLED only after
+`undervoltage_min_readings` (default 3) consecutive active reads, so a momentary
+blip is ignored; the chronic sustained `0x50005` still shows. `get_power_status`
+already excluded the sticky bits 16/18. Checked now: still `0x50005`, ARM at
+600 MHz (really throttled). Commit `bf368a1`. See [[power and undervoltage]].
+
+## 44. Lock screen "Screen off" button
+
+`add a turn-screen-off button at the lockscreen`. `dsi-lock.py` now has a
+top-right **"Screen off"** button (a `Gtk.Overlay` over the keypad -- number pad
+untouched) that runs `dsi-sleep.sh` to blank the DSI panel immediately rather
+than waiting for idle-sleep. The lock keeps running; a double-tap re-lights it.
+**Verified** by injecting a touch at the button: `bl_power` 0->1 (screen off),
+lock still up. Passcode also changed from the default. `dsi-*` stay out of git.
+
+## 45. Spotify track title -- librespot omits it, resolved via oEmbed
+
+`watch for the track title when i play`. Confirmed live: this librespot 0.8.0
+`--onevent` passes `TRACK_ID` but not `NAME`/`ARTISTS`. So
+`raspotify-nowplaying-hook` now resolves the title from Spotify's public oEmbed
+endpoint (no API key; needs internet), caches by track_id, and preserves it across
+non-track events. `dashboard.py` shows the title only while playing/paused.
+Verified end-to-end: a real track change -> hook resolved "Namastute" -> panel
+shows it with `[playing]`. No artist (oEmbed gives title only). Commit `a26394c`;
+the hook lives in `/usr/local/bin` (not git). See [[dashboard.py]].

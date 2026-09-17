@@ -105,3 +105,14 @@ The journald drop-in is *also* tracked in the pi-eink-dashboard repo (its instal
 source). NOT captured by this repo (they live outside `/etc/systemd`): the
 cloud-init disable (`/etc/cloud/cloud-init.disabled`) and the
 NetworkManager-wait-online disable (a removed symlink).
+
+## Update 2026-09-15 -- firewall and DSI units
+
+- **`nftables.service` enabled** (was disabled with the stock empty config).
+  `/etc/nftables.conf` drops only `iifname "wlan0" tcp dport { 22, 5900 }`
+  -- PINET hotspot guests can't reach SSH or VNC; everything else accepted.
+- DSI user units: `dsi-photo-frame.service` (now `SuccessExitStatus=143`),
+  `dsi-photo-sync.timer`, `dsi-idle-sleep.service`, `dsi-tap-wake.service`;
+  system: `dsi-backlight-enable.service`, `pi-power-manager.service`. See
+  [[dsi photo frame]].
+- Removed with Docker: `docker`, `containerd` units no longer exist.

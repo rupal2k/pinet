@@ -155,3 +155,13 @@ Still restyled for consistency (per explicit request), but nothing in
 `icon_gallery.py` renders every actively-used icon in a labeled 4-column
 grid (`icon_gallery.png`) — the fastest way to eyeball every icon at once
 after any change here, before bothering with a full dashboard re-render.
+
+
+## Update 2026-09-17 -- `spotify()` glyph
+
+`spotify(draw, cx, cy, size=9, color=0, bg=255)` -- a filled disc with three
+upward-bowing "sound wave" arcs (largest on top) in the negative colour, all
+pure primitives so it scales down on the 1-bit panel. Used by [[dashboard.py]]'s
+new Spotify panel on the hotspot screen (see [[fixes session log]] entry 41). At
+~8px it reads mostly as a dark disc; it sits next to the "Spotify" label so it's
+unambiguous.

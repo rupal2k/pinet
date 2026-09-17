@@ -59,3 +59,18 @@ Truncated mid-statement (e.g. `dashboard.get_locat`, `epd.getbuffer` never
 closed) — looks like a debug script that was cut off and never fixed.
 Not referenced by anything. `preview_render.py` covers the same ground and
 actually works; treat this one as dead code.
+
+
+## `pi-diagnostic` -- whole-device health/QA (2026-09-17)
+
+`/usr/local/bin/pi-diagnostic [all|eink|network|dsi]` (default `all`). Not a
+`src/` preview -- a system diagnostic that drives the real services. **eink**
+(read-only): service active + NRestarts=0, carousel liveness from
+`Carousel phase=` journal lines, the `epd.sleep()`-exactly-once-in-code
+invariant, `displayPartial` present, no tracebacks. **network** (read-only):
+uplink/route/internet/DNS, PINET on-demand state (INFO, not a failure),
+nftables, raspotify + the `--onevent` hook. **dsi** (invasive, self-restoring):
+the former `dsi-qa-check` -- opaque lock blocks the desktop (grim corner
+sampling), no-flash wake x3, re-wake x2, close-album->lock x2, photos,
+single-instance, unlock via injected `uinput` keys. First combined run
+**48 PASS / 0 WARN / 0 FAIL**. Replaces the standalone `dsi-qa-check`.
