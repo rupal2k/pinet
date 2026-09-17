@@ -1,0 +1,21 @@
+#!/bin/bash
+# Ensure the DSI passcode lock is running and has painted a frame, then return.
+# The lock is launched in its OWN transient scope (systemd-run --user --scope)
+# so it is not in the caller's cgroup -- it survives the photo-frame service
+# being stopped by the close button, and a restart of the tap-wake daemon.
+# Idempotent: returns at once if the lock is already up. Does NOT touch the
+# backlight (callers manage that).
+set -uo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+PID="$XDG_RUNTIME_DIR/dsi-lock.pid"
+READY="$XDG_RUNTIME_DIR/dsi-lock.ready"
+if ! { [ -f "$PID" ] && kill -0 "$(cat "$PID" 2>/dev/null)" 2>/dev/null; }; then
+    rm -f "$READY"
+    systemd-run --user --scope -q /usr/local/bin/dsi-lock.py >/dev/null 2>&1 &
+fi
+# Wait up to ~4s for the lock to paint its first frame (ready-file).
+for _ in $(seq 1 80); do
+    [ -f "$READY" ] && break
+    sleep 0.05
+done

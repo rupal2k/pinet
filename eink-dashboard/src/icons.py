@@ -286,3 +286,17 @@ def seigaiha(draw, x, y, w, h, scale=None, rings=3, rows=2, color=0):
                 r = row_h * k / rings * 1.3
                 bbox = (cx - r, cy - r, cx + r, cy + r)
                 draw.arc(bbox, start=180, end=360, fill=color, width=1)
+
+
+def spotify(draw, cx, cy, size=9, color=0, bg=255):
+    """Spotify mark: a filled disc with three upward-bowing 'sound wave' arcs
+    (largest on top), drawn in the negative colour. Pure primitives so it
+    scales down cleanly on the 1-bit panel."""
+    r = size
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color)
+    for yo, wf, wd in ((-0.34, 0.74, 2), (-0.04, 0.54, 2), (0.24, 0.34, 1)):
+        aw = r * wf          # half-width of this arc
+        ah = r * 0.55        # arc bow height
+        ay = cy + r * yo     # vertical centre of this arc's bbox
+        draw.arc((cx - aw, ay - ah, cx + aw, ay + ah), start=200, end=340,
+                 fill=bg, width=wd)

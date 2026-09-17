@@ -1065,3 +1065,16 @@ non-track events. `dashboard.py` shows the title only while playing/paused.
 Verified end-to-end: a real track change -> hook resolved "Namastute" -> panel
 shows it with `[playing]`. No artist (oEmbed gives title only). Commit `a26394c`;
 the hook lives in `/usr/local/bin` (not git). See [[dashboard.py]].
+
+## 46. Lock Screen shortcut + double-tap-wake fix (backlight-only sleep)
+
+`add a lock screen shortcut` + `double tap to wake not working / touch not registered`.
+Added a trusted **Lock Screen** desktop shortcut (`dsi-lock-show`, padlock icon
+`pinet-lock.svg`). For the wake bug: software-injected taps always woke the panel but a
+real finger did not after the Screen off button -- because `dsi-sleep.sh` ran
+`wlopm --off DSI-1`, and disabling the DSI output gates the ft5x06 touch controller's
+reporting (device stays enumerated, but no touch events). Fix: `dsi-sleep.sh` now blanks
+the **backlight only**, keeping the output + touch powered (screen still dark). Costs a bit
+of power. `pi-diagnostic all` = 50 PASS; physical double-tap to be confirmed by the user
+(software evdev injection is not a faithful proxy for a real touch, which is what misled
+earlier testing). Passcode also changed to a new value (not recorded).

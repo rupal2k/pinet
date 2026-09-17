@@ -9,6 +9,7 @@ and class name below to match your model (e.g. epd2in7, epd2in9_V2) -- the
 rest of the script (drawing, data collection) does not need to change.
 """
 import configparser
+import json
 import logging
 import os
 import socket
@@ -413,6 +414,62 @@ def get_hotspot_status(iface="wlan0", ssid="PINET"):
     }
 
 
+def _librespot_live_state():
+    """'playing' when the librespot PipeWire node is actually flowing audio,
+    else None. The --onevent state file only changes when librespot emits an
+    event, so a session already playing when the hook started (or between
+    events) would otherwise look idle -- this live check fixes that. The
+    dashboard runs as rupal, so pw-dump reaches the user PipeWire with
+    XDG_RUNTIME_DIR set. Best-effort."""
+    try:
+        env = dict(os.environ)
+        env.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
+        out = subprocess.run(
+            ["pw-dump"], capture_output=True, text=True, timeout=4, env=env,
+        ).stdout
+        for o in json.loads(out):
+            info = o.get("info") or {}
+            props = info.get("props") or {}
+            name = str(props.get("application.name", "")).lower()
+            if name.startswith("librespot") or props.get("media.software") == "Spotify":
+                if info.get("state") == "running":
+                    return "playing"
+    except Exception:
+        pass
+    return None
+
+
+def get_spotify_status():
+    """Now-playing info for the Spotify panel shown on the hotspot carousel
+    screen when PINET is down. Track title/artist come from the librespot
+    --onevent state file (raspotify-nowplaying-hook); the play/idle state is
+    taken from the live PipeWire node so it is right even between events.
+    Returns None when raspotify isn't running so the caller can say so."""
+    try:
+        active = subprocess.run(
+            ["systemctl", "is-active", "raspotify"],
+            capture_output=True, text=True, timeout=3,
+        ).stdout.strip() == "active"
+    except Exception:
+        active = False
+    if not active:
+        return None
+    data = {"state": "idle", "name": "", "artists": "", "album": "", "output": ""}
+    try:
+        with open("/run/user/1000/raspotify-nowplaying") as f:
+            for line in f:
+                key, _, val = line.strip().partition("=")
+                if key in data:
+                    data[key] = val
+    except OSError:
+        pass
+    if _librespot_live_state() == "playing":
+        data["state"] = "playing"
+    elif data["state"] == "playing":
+        data["state"] = "idle"
+    return data
+
+
 def get_kiosk_mode():
     """(title, label) while a DSI kiosk is open (see KIOSK_FLAG), else None."""
     try:
@@ -703,8 +760,45 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False):
             )
             draw.text((qx, qy + qr_size + 2), caption_text, font=caption_font, fill=0)
     else:
-        icons.offline(draw, 24, H // 2 - 2, size=12)
-        draw.text((44, H // 2 - 14), "Hotspot inactive", font=FONT_SMALL, fill=0)
+        # PINET is down (on-demand default). Keep the "Hotspot inactive"
+        # notice, and use the rest of the screen for a Spotify (raspotify)
+        # now-playing panel.
+        icons.offline(draw, 22, 30, size=8)
+        draw.text((36, 22), "Hotspot inactive", font=FONT_SMALL, fill=0)
+        draw.line((10, 42, W - 10, 42), fill=0)
+
+        sp = get_spotify_status()
+        icons.spotify(draw, 20, 54, size=8)
+        draw.text((34, 46), "Spotify", font=FONT_SMALL, fill=0)
+        out = (sp or {}).get("output") or ""
+        if out:
+            out_text, out_font = fit_text(draw, "> " + out, FONT_REGULAR_PATH, 12, 8, W - 96)
+            ow = draw.textlength(out_text, font=out_font)
+            draw.text((W - 10 - ow, 47), out_text, font=out_font, fill=0)
+
+        state = (sp or {}).get("state", "")
+        name = (sp or {}).get("name", "")
+        artists = (sp or {}).get("artists", "")
+        if sp is None:
+            msg, mfont = fit_text(draw, "raspotify not running", FONT_REGULAR_PATH, 13, 9, W - 24)
+            draw.text((12, 74), msg, font=mfont, fill=0)
+        elif state in ("playing", "paused") and name:
+            name_text, name_font = fit_text(draw, name, FONT_BOLD_PATH, 16, 10, W - 24)
+            draw.text((12, 66), name_text, font=name_font, fill=0)
+            badge = "[playing]" if state == "playing" else ("[paused]" if state == "paused" else "")
+            bw = int(draw.textlength(badge, font=FONT_SMALL)) if badge else 0
+            art_text, art_font = fit_text(draw, artists, FONT_REGULAR_PATH, 13, 9, W - 30 - bw)
+            draw.text((12, 90), art_text, font=art_font, fill=0)
+            if badge:
+                draw.text((W - 10 - bw, 90), badge, font=FONT_SMALL, fill=0)
+        elif state == "playing":
+            line1, f1 = fit_text(draw, "Playing", FONT_BOLD_PATH, 16, 10, W - 24)
+            draw.text((12, 66), line1, font=f1, fill=0)
+            draw.text((12, 90), "PINET", font=FONT_SMALL, fill=0)
+        else:
+            line1, f1 = fit_text(draw, "Nothing playing", FONT_REGULAR_PATH, 14, 10, W - 24)
+            draw.text((12, 70), line1, font=f1, fill=0)
+            draw.text((12, 92), "PINET", font=FONT_SMALL, fill=0)
 
     if dark_mode:
         image = ImageOps.invert(image.convert("L")).convert("1")
@@ -859,6 +953,13 @@ def main():
     # resets it. None so the very first frame always gets a full refresh.
     last_full_refresh_cycle = None
     last_kiosk_app = None
+    # Under-voltage/throttle debounce: a one-time spike (a single reading) is
+    # ignored; the on-screen warning only appears once the live bit has been
+    # set on this many consecutive reads. (get_power_status already excludes
+    # the sticky "has occurred since boot" bits.)
+    uv_min_readings = cfg.getint("undervoltage_min_readings", fallback=3)
+    uv_streak = 0
+    thr_streak = 0
 
     try:
         while True:
@@ -894,6 +995,11 @@ def main():
             remaining_in_phase = (phase_start + phase_durations[phase]) - elapsed_in_cycle
 
             dark_mode = is_dark_mode(cfg)
+            volt_now, uv_now, thr_now = get_power_status()
+            uv_streak = uv_streak + 1 if uv_now else 0
+            thr_streak = thr_streak + 1 if thr_now else 0
+            uv_show = uv_streak >= uv_min_readings
+            thr_show = thr_streak >= uv_min_readings
             kiosk_app = get_kiosk_mode()
             if kiosk_app != last_kiosk_app:
                 # Entering/leaving kiosk mode swaps the whole layout; force a
@@ -937,11 +1043,10 @@ def main():
                 image = render_qr_screen(epd, ssid, password, net, dark_mode)
             elif phase == 2:
                 logger.info("Carousel phase=2 (doom)")
-                voltage, under_voltage, throttled = get_power_status()
                 disk_free_gb, disk_used_gb, disk_total_gb = get_disk_usage()
                 image = render_image_screen(
                     epd, DOOM_LOGO_PATH, dark_mode,
-                    voltage=voltage, under_voltage=under_voltage, throttled=throttled,
+                    voltage=volt_now, under_voltage=uv_show, throttled=thr_show,
                     disk_free_gb=disk_free_gb, disk_used_gb=disk_used_gb, disk_total_gb=disk_total_gb,
                     pentest=is_wifi_pentest_active(),
                 )

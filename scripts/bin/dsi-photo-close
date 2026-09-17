@@ -1,0 +1,11 @@
+#!/bin/bash
+# Photo-album close (X) action. Raise the passcode lock FIRST -- while the
+# slideshow is still covering the desktop -- then stop the slideshow, so
+# closing the album lands on the lock screen instead of exposing the desktop.
+# The code must be entered to reach the desktop. The screen is already lit
+# here (slideshow was showing), so no backlight handling is needed.
+set -uo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+/usr/local/bin/dsi-lock-show
+systemctl --user stop --no-block dsi-photo-frame.service

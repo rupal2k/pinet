@@ -203,3 +203,15 @@ panel immediately instead of waiting for the 90s idle-sleep. The lock stays up; 
 double-tap re-lights it. Verified with an injected touch (`bl_power` 0->1, lock
 still running). The passcode was also changed from the default (value not
 recorded). See [[fixes session log]] entry 44.
+
+## Update 2026-09-17 (later 2) -- Lock Screen shortcut + backlight-only sleep
+
+- **"Lock Screen" desktop shortcut** (`~/Desktop/lock-screen.desktop`, trusted, padlock
+  icon `~/.local/share/icons/pinet-lock.svg`) runs `dsi-lock-show` to lock on demand.
+- **`dsi-sleep.sh` no longer does `wlopm --off`** -- it blanks only the backlight, keeping
+  the DSI output + ft5x06 touch powered. The user hit "touch not registered" for
+  double-tap-to-wake after the Screen off button; disabling the output gates the touch
+  panel's reporting (software-injected taps still woke it, but that isn't a real finger).
+  Trade-off: a little more power (output stays on, screen dark). `pi-diagnostic all` = 50
+  PASS after the change; physical double-tap still to be confirmed on the panel.
+  See [[fixes session log]] entry 46.

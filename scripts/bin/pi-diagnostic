@@ -1,0 +1,219 @@
+#!/bin/bash
+# pi-diagnostic -- single health/QA diagnostic for the Pi:
+#   * E-INK dashboard (service, no-crash-loop, carousel liveness, the
+#     no-epd.sleep()-in-loop + partial-refresh "no white flash" invariants)
+#   * NETWORK (uplink, internet, DNS, PINET on-demand state, firewall)
+#   * DSI touchscreen (opaque passcode lock, no desktop-flash wake, re-wake
+#     re-light, close-album(X)->lock, photos) -- the former dsi-qa-check.
+#
+# Usage: pi-diagnostic [all|eink|network|dsi]   (default: all)
+# E-INK + NETWORK are read-only. The DSI section drives the real services and
+# overlays (grim + uinput injection) and RESTORES the panel on exit. Safe over
+# SSH. Exits non-zero if any hard check FAILs (WARN/INFO do not fail the run).
+set -uo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+
+PASS=0; WARN=0; FAIL=0; FAILED=(); WARNED=()
+ok(){   PASS=$((PASS+1)); printf '  \033[32mPASS\033[0m %s\n' "$1"; }
+warn(){ WARN=$((WARN+1)); WARNED+=("$1"); printf '  \033[33mWARN\033[0m %s\n' "$1"; }
+bad(){  FAIL=$((FAIL+1)); FAILED+=("$1"); printf '  \033[31mFAIL\033[0m %s\n' "$1"; }
+info(){ printf '  \033[36mINFO\033[0m %s\n' "$1"; }
+hdr(){  printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
+
+# ---- DSI helpers (used only by section_dsi) ----
+BL=$(ls /sys/class/backlight/*/bl_power 2>/dev/null | head -1)
+PID="$XDG_RUNTIME_DIR/dsi-lock.pid"; READY="$XDG_RUNTIME_DIR/dsi-lock.ready"
+SHOT=/tmp/pi-diag.png; LOCKBG="srgb(15,17,20)"
+lock_running(){ [ -f "$PID" ] && kill -0 "$(cat "$PID" 2>/dev/null)" 2>/dev/null; }
+kill_lock(){ lock_running && kill "$(cat "$PID")" 2>/dev/null; rm -f "$PID" "$READY"; sleep 0.4; }
+shot(){ grim -o DSI-1 "$SHOT" 2>/dev/null; }
+px(){ convert "$SHOT" -format "%[pixel:p{$1}]" info:- 2>/dev/null; }
+backlight_on(){ [ "$(cat "$BL" 2>/dev/null)" = "0" ]; }
+is_lock_frame(){ shot; [ "$(px 4,4)" = "$LOCKBG" ] && [ "$(px 795,4)" = "$LOCKBG" ] && [ "$(px 4,475)" = "$LOCKBG" ] && [ "$(px 795,475)" = "$LOCKBG" ]; }
+call_wake(){ python3 - <<'PY'
+import importlib.util as u
+s=u.spec_from_file_location("tw","/usr/local/bin/dsi-tap-wake.py")
+m=u.module_from_spec(s); s.loader.exec_module(m); m.wake_and_lock()
+PY
+}
+inject(){ sudo python3 - "$1" <<'PY'
+import sys, time, evdev
+from evdev import UInput, ecodes as e
+km={str(d):getattr(e,"KEY_%d"%d) for d in range(10)}
+ui=UInput({e.EV_KEY:list(km.values())}, name="pi-diag-kbd"); time.sleep(1.2)
+for c in sys.argv[1]:
+    k=km[c]; ui.write(e.EV_KEY,k,1); ui.syn(); time.sleep(0.05)
+    ui.write(e.EV_KEY,k,0); ui.syn(); time.sleep(0.12)
+time.sleep(0.4); ui.close()
+PY
+}
+
+# =================== E-INK ===================
+section_eink(){
+  hdr "E-INK DASHBOARD"
+  local D="$HOME/pi-eink-dashboard/src/dashboard.py"
+  [ "$(systemctl is-active pi-eink-dashboard.service)" = active ] && ok "pi-eink-dashboard service active" || bad "pi-eink-dashboard not active"
+  local NR; NR=$(systemctl show -p NRestarts --value pi-eink-dashboard.service 2>/dev/null)
+  [ "${NR:-1}" = 0 ] && ok "no crash-loop (NRestarts=0)" || bad "service restarted ${NR}x (crash-loop)"
+  if [ -f "$D" ]; then
+    local SL DP
+    SL=$(grep -cE '^[[:space:]]*epd\.sleep\(\)' "$D")
+    [ "$SL" -eq 1 ] && ok "epd.sleep() invariant OK (1 call, cleanup-only; none in the loop)" || bad "epd.sleep() appears ${SL}x as code -- must be exactly 1 (finally); in the loop it crashes displayPartial"
+    DP=$(grep -c "displayPartial" "$D")
+    [ "$DP" -ge 1 ] && ok "partial-refresh in use (displayPartial x$DP) -> no full-refresh white flash" || bad "displayPartial not found (white-flash risk)"
+  else
+    warn "dashboard.py not at $D (source invariants skipped)"
+  fi
+  local PH; PH=$(sudo journalctl -u pi-eink-dashboard.service --since "-3 min" -o cat 2>/dev/null | grep -c "Carousel phase=")
+  [ "${PH:-0}" -ge 1 ] && ok "carousel actively cycling ($PH phase log(s) in last 3 min)" || bad "no carousel activity in 3 min (panel may be frozen)"
+  local DIST NPH; DIST=$(sudo journalctl -u pi-eink-dashboard.service --since "-16 min" -o cat 2>/dev/null | grep -oE 'phase=[0-9]' | sort -u | tr '\n' ' ')
+  NPH=$(echo "$DIST" | wc -w)
+  if [ "$NPH" -ge 4 ]; then ok "all 4 carousel phases rendered in last 16 min ($DIST)"
+  elif [ "$NPH" -ge 2 ]; then warn "only $NPH distinct phases in last 16 min ($DIST) -- re-run after a full ~10 min cycle to confirm all 4"
+  else bad "carousel not advancing through phases ($DIST)"; fi
+  local TB; TB=$(sudo journalctl -u pi-eink-dashboard.service --since "-16 min" -o cat 2>/dev/null | grep -cE 'Traceback|\bERROR\b|Exception')
+  [ "${TB:-0}" -eq 0 ] && ok "no errors/tracebacks in last 16 min" || bad "$TB error/traceback line(s) in last 16 min"
+}
+
+# =================== NETWORK ===================
+section_network(){
+  hdr "NETWORK"
+  local W1 E0 GW
+  W1=$(ip -4 -br addr show wlan1 2>/dev/null | awk '{print $3}')
+  E0=$(ip -4 -br addr show eth0 2>/dev/null | awk '{print $3}')
+  if   [ -n "$W1" ]; then ok "uplink present: wlan1 = ${W1%%/*}"
+  elif [ -n "$E0" ]; then ok "uplink present: eth0 = ${E0%%/*}"
+  else warn "no wlan1/eth0 uplink IP (PINET-only, or away from known Wi-Fi)"; fi
+  GW=$(ip route 2>/dev/null | awk '/^default/{print $3; exit}')
+  [ -n "$GW" ] && ok "default route via $GW" || warn "no default route (offline)"
+  ping -c1 -W2 1.1.1.1 >/dev/null 2>&1 && ok "internet reachable (ping 1.1.1.1)" || warn "no internet (ping failed) -- OK if intentionally offline"
+  getent hosts deb.debian.org >/dev/null 2>&1 && ok "DNS resolves" || warn "DNS resolution failed"
+  local HOST W0
+  HOST=$(systemctl is-active hostapd 2>/dev/null)
+  if [ "$HOST" = active ]; then
+    ok "PINET hotspot UP (hostapd active)"
+    W0=$(ip -4 -br addr show wlan0 2>/dev/null | awk '{print $3}')
+    [ "${W0%%/*}" = "10.10.10.1" ] && ok "wlan0 hotspot IP 10.10.10.1" || bad "wlan0 IP '${W0:-none}', expected 10.10.10.1"
+    for s in dnsmasq pinet-board stunnel@pinet-board; do
+      [ "$(systemctl is-active $s 2>/dev/null)" = active ] && ok "$s active" || bad "$s down while PINET up"
+    done
+  else
+    info "PINET hotspot DOWN -- on-demand default (start: sudo pinet-start); PINET consistency checks skipped"
+  fi
+  if systemctl is-active nftables >/dev/null 2>&1; then
+    local R; R=$(sudo nft list ruleset 2>/dev/null | grep -cE 'dport|drop')
+    [ "${R:-0}" -ge 1 ] && ok "nftables firewall loaded ($R rule line(s))" || warn "nftables active but ruleset empty"
+  else warn "nftables service not active"; fi
+  # Spotify / raspotify (feeds the e-ink hotspot Spotify panel when PINET is down)
+  if [ "$(systemctl is-active raspotify 2>/dev/null)" = active ]; then
+    ok "raspotify (Spotify Connect) active"
+    grep -q raspotify-nowplaying-hook /etc/systemd/system/raspotify.service.d/override.conf 2>/dev/null \
+      && ok "librespot --onevent now-playing hook wired" || warn "onevent hook not wired (no track metadata)"
+    if [ -r /run/user/1000/raspotify-nowplaying ]; then ok "now-playing state file present (state=$(sed -n 's/^state=//p' /run/user/1000/raspotify-nowplaying))"; else info "no now-playing file yet (nothing played since boot)"; fi
+  else warn "raspotify not active (Spotify panel would show 'raspotify not running')"; fi
+}
+
+# =================== DSI ===================
+dsi_restore(){
+  kill_lock
+  if [ "${DSI_INIT_SLIDESHOW:-inactive}" = active ]; then systemctl --user start dsi-photo-frame.service 2>/dev/null || true
+  else systemctl --user stop dsi-photo-frame.service 2>/dev/null || true; fi
+  sleep 0.5
+  if [ "${DSI_INIT_BL:-1}" = 0 ]; then /usr/local/bin/dsi-wake.sh 2>/dev/null || true
+  else /usr/local/bin/dsi-sleep.sh 2>/dev/null || true; fi
+  rm -f "$SHOT" /tmp/pi-diag-logo.png
+}
+section_dsi(){
+  hdr "DSI TOUCHSCREEN (lock / wake / album)"
+  DSI_INIT_SLIDESHOW=$(systemctl --user is-active dsi-photo-frame.service || true)
+  DSI_INIT_BL=$(cat "$BL" 2>/dev/null); DSI_UP0=$(cut -d. -f1 /proc/uptime)
+  trap dsi_restore EXIT
+  info "initial: screen bl=$DSI_INIT_BL, slideshow=$DSI_INIT_SLIDESHOW (restored on exit)"
+
+  # lint / files / photos / services
+  for f in dsi-lock.py dsi-tap-wake.py; do
+    python3 -c "import py_compile; py_compile.compile('/usr/local/bin/$f', cfile='/tmp/pd-$f.pyc', doraise=True)" 2>/dev/null && ok "$f compiles" || bad "$f compile error"; done
+  for f in dsi-sleep.sh dsi-wake.sh dsi-lock-show dsi-photo-close dsi-photo-frame.sh; do
+    bash -n "/usr/local/bin/$f" 2>/dev/null && ok "$f syntax" || bad "$f syntax error"; done
+  for f in dsi-lock.py dsi-lock-show dsi-photo-close; do [ -x "/usr/local/bin/$f" ] && ok "$f present+exec" || bad "$f missing"; done
+  [ -r /etc/dsi-lock/passcode ] && ok "passcode file readable" || bad "passcode file missing"
+  [ -r /etc/dsi-lock/logo.png ] && ok "logo present" || bad "logo missing"
+  local SRC CACHE BADJPG; SRC=$(ls -1 /mnt/pinet-media/slideshow/*.jpg 2>/dev/null | wc -l); CACHE=$(ls -1 /mnt/pinet-media/slideshow-cache/*.jpg 2>/dev/null | wc -l)
+  [ "$SRC" -ge 12 ] && ok "slideshow has $SRC photos (>=12)" || bad "only $SRC photos"
+  [ "$CACHE" -eq "$SRC" ] && ok "render cache matches source ($CACHE)" || bad "cache $CACHE != source $SRC"
+  BADJPG=0; for j in /mnt/pinet-media/slideshow-cache/*.jpg; do identify "$j" >/dev/null 2>&1 || BADJPG=$((BADJPG+1)); done
+  [ "$BADJPG" -eq 0 ] && ok "all cached frames valid JPEG" || bad "$BADJPG corrupt cache frames"
+  [ "$(systemctl --user is-active dsi-tap-wake.service)" = active ] && ok "dsi-tap-wake active" || bad "dsi-tap-wake not active"
+  [ "$(systemctl --user is-enabled dsi-tap-wake.service 2>/dev/null)" = enabled ] && ok "dsi-tap-wake enabled (boot)" || bad "dsi-tap-wake not enabled"
+  local FU; FU=$(systemctl --user --failed --no-legend | wc -l); [ "$FU" -eq 0 ] && ok "0 failed user units" || bad "$FU failed user units"
+
+  # lock blocks desktop + logo
+  kill_lock; /usr/local/bin/dsi-sleep.sh 2>/dev/null; sleep 0.5; call_wake
+  is_lock_frame && ok "lock is opaque fullscreen (all 4 corners = lock bg, desktop blocked)" || bad "desktop shows through (corner $(px 4,4))"
+  backlight_on && ok "backlight lit after wake" || bad "backlight off after wake"
+  shot; convert "$SHOT" -crop 140x95+330+0 +repage /tmp/pi-diag-logo.png 2>/dev/null
+  local LB; LB=$(convert /tmp/pi-diag-logo.png -colorspace Gray -threshold 60% -format '%[fx:mean*w*h]' info:- 2>/dev/null | cut -d. -f1)
+  [ "${LB:-0}" -ge 100 ] && ok "PINET logo rendered (${LB} bright px)" || bad "logo missing (${LB:-0} px)"
+
+  # single instance
+  local B A SEC; B=$(cat "$PID" 2>/dev/null); /usr/local/bin/dsi-lock.py >/dev/null 2>&1; SEC=$?; A=$(cat "$PID" 2>/dev/null)
+  { [ "$B" = "$A" ] && lock_running && [ "$SEC" -eq 0 ]; } && ok "single-instance (2nd launch exits, one lock)" || bad "single-instance failed"
+
+  # unlock logic
+  local CODE first WRONG; CODE=$(tr -d '[:space:]' < /etc/dsi-lock/passcode); CODE=${CODE:-1234}
+  first=${CODE:0:1}; WRONG="$(( (10#${first} + 1) % 10 ))${CODE:1}"
+  inject "$WRONG"; sleep 0.6; lock_running && ok "wrong code ($WRONG) stays locked" || bad "wrong code unlocked!"
+  inject "$CODE"; sleep 0.6; if ! lock_running; then ok "correct code unlocks"; else bad "correct code did NOT unlock"; kill_lock; fi
+
+  # no-sleep while album active
+  kill_lock; /usr/local/bin/dsi-wake.sh 2>/dev/null; sleep 0.3; systemctl --user start dsi-photo-frame.service; sleep 5
+  [ "$(systemctl --user is-active dsi-photo-frame.service)" = active ] && ok "slideshow starts" || bad "slideshow failed to start"
+  /usr/local/bin/dsi-sleep.sh 2>/dev/null; sleep 0.6
+  backlight_on && ok "dsi-sleep.sh no-op while album active (screen stays lit)" || bad "screen slept during album"
+
+  # close album (X) -> lock  x2
+  local i
+  for i in 1 2; do
+    [ "$(systemctl --user is-active dsi-photo-frame.service)" = active ] || { systemctl --user start dsi-photo-frame.service; sleep 5; }
+    is_lock_frame && bad "close #$i: pre-X frame already lock" || ok "close #$i: album shows a photo (not lock)"
+    /usr/local/bin/dsi-photo-close; sleep 1
+    { [ "$(systemctl --user is-active dsi-photo-frame.service)" = inactive ] && is_lock_frame; } && ok "close #$i: X -> lock (desktop never shown)" || bad "close #$i: did not land on lock"
+    kill_lock
+  done
+
+  # wake shows lock first x3 (cold)
+  for i in 1 2 3; do
+    kill_lock; /usr/local/bin/dsi-sleep.sh 2>/dev/null; sleep 0.5; call_wake
+    { backlight_on && is_lock_frame; } && ok "wake #$i: first lit frame is the lock (no desktop flash)" || bad "wake #$i flash/fail"
+  done
+  # re-wake while locked x2
+  for i in 1 2; do
+    /usr/local/bin/dsi-sleep.sh 2>/dev/null; sleep 0.5; call_wake
+    { backlight_on && is_lock_frame && lock_running; } && ok "re-wake #$i: existing lock re-lit" || bad "re-wake #$i fail"
+  done
+  kill_lock
+
+  local UP1; UP1=$(cut -d. -f1 /proc/uptime)
+  [ "$UP1" -ge "$DSI_UP0" ] && ok "no reset/brownout during DSI tests (uptime continuous)" || bad "DEVICE RESET during tests"
+  info "throttled=$(vcgencmd get_throttled) (chronic flag -- informational)"
+}
+
+main(){
+  local sel="${1:-all}"
+  printf '\033[1mPi diagnostic\033[0m -- %s  host=%s  section=%s\n' "$(date '+%F %T')" "$(hostname)" "$sel"
+  case "$sel" in
+    all)            section_eink; section_network; section_dsi ;;
+    eink|e)         section_eink ;;
+    network|net|n)  section_network ;;
+    dsi|d)          section_dsi ;;
+    *) echo "usage: pi-diagnostic [all|eink|network|dsi]"; exit 2 ;;
+  esac
+  printf '\n\033[1m================= SUMMARY =================\033[0m\n'
+  printf 'PASS: %d   WARN: %d   FAIL: %d\n' "$PASS" "$WARN" "$FAIL"
+  if [ "$WARN" -gt 0 ]; then echo "Warnings:"; for t in "${WARNED[@]}"; do echo "  - $t"; done; fi
+  if [ "$FAIL" -gt 0 ]; then echo "Failures:"; for t in "${FAILED[@]}"; do echo "  - $t"; done; fi
+  [ "$FAIL" -eq 0 ]
+}
+main "$@"; rc=$?
+exit $rc

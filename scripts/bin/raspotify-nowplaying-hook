@@ -1,0 +1,49 @@
+#!/bin/bash
+# librespot --onevent hook. Writes /run/user/1000/raspotify-nowplaying for the
+# e-ink Spotify panel. This librespot 0.8.0 build passes TRACK_ID but NOT
+# NAME/ARTISTS, so the track title is resolved from Spotify's public oEmbed
+# endpoint (no API key). State + title are preserved across events that carry
+# no track info (volume_changed etc.). Runs as rupal, XDG_RUNTIME_DIR inherited.
+RT="${XDG_RUNTIME_DIR:-/run/user/1000}"
+STATE="$RT/raspotify-nowplaying"
+san(){ printf '%s' "${1:-}" | tr '\n\r' ',,' | sed 's/,\+/, /g; s/^, //; s/, $//'; }
+ev="${PLAYER_EVENT:-}"
+case "$ev" in
+  playing|track_changed|preloading|seeked|position_correction) st=playing ;;
+  paused)               st=paused ;;
+  stopped|end_of_track) st=idle ;;
+  *) st="$(sed -n 's/^state=//p' "$STATE" 2>/dev/null)"; st="${st:-idle}" ;;
+esac
+
+prev_tid="$(sed -n 's/^track_id=//p' "$STATE" 2>/dev/null)"
+prev_name="$(sed -n 's/^name=//p' "$STATE" 2>/dev/null)"
+prev_art="$(sed -n 's/^artists=//p' "$STATE" 2>/dev/null)"
+prev_alb="$(sed -n 's/^album=//p' "$STATE" 2>/dev/null)"
+
+tid="${TRACK_ID:-}"
+name="${NAME:-}"; artists="${ARTISTS:-}"; album="${ALBUM:-}"
+if [ -n "$tid" ]; then
+  if [ "$tid" = "$prev_tid" ] && [ -n "$prev_name" ]; then
+    name="$prev_name"; artists="$prev_art"; album="$prev_alb"
+  elif [ -z "$name" ]; then
+    name="$(curl -s --max-time 6 "https://open.spotify.com/oembed?url=https://open.spotify.com/track/$tid" 2>/dev/null \
+            | python3 -c 'import sys,json
+try: print(json.load(sys.stdin).get("title",""))
+except Exception: print("")' 2>/dev/null)"
+  fi
+else
+  tid="$prev_tid"; name="$prev_name"; artists="$prev_art"; album="$prev_alb"
+fi
+
+out="$(wpctl status 2>/dev/null | awk '/Sinks:/{s=1;next} s && /\*/ {sub(/^[^0-9]*[0-9]+\. /,""); sub(/ +\[.*/,""); gsub(/[[:space:]]+$/,""); print; exit}')"
+{
+  echo "state=$st"
+  echo "event=$ev"
+  echo "track_id=$tid"
+  echo "name=$(san "$name")"
+  echo "artists=$(san "$artists")"
+  echo "album=$(san "$album")"
+  echo "output=$out"
+  echo "ts=$(date +%s)"
+} > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE"
+env | sort > "$RT/raspotify-last-event.env" 2>/dev/null

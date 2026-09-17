@@ -25,7 +25,7 @@ if [ -p "$ACTIONS" ] && systemctl --user is-active --quiet dsi-photo-frame.servi
 else
     sleep 0.15
 fi
-sudo /usr/local/bin/dsi-backlight.sh on
+if [ -z "${DSI_DEFER_BACKLIGHT:-}" ]; then sudo /usr/local/bin/dsi-backlight.sh on; fi
 # Re-arm idle sleep: swayidle only re-arms on compositor input, and a
 # double-tap wake never reaches the compositor (the tap daemon grabs the
 # touchscreen while asleep) -- without this the screen stays on until someone

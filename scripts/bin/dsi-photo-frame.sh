@@ -44,8 +44,7 @@ output_was_off=no
 wlopm | grep -q "DSI-1 off" && output_was_off=yes
 wlopm --on DSI-1 || true
 
-python3 /usr/local/bin/dsi-close-button.py \
-    systemctl --user stop --no-block dsi-photo-frame.service &
+python3 /usr/local/bin/dsi-close-button.py /usr/local/bin/dsi-photo-close &
 
 # Held open read-write here so pqiv never sees EOF between writers.
 rm -f "$ACTIONS"
