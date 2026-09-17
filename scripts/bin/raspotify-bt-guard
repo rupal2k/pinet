@@ -1,0 +1,26 @@
+#!/bin/bash
+# Pause Spotify (librespot) whenever the Bluetooth speaker is disconnected and
+# resume on reconnect. librespot's play/pause is driven by the Spotify Connect
+# protocol, not the local sink, so without this it keeps advancing into the
+# built-in output after the BT speaker drops. SIGSTOP freezes librespot exactly
+# where it is (audio + track position); SIGCONT resumes it. The signal is the BT
+# speaker's PipeWire sink being present. Runs as rupal (which owns librespot).
+set -uo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+SPEAKER="${BT_SPEAKER:-Dubstep Pop 600}"
+bt_up(){ timeout 5 wpctl status 2>/dev/null | grep -q "$SPEAKER"; }
+pstate(){ awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
+last=init
+while true; do
+    pid=$(pgrep -x librespot | head -1)
+    if [ -n "$pid" ]; then
+        if bt_up; then
+            [ "$(pstate "$pid")" = T ] && kill -CONT "$pid" 2>/dev/null
+            [ "$last" != up ] && { logger -t raspotify-bt-guard "BT speaker connected -> resume librespot"; last=up; }
+        else
+            [ "$(pstate "$pid")" != T ] && kill -STOP "$pid" 2>/dev/null
+            [ "$last" != down ] && { logger -t raspotify-bt-guard "BT speaker disconnected -> pause librespot"; last=down; }
+        fi
+    fi
+    sleep 2
+done

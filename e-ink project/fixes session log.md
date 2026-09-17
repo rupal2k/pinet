@@ -1078,3 +1078,14 @@ the **backlight only**, keeping the output + touch powered (screen still dark). 
 of power. `pi-diagnostic all` = 50 PASS; physical double-tap to be confirmed by the user
 (software evdev injection is not a faithful proxy for a real touch, which is what misled
 earlier testing). Passcode also changed to a new value (not recorded).
+
+## 47. Spotify pauses/resumes with the Bluetooth speaker
+
+`when the bluetooth disconnects the song keeps playing -- pause it and resume on reconnect`.
+librespot keeps advancing (Spotify Connect drives play/pause, not the sink), so on BT loss
+it moved the stream to the built-in card and played on. New `raspotify-bt-guard` (user
+service) polls for the BT speaker's PipeWire sink and **SIGSTOPs librespot when it's gone**
+(freezes audio + track position) / **SIGCONTs when it returns** (resumes the same spot).
+Runs as rupal; `ExecStop` resumes librespot if the guard is stopped. Verified: disconnect
+-> librespot state T (paused), reconnect -> state S (resumed). Long disconnects may drop the
+Connect session (network frozen too). See [[Device Overview]].

@@ -1,0 +1,15 @@
+[Unit]
+Description=Pause/resume Spotify (librespot) with the Bluetooth speaker
+After=graphical-session.target
+PartOf=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/raspotify-bt-guard
+# If the guard is stopped, make sure librespot is left running (un-paused).
+ExecStop=/bin/bash -c 'p=$(pgrep -x librespot|head -1); [ -n "$p" ] && kill -CONT "$p" 2>/dev/null; true'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
