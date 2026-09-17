@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Lock Screen
+Name=Lock
 Comment=Lock the screen now (enter the passcode to unlock)
 Exec=/usr/local/bin/dsi-lock-show
 Icon=/home/rupal/.local/share/icons/pinet-lock.svg
