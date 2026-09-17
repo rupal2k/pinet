@@ -19,3 +19,9 @@ slideshow-cache/
 *.cap
 # large media captures
 /mnt/
+# Obsidian per-machine / churny state -- track the notes and shared config,
+# ignore the workspace layout, caches, and trash.
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache
+.trash/
