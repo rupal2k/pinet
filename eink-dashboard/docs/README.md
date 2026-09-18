@@ -95,7 +95,7 @@ chmod +x scripts/install.sh
 ./scripts/install.sh
 ```
 This enables SPI, installs system packages, clones Waveshare's driver repo,
-installs the `waveshare_epd` Python package plus `pillow`/`psutil`/`requests`,
+installs the `waveshare_epd` Python package plus `pillow`/`psutil`/`requests`/`qrcode`,
 and installs+starts the systemd service.
 
 The installer assumes your project lives at `~/pi-eink-dashboard` and your
