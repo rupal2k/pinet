@@ -11,7 +11,16 @@ inrush doesn't land on a sagging rail.
 
 Kept running on purpose: the e-ink dashboard (shows KIOSK MODE ON), wlan1
 internet, sshd, and rpi-connect's remote-access daemon.
+
+Pentest power mode (kali-power-shed) stops mostly the same units with its own
+state, so the two hand units to each other instead of restarting them under
+the other's feet: a kiosk closing during pentest mode appends what pentest
+mode keeps down to /run/pentest-shed.list (wifi-pentest-stop restores it), and
+pentest mode ending during a kiosk leaves its units in HANDOFF for this to
+restore after the kiosk. Both sides decide and write under LOCK, so neither
+can read the other's list mid-update or restore while the other is shedding.
 """
+import fcntl
 import json
 import subprocess
 import time
@@ -21,6 +30,10 @@ KIOSK_FLAG = Path("/run/user/1000/kiosk-mode")
 RUN_DIR = Path("/run/pi-power-manager")
 STATE = RUN_DIR / "stopped.json"
 MODE = RUN_DIR / "mode"
+HANDOFF = RUN_DIR / "handoff.list"  # "sys:unit"/"user:unit" from kali-power-shed
+LOCK = Path("/run/power-shed.lock")  # shared with kali-power-shed
+PENTEST_FLAG = Path("/run/pentest-mode")
+PENTEST_STATE = Path("/run/pentest-shed.list")
 POLL_SECONDS = 2
 RESTORE_GAP_SECONDS = 2
 VOLTAGE_WAIT_MAX_SECONDS = 5
@@ -42,6 +55,14 @@ SHED_UNITS = [
 # restarts a plain-stopped bluetoothd within ~0.1s, so these are runtime-masked
 # while shed and unmasked just before restore (a reboot also clears the mask).
 MASK_WHILE_SHED = {"bluetooth.service"}
+# What pentest power mode keeps down (kali-power-shed's USER_UNITS/SYS_UNITS --
+# keep in sync). The rest (photo-sync, idle-sleep) is restored as usual.
+PENTEST_UNITS = {
+    ("user", "dsi-photo-frame.service"), ("user", "rpi-connect-wayvnc.service"),
+    ("system", "stunnel@pinet-board.service"), ("system", "pinet-board.service"),
+    ("system", "dnsmasq.service"), ("system", "hostapd.service"),
+    ("system", "wayvnc.service"), ("system", "bluetooth.service"),
+}
 USER_CMD = ["runuser", "-u", "rupal", "--", "env", "XDG_RUNTIME_DIR=/run/user/1000",
             "WAYLAND_DISPLAY=wayland-0", "systemctl", "--user"]
 
@@ -70,51 +91,106 @@ def save_stopped(stopped):
     STATE.write_text(json.dumps(stopped))
 
 
-def shed():
-    # Merge with anything still stopped from an interrupted restore.
-    stopped = load_stopped()
-    for scope, unit in SHED_UNITS:
-        if (scope, unit) not in stopped and systemctl(scope, "is-active", "--quiet", unit) == 0:
-            if unit in MASK_WHILE_SHED:
-                systemctl(scope, "mask", "--runtime", unit)
-            systemctl(scope, "stop", unit)
-            stopped.append((scope, unit))
+class shed_lock:
+    """flock on LOCK -- kali-power-shed takes the same one (flock 9)."""
+    def __enter__(self):
+        self.f = open(LOCK, "a")
+        fcntl.flock(self.f, fcntl.LOCK_EX)
+
+    def __exit__(self, *exc):
+        self.f.close()
+
+
+def as_line(scope, unit):
+    return f"{'sys' if scope == 'system' else 'user'}:{unit}"
+
+
+def take_handoff(stopped):
+    """Merge in what kali-power-shed left down for us when pentest mode ended."""
+    try:
+        lines = HANDOFF.read_text().split()
+    except OSError:
+        return stopped
+    HANDOFF.unlink(missing_ok=True)
+    for scope, _, unit in (line.partition(":") for line in lines):
+        item = ("system" if scope == "sys" else "user", unit)
+        if item in SHED_UNITS and item not in stopped:
+            stopped.append(item)
     stopped.sort(key=SHED_UNITS.index)
-    save_stopped(stopped)
-    MODE.write_text("kiosk\n")
+    return stopped
+
+
+def hand_to_pentest(scope, unit):
+    """Add a unit to kali-power-shed's list, kept in its shed order (it
+    restores the file bottom-up, so hostapd still comes back before dnsmasq)."""
+    order = [as_line(*u) for u in SHED_UNITS]
+    try:
+        lines = PENTEST_STATE.read_text().split()
+    except OSError:
+        lines = []
+    if as_line(scope, unit) not in lines:
+        lines.append(as_line(scope, unit))
+    lines.sort(key=lambda l: order.index(l) if l in order else -1)
+    PENTEST_STATE.write_text("".join(l + "\n" for l in lines))
+
+
+def shed():
+    with shed_lock():
+        # Merge with anything still stopped from an interrupted restore.
+        stopped = take_handoff(load_stopped())
+        for scope, unit in SHED_UNITS:
+            if (scope, unit) not in stopped and systemctl(scope, "is-active", "--quiet", unit) == 0:
+                if unit in MASK_WHILE_SHED:
+                    systemctl(scope, "mask", "--runtime", unit)
+                systemctl(scope, "stop", unit)
+                stopped.append((scope, unit))
+        stopped.sort(key=SHED_UNITS.index)
+        save_stopped(stopped)
+        MODE.write_text("kiosk\n")
     print(f"kiosk mode: shed {', '.join(u for _, u in stopped) or 'nothing'}", flush=True)
 
 
 def restore():
     """Returns False if a kiosk reopened mid-restore (the rest stays stopped)."""
-    stopped = load_stopped()
-    while stopped:
-        if KIOSK_FLAG.exists():
-            return False
-        scope, unit = stopped[-1]
-        waited = 0
-        while under_voltage_now() and waited < VOLTAGE_WAIT_MAX_SECONDS:
-            time.sleep(1)
-            waited += 1
-        if unit in MASK_WHILE_SHED:
-            systemctl(scope, "unmask", "--runtime", unit)
-        # --no-block: some units have their own startup delays (wayvnc sleeps
-        # 50s from the boot staggering); the gap below still paces the starts.
-        systemctl(scope, "start", "--no-block", unit)
-        stopped.pop()
-        save_stopped(stopped)
-        note = f" after waiting {waited}s for voltage" if waited else ""
-        print(f"restored {unit}{note}", flush=True)
-        time.sleep(RESTORE_GAP_SECONDS)
-    STATE.unlink(missing_ok=True)
-    MODE.write_text("normal\n")
-    return True
+    while True:
+        with shed_lock():
+            stopped = take_handoff(load_stopped())
+            if KIOSK_FLAG.exists():
+                save_stopped(stopped)
+                return False
+            if not stopped:
+                STATE.unlink(missing_ok=True)
+                MODE.write_text("normal\n")
+                return True
+            scope, unit = stopped.pop()
+            started = False
+            if (scope, unit) in PENTEST_UNITS and PENTEST_FLAG.exists():
+                hand_to_pentest(scope, unit)
+                msg = f"left {unit} to pentest mode (wifi-pentest-stop restores it)"
+            else:
+                waited = 0
+                while under_voltage_now() and waited < VOLTAGE_WAIT_MAX_SECONDS:
+                    time.sleep(1)
+                    waited += 1
+                if unit in MASK_WHILE_SHED:
+                    systemctl(scope, "unmask", "--runtime", unit)
+                # --no-block: some units have their own startup delays (wayvnc
+                # sleeps 50s from the boot staggering); the gap below still
+                # paces the starts.
+                systemctl(scope, "start", "--no-block", unit)
+                started = True
+                note = f" after waiting {waited}s for voltage" if waited else ""
+                msg = f"restored {unit}{note}"
+            save_stopped(stopped)
+        print(msg, flush=True)
+        if started:
+            time.sleep(RESTORE_GAP_SECONDS)
 
 
 def main():
     RUN_DIR.mkdir(exist_ok=True)
     kiosk = False
-    if STATE.exists() and not KIOSK_FLAG.exists():
+    if (STATE.exists() or HANDOFF.exists()) and not KIOSK_FLAG.exists():
         restore()  # manager restarted while services were shed
     MODE.write_text("normal\n" if not STATE.exists() else "kiosk\n")
     while True:
