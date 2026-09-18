@@ -29,6 +29,7 @@ import icons
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config" / "config.ini"
 DOOM_LOGO_PATH = BASE_DIR / "assets" / "doom_logo.png"
+_logo_missing_warned = False
 # Written by the DSI kiosk launcher (/usr/local/bin/dsi-kiosk.sh) while an
 # on-demand kiosk (Ezykam, Camera) is open: line 1 is the screen title (e.g.
 # "CAMERA MODE ON"), line 2 the label (e.g. "Ezykam"). Lives in the tmpfs
@@ -842,6 +843,7 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
     subordinate to the other. No rule lines anywhere -- each row's own
     padding reads as separation without a hard line competing with the
     logo's dithered texture."""
+    global _logo_missing_warned
     W, H = epd.height, epd.width
     margin = 4
     header_h = 16
@@ -862,11 +864,29 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
         lw = draw.textlength(label_line, font=label_font)
         draw.text(((W - lw) // 2, H - 19), label_line, font=label_font, fill=0)
     else:
-        src = Image.open(image_path).convert("L")
-        scale = min((W - 2 * margin) / src.width, (image_area_h - 2 * margin) / src.height)
-        scaled_w, scaled_h = max(1, round(src.width * scale)), max(1, round(src.height * scale))
-        src = src.resize((scaled_w, scaled_h), Image.LANCZOS).convert("1")
-        image.paste(src, ((W - scaled_w) // 2, image_area_y + (image_area_h - scaled_h) // 2))
+        try:
+            src = Image.open(image_path).convert("L")
+        except OSError as exc:
+            # The logo isn't in git (it only lives on the device), so a fresh
+            # clone has no file -- draw a plain text title in its place
+            # rather than failing the whole screen. Warned once, not every
+            # refresh, so it doesn't flood the journal.
+            if not _logo_missing_warned:
+                logger.warning("Logo image unavailable (%s), showing text instead", exc)
+                _logo_missing_warned = True
+            src = None
+        if src is not None:
+            scale = min((W - 2 * margin) / src.width, (image_area_h - 2 * margin) / src.height)
+            scaled_w, scaled_h = max(1, round(src.width * scale)), max(1, round(src.height * scale))
+            src = src.resize((scaled_w, scaled_h), Image.LANCZOS).convert("1")
+            image.paste(src, ((W - scaled_w) // 2, image_area_y + (image_area_h - scaled_h) // 2))
+        else:
+            title, title_font = fit_text(draw, "DOOM", FONT_BOLD_PATH, 56, 16, W - 2 * margin)
+            left, top, right, bottom = draw.textbbox((0, 0), title, font=title_font)
+            draw.text(
+                ((W - (right - left)) // 2 - left, image_area_y + (image_area_h - top - bottom) // 2),
+                title, font=title_font, fill=0,
+            )
 
     volt_text = f"{voltage:.2f}V" if voltage is not None else "V: n/a"
     problem = bool(under_voltage) or bool(throttled)

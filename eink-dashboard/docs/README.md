@@ -84,6 +84,12 @@ scp -r pi-eink-dashboard pi@<pi-ip-address>:~/
 ```
 (or `git clone` it if you push it to a repo you control).
 
+The DOOM screen's logo, `assets/doom_logo.png`, is not in the repo yet: a
+fresh clone doesn't have it. From inside the project, copy it from the
+running device (`mkdir -p assets && scp pi@<pi-ip-address>:~/pi-eink-dashboard/assets/doom_logo.png assets/`).
+Without the file the dashboard and the shutdown splash still work, but
+show a plain "DOOM" text title where the logo would be.
+
 ## 3. Wire the HAT and run the installer
 
 Power off the Pi, seat the HAT firmly on the 40-pin GPIO header, power back on.
