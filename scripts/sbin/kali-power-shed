@@ -26,6 +26,7 @@ STATE=/run/pentest-shed.list
 LOCK=/run/power-shed.lock
 KIOSK_MODE=/run/pi-power-manager/mode
 KIOSK_HANDOFF=/run/pi-power-manager/handoff.list
+PINET_STOPPED=/run/pinet-stopped  # pinet-stop ran since: leave PINET down
 uctl() { runuser -u rupal -- env XDG_RUNTIME_DIR=/run/user/1000 systemctl --user "$@"; }
 
 # Shed in this order; restored in reverse (so hostapd comes back before dnsmasq,
@@ -70,6 +71,9 @@ restore() {
         tac "$STATE" | while IFS= read -r line; do
             [ -n "$line" ] || continue
             scope=${line%%:*}; unit=${line#*:}
+            case "$unit" in stunnel@pinet-board.service|pinet-board.service|dnsmasq.service|hostapd.service)
+                [ -e "$PINET_STOPPED" ] && continue ;;
+            esac
             if [ "$kiosk" = yes ]; then
                 echo "$line" >> "$KIOSK_HANDOFF"; continue
             fi

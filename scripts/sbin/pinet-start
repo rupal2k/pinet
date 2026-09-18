@@ -3,6 +3,7 @@
 # PINET is NOT enabled at boot; use this to bring it up, pinet-stop to take it down.
 set -u
 [ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo pinet-start" >&2; exit 1; }
+rm -f /run/pinet-stopped  # see pinet-stop
 for u in pinet-ap-network.service hostapd.service dnsmasq.service pinet-board.service stunnel@pinet-board.service; do
     systemctl start "$u" && echo "started $u" || echo "FAILED $u"
 done

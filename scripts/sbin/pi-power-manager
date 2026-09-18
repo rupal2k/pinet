@@ -34,6 +34,11 @@ HANDOFF = RUN_DIR / "handoff.list"  # "sys:unit"/"user:unit" from kali-power-she
 LOCK = Path("/run/power-shed.lock")  # shared with kali-power-shed
 PENTEST_FLAG = Path("/run/pentest-mode")
 PENTEST_STATE = Path("/run/pentest-shed.list")
+# Set by pinet-stop, cleared by pinet-start: a deliberate stop sticks, so
+# PINET units shed before it are left down instead of restored.
+PINET_STOPPED = Path("/run/pinet-stopped")
+PINET_UNITS = {"stunnel@pinet-board.service", "pinet-board.service",
+               "dnsmasq.service", "hostapd.service"}
 POLL_SECONDS = 2
 RESTORE_GAP_SECONDS = 2
 VOLTAGE_WAIT_MAX_SECONDS = 5
@@ -164,7 +169,9 @@ def restore():
                 return True
             scope, unit = stopped.pop()
             started = False
-            if (scope, unit) in PENTEST_UNITS and PENTEST_FLAG.exists():
+            if unit in PINET_UNITS and PINET_STOPPED.exists():
+                msg = f"left {unit} down (pinet-stop)"
+            elif (scope, unit) in PENTEST_UNITS and PENTEST_FLAG.exists():
                 hand_to_pentest(scope, unit)
                 msg = f"left {unit} to pentest mode (wifi-pentest-stop restores it)"
             else:
