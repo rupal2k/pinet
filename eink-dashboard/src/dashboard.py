@@ -12,6 +12,7 @@ import configparser
 import json
 import logging
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -981,6 +982,17 @@ def main():
     uv_streak = 0
     thr_streak = 0
 
+    # systemd stops the service with SIGTERM, whose default action kills the
+    # process on the spot -- the `finally:` below never ran, so the panel was
+    # never put to sleep nor its GPIO released. Raising SystemExit routes it
+    # through the same cleanup (SystemExit isn't an Exception, so the
+    # per-frame handler in the loop doesn't swallow it).
+    def _on_sigterm(signum, frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+    clear_on_exit = True
+
     try:
         while True:
             # Relative to start_time, not raw wall-clock: anchoring to absolute
@@ -1162,10 +1174,20 @@ def main():
                     break
     except KeyboardInterrupt:
         logger.info("Interrupted, clearing screen and exiting")
+    except SystemExit:
+        # Service stop (incl. shutdown/reboot): sleep the panel but don't
+        # Clear() it -- a white flash here would be immediately overdrawn by
+        # pi-eink-shutdown-splash.service (ordered to run after this exits),
+        # and on a plain `systemctl stop` the last frame beats a blank panel.
+        clear_on_exit = False
+        logger.info("Stopped (SIGTERM), putting panel to sleep and exiting")
     finally:
         try:
+            # init() is only a controller reset (no refresh, so no flash);
+            # it's needed so sleep() has an open SPI device to talk to.
             epd.init()
-            epd.Clear(0xFF)
+            if clear_on_exit:
+                epd.Clear(0xFF)
             epd.sleep()
             epd2in13_V4.epdconfig.module_exit(cleanup=True)
         except Exception as exc:
