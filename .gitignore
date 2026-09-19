@@ -25,3 +25,8 @@ slideshow-cache/
 .obsidian/workspace-mobile.json
 .obsidian/cache
 .trash/
+
+# agent-tool artefacts (claude-flow / ruvector hooks) -- never commit
+.claude-flow/
+.swarm/
+ruvector.db
