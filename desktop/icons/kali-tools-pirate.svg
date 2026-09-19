@@ -1,18 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
-  <!-- crossbones behind/below the skull -->
-  <path d="M11 32 L37 38 M37 32 L11 38"/>
-  <g fill="#e8e8e8" stroke="none">
-    <circle cx="10.6" cy="33.9" r="2.2"/><circle cx="11.4" cy="30.2" r="2.2"/>
-    <circle cx="36.6" cy="39.8" r="2.2"/><circle cx="37.4" cy="36.2" r="2.2"/>
-    <circle cx="37.4" cy="33.9" r="2.2"/><circle cx="36.6" cy="30.2" r="2.2"/>
-    <circle cx="11.4" cy="39.8" r="2.2"/><circle cx="10.6" cy="36.2" r="2.2"/>
-  </g>
-  <!-- skull dome + jaw -->
-  <path d="M14.5 20.5 C14.5 12.3 18.8 7.5 24 7.5 C29.2 7.5 33.5 12.3 33.5 20.5 C33.5 23.2 32.3 25 30 26 V27 C30 28.1 29.1 29 28 29 H20 C18.9 29 18 28.1 18 27 V26 C15.7 25 14.5 23.2 14.5 20.5 Z"/>
-  <!-- eye sockets + nose -->
-  <g fill="#e8e8e8" stroke="none">
-    <circle cx="20" cy="19" r="2.9"/>
-    <circle cx="28" cy="19" r="2.9"/>
-    <path d="M24 22.6 L22.5 25.3 H25.5 Z"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>Kali pentest tools</title>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#00e5ff" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#00e5ff" stroke-width="1.8"/>
+  <path d="M15 22 V16 L19 11 H29 L33 16 V22 L30 25 V29 H18 V25 Z" stroke="#00e5ff" stroke-width="5.6" stroke-opacity="0.22"/><path d="M15 22 V16 L19 11 H29 L33 16 V22 L30 25 V29 H18 V25 Z" stroke="#00e5ff" stroke-width="2.4" stroke-opacity="1.00"/><path d="M19 18.5 L22 20 M29 18.5 L26 20" stroke="#ff2bd6" stroke-width="5.6" stroke-opacity="0.22"/><path d="M19 18.5 L22 20 M29 18.5 L26 20" stroke="#ff2bd6" stroke-width="2.4" stroke-opacity="1.00"/><path d="M22 29 V26.5 M26 29 V26.5" stroke="#00e5ff" stroke-width="5.6" stroke-opacity="0.22"/><path d="M22 29 V26.5 M26 29 V26.5" stroke="#00e5ff" stroke-width="2.4" stroke-opacity="1.00"/><path d="M11 31 L37 40 M37 31 L11 40" stroke="#00e5ff" stroke-width="5.6" stroke-opacity="0.22"/><path d="M11 31 L37 40 M37 31 L11 40" stroke="#00e5ff" stroke-width="2.4" stroke-opacity="1.00"/>
 </svg>

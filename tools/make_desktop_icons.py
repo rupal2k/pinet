@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Generate the PINET desktop icon set (desktop/icons/*.svg).
+
+Style: ui-ux-pro-max "Cyberpunk UI" (neon cyan/magenta/green on near-black,
+HUD/terminal, angular shapes) adapted to 48px icons on the pcmanfm desktop
+(#14161a) and to librsvg, which draws them:
+- one shared HUD frame (chamfered square) so the nine read as one family;
+- glyphs in one stroke weight, drawn twice -- a wide faint "glow" under a
+  crisp core -- so there's a neon glow without SVG filters;
+- explicit colours, not currentColor: pcmanfm renders outside any CSS, so
+  currentColor would come out black on the dark desktop;
+- each icon has a <title>; the label under it on the desktop says the same.
+Contrast on #14161a (measured): cyan 11.8:1, magenta 5.7:1, green 13.4:1, red 5.2:1
+(all above the 3:1 needed for meaningful graphics).
+
+    python3 tools/make_desktop_icons.py    # rewrites desktop/icons/*.svg
+"""
+from pathlib import Path
+
+OUT = Path(__file__).resolve().parent.parent / "desktop" / "icons"
+
+CYAN, MAGENTA, GREEN, RED = "#00e5ff", "#ff2bd6", "#39ff14", "#ff3b5c"
+CORE, GLOW = 2.4, 5.6          # stroke widths: crisp line / halo under it
+FRAME = "M9 4 H44 V39 L39 44 H4 V9 Z"   # chamfered top-left + bottom-right corners
+
+
+def neon(d, color=CYAN, alpha=1.0):
+    """A path drawn as halo + core in one colour; alpha dims both (e.g. 'off' states)."""
+    return (f'<path d="{d}" stroke="{color}" stroke-width="{GLOW}" stroke-opacity="{0.22 * alpha:.2f}"/>'
+            f'<path d="{d}" stroke="{color}" stroke-width="{CORE}" stroke-opacity="{alpha:.2f}"/>')
+
+
+def dot(cx, cy, r, color):
+    return (f'<circle cx="{cx}" cy="{cy}" r="{r + 1.8}" fill="{color}" fill-opacity="0.22"/>'
+            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{color}"/>')
+
+
+def icon(title, body):
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" '
+            f'stroke-linecap="round" stroke-linejoin="round">\n'
+            f'  <title>{title}</title>\n'
+            f'  <path d="{FRAME}" fill="#0b0d12" fill-opacity="0.55" stroke="{CYAN}" stroke-opacity="0.38" stroke-width="1.4"/>\n'
+            f'  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="{CYAN}" stroke-width="1.8"/>\n'
+            f'  {body}\n</svg>\n')
+
+
+# Wi-Fi arcs centred on (24, 31): radii 5, 10, 15 over a 100-degree sweep.
+ARCS = ("M20.2 27.8 A5 5 0 0 1 27.8 27.8 "
+        "M16.3 24.3 A10 10 0 0 1 31.7 24.3 "
+        "M12.5 20.7 A15 15 0 0 1 35.5 20.7")
+
+ICONS = {
+    "pinet-start": ("Start PINET hotspot", neon(ARCS) + dot(24, 32.5, 2.2, GREEN)),
+    "pinet-stop": ("Stop PINET hotspot",
+                   neon(ARCS, alpha=0.45) + dot(24, 32.5, 2.2, CYAN)
+                   + neon("M13 13 L35 35", RED)),
+    "pinet-portal": ("PINET Portal message board",
+                     # the PINET hooded figure: curved hood with a swept tip, dark
+                     # face opening, glowing slit eyes (as in the wallpaper art)
+                     neon("M24 8 C29 10 34 15 35 23 C36 29 37 33 40 38 H8 C11 33 12 29 13 23 C14 15 19 10 24 8 Z")
+                     + '<path d="M17 30 C17 22 20 18 24 18 C28 18 31 22 31 30 C28 32 20 32 17 30 Z" fill="#050608" stroke="#00e5ff" stroke-width="2.4"/>'
+                     + neon("M19.8 24.6 L22.6 26 M28.2 24.6 L25.4 26", MAGENTA)),
+    "photo-frame": ("Photo frame slideshow",
+                    neon("M10 13 H38 V35 H10 Z")
+                    + neon("M13 32 L20 24 L25 29 L29 25 L35 32", CYAN)
+                    + dot(31, 18.5, 2.3, MAGENTA)),
+    "camera": ("Camera",
+               neon("M9 17 H16 L19 13 H29 L32 17 H39 V35 H9 Z")
+               + neon("M24 20.5 A5.5 5.5 0 1 1 23.99 20.5 Z")
+               + dot(34.5, 21.5, 1.6, MAGENTA)),
+    "ezykam-cam": ("Ezykam IP camera",
+                   # wall plate + arm, bullet camera tilted down, wireless arcs
+                   neon("M10 13 V27 M10 20 H15")
+                   + neon("M15 15 L32 18.5 L30.5 27 L14 23.5 Z")
+                   + neon("M32 18.5 L35.5 19.2 L34.2 27.3 L30.5 27")
+                   + dot(23, 21.2, 1.6, MAGENTA)
+                   + neon("M31 32 A5 5 0 0 0 36 30.5 M29.5 37 A10 10 0 0 0 39.5 33.5", MAGENTA)),
+    "kali-tools-pirate": ("Kali pentest tools",
+                          # angular skull, slit eyes, crossbones
+                          neon("M15 22 V16 L19 11 H29 L33 16 V22 L30 25 V29 H18 V25 Z")
+                          + neon("M19 18.5 L22 20 M29 18.5 L26 20", MAGENTA)
+                          + neon("M22 29 V26.5 M26 29 V26.5")
+                          + neon("M11 31 L37 40 M37 31 L11 40")),
+    "pinet-lock": ("Lock screen",
+                   neon("M17 22 V17 A7 7 0 0 1 31 17 V22")
+                   + neon("M13 22 H35 V37 L32 40 H13 Z")
+                   + dot(24, 29.5, 2.2, MAGENTA) + neon("M24 31.5 V35", MAGENTA)),
+    "graphs-network": ("Graphs viewer",
+                       neon("M24 12 L12 33 M24 12 L36 31 M12 33 L36 31 M24 12 V25 M24 25 L12 33 M24 25 L36 31")
+                       + dot(24, 12, 3.2, CYAN) + dot(12, 33, 3.2, CYAN) + dot(36, 31, 3.2, CYAN)
+                       + dot(24, 25, 2.6, MAGENTA)),
+}
+
+if __name__ == "__main__":
+    for name, spec in ICONS.items():
+        (OUT / f"{name}.svg").write_text(icon(*spec))
+        print("wrote", name)

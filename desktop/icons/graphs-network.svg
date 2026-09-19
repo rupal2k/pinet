@@ -1,10 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
-  <!-- outer triangle + spokes to the hub -->
-  <path d="M24 12 L11 36 L37 34 Z"/>
-  <path d="M24 12 V26 L11 36 M24 26 L37 34"/>
-  <!-- nodes -->
-  <circle cx="24" cy="12" r="4" fill="#e8e8e8" stroke="none"/>
-  <circle cx="11" cy="36" r="4" fill="#e8e8e8" stroke="none"/>
-  <circle cx="37" cy="34" r="4" fill="#e8e8e8" stroke="none"/>
-  <circle cx="24" cy="26" r="2.4" fill="#e8e8e8" stroke="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>Graphs viewer</title>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#00e5ff" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#00e5ff" stroke-width="1.8"/>
+  <path d="M24 12 L12 33 M24 12 L36 31 M12 33 L36 31 M24 12 V25 M24 25 L12 33 M24 25 L36 31" stroke="#00e5ff" stroke-width="5.6" stroke-opacity="0.22"/><path d="M24 12 L12 33 M24 12 L36 31 M12 33 L36 31 M24 12 V25 M24 25 L12 33 M24 25 L36 31" stroke="#00e5ff" stroke-width="2.4" stroke-opacity="1.00"/><circle cx="24" cy="12" r="5.0" fill="#00e5ff" fill-opacity="0.22"/><circle cx="24" cy="12" r="3.2" fill="#00e5ff"/><circle cx="12" cy="33" r="5.0" fill="#00e5ff" fill-opacity="0.22"/><circle cx="12" cy="33" r="3.2" fill="#00e5ff"/><circle cx="36" cy="31" r="5.0" fill="#00e5ff" fill-opacity="0.22"/><circle cx="36" cy="31" r="3.2" fill="#00e5ff"/><circle cx="24" cy="25" r="4.4" fill="#ff2bd6" fill-opacity="0.22"/><circle cx="24" cy="25" r="2.6" fill="#ff2bd6"/>
 </svg>
