@@ -4,7 +4,13 @@
 set -u
 [ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo pinet-start" >&2; exit 1; }
 rm -f /run/pinet-stopped  # see pinet-stop
+failed=0
 for u in pinet-ap-network.service hostapd.service dnsmasq.service pinet-board.service stunnel@pinet-board.service; do
-    systemctl start "$u" && echo "started $u" || echo "FAILED $u"
+    if systemctl start "$u"; then echo "started $u"; else echo "FAILED $u"; failed=1; fi
 done
-echo "PINET is up: SSID PINET @ 10.10.10.1"
+if [ "$failed" -eq 0 ]; then
+    echo "PINET is up: SSID PINET @ 10.10.10.1"
+else
+    echo "PINET is only partly up -- see: systemctl --failed" >&2
+fi
+exit "$failed"
