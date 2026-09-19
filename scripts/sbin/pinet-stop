@@ -2,6 +2,9 @@
 # Stop the PINET hotspot + board/server.
 set -u
 [ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo pinet-stop" >&2; exit 1; }
+# Make the stop stick: pi-power-manager (kiosk close) and kali-power-shed
+# (pentest stop) leave PINET down while this exists; pinet-start clears it.
+touch /run/pinet-stopped
 for u in stunnel@pinet-board.service pinet-board.service dnsmasq.service hostapd.service pinet-ap-network.service; do
     systemctl stop "$u" 2>/dev/null && echo "stopped $u" || echo "(not running) $u"
 done

@@ -13,35 +13,49 @@
 #
 # NOTE: this only touches wlan0/PINET and local services -- never wlan1 -- so it
 # does not disturb an SSH session reached over wlan1.
+#
+# pi-power-manager (kiosk shedding) stops mostly the same units with its own
+# state. So they don't restart each other's units: a kiosk closing during
+# pentest mode appends its units to $STATE for us to restore, and if a kiosk is
+# still open when we restore, our units go to its $KIOSK_HANDOFF instead of
+# being started under the browser. Both sides hold $LOCK while deciding.
 set -u
 
 FLAG=/run/pentest-mode
 STATE=/run/pentest-shed.list
+LOCK=/run/power-shed.lock
+KIOSK_MODE=/run/pi-power-manager/mode
+KIOSK_HANDOFF=/run/pi-power-manager/handoff.list
+PINET_STOPPED=/run/pinet-stopped  # pinet-stop ran since: leave PINET down
 uctl() { runuser -u rupal -- env XDG_RUNTIME_DIR=/run/user/1000 systemctl --user "$@"; }
 
 # Shed in this order; restored in reverse (so hostapd comes back before dnsmasq,
 # PINET before VNC, etc.). bluetooth is runtime-masked because the panel's
 # applet re-activates a plain-stopped bluetoothd within ~0.1s.
-SYS_UNITS="stunnel@pinet-board.service pinet-board.service dnsmasq.service hostapd.service wayvnc.service bluetooth.service"
+SYS_UNITS="wayvnc.service stunnel@pinet-board.service pinet-board.service dnsmasq.service hostapd.service bluetooth.service"
 USER_UNITS="dsi-photo-frame.service rpi-connect-wayvnc.service"
 
 need_root() { [ "$(id -u)" -eq 0 ] || { echo "Run with sudo: sudo kali-power-shed $1" >&2; exit 1; }; }
 
 shed() {
     need_root start
+    exec 9>>"$LOCK"; flock 9
     if [ -e "$FLAG" ]; then
         echo "Already in pentest power mode (nothing to shed)."
         return 0
     fi
-    : > "$STATE"
+    # Add to (never truncate) a list left by a start that died before the
+    # flag: its units are still down and stop has to bring them back too.
+    touch "$STATE"
+    record() { grep -qxF "$1" "$STATE" || echo "$1" >> "$STATE"; }
     for u in $USER_UNITS; do
         if uctl is-active --quiet "$u" 2>/dev/null; then
-            echo "user:$u" >> "$STATE"; uctl stop "$u" 2>/dev/null || true
+            record "user:$u"; uctl stop "$u" 2>/dev/null || true
         fi
     done
     for u in $SYS_UNITS; do
         if systemctl is-active --quiet "$u" 2>/dev/null; then
-            echo "sys:$u" >> "$STATE"
+            record "sys:$u"
             [ "$u" = bluetooth.service ] && systemctl mask --runtime bluetooth.service 2>/dev/null || true
             systemctl stop "$u" 2>/dev/null || true
         fi
@@ -52,10 +66,21 @@ shed() {
 
 restore() {
     need_root stop
+    exec 9>>"$LOCK"; flock 9
+    kiosk=no  # "restoring": its paced restore is running, join that queue
+    case "$(cat "$KIOSK_MODE" 2>/dev/null)" in kiosk|restoring)
+        systemctl is-active --quiet pi-power-manager.service && kiosk=yes ;;
+    esac
     if [ -f "$STATE" ]; then
         tac "$STATE" | while IFS= read -r line; do
             [ -n "$line" ] || continue
             scope=${line%%:*}; unit=${line#*:}
+            case "$unit" in stunnel@pinet-board.service|pinet-board.service|dnsmasq.service|hostapd.service)
+                [ -e "$PINET_STOPPED" ] && continue ;;
+            esac
+            if [ "$kiosk" = yes ]; then
+                echo "$line" >> "$KIOSK_HANDOFF"; continue
+            fi
             if [ "$scope" = user ]; then
                 uctl start "$unit" 2>/dev/null || true
             else
@@ -67,7 +92,11 @@ restore() {
         rm -f "$STATE"
     fi
     rm -f "$FLAG"
-    echo "Pentest power mode OFF: PINET and other services restored."
+    if [ "$kiosk" = yes ]; then
+        echo "Pentest power mode OFF: kiosk shedding is active -- pi-power-manager brings services back (paced)."
+    else
+        echo "Pentest power mode OFF: PINET and other services restored."
+    fi
 }
 
 case "${1:-}" in
