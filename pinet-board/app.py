@@ -23,6 +23,7 @@ import sqlite3
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from flask import (
     Flask, g, redirect, render_template, request,
@@ -148,6 +149,20 @@ def check_password(password, conf_path=PASSWORD_CONF):
     return hmac.compare_digest(calc, expected)
 
 
+def _cred_tag(conf_path):
+    # Digest of the credential file a session was issued under. Changing a
+    # password (or deleting guest.conf) changes it, which ends every session
+    # issued under the old one -- the signed cookie alone can't be revoked.
+    try:
+        return hashlib.sha256(Path(conf_path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _conf_for(role):
+    return PASSWORD_CONF if role == "admin" else GUEST_CONF
+
+
 def is_admin():
     return session.get("role") == "admin"
 
@@ -209,7 +224,9 @@ def require_login():
     # password, gate the whole thing" from the auth-scope decision.
     if request.endpoint in ("login", "static"):
         return
-    if not session.get("authed"):
+    tag = _cred_tag(_conf_for(session.get("role")))
+    if not session.get("authed") or tag is None or session.get("cred") != tag:
+        session.clear()
         return redirect(url_for("login", next=request.path))
 
     # Reject oversized uploads by their declared Content-Length before
@@ -244,8 +261,14 @@ def login():
                 record_attempt(ip, True)
                 session["authed"] = True
                 session["role"] = role
+                session["cred"] = _cred_tag(_conf_for(role))
                 session.permanent = True
-                return redirect(request.args.get("next") or url_for("board"))
+                # Only follow a local path: "//host", "http://host" and
+                # "/\host" would bounce a fresh login to another site.
+                nxt = request.args.get("next", "")
+                if not nxt.startswith("/") or urlsplit(nxt.replace("\\", "/")).netloc:
+                    nxt = url_for("board")
+                return redirect(nxt)
             record_attempt(ip, False)
             error = "Wrong password."
     return render_template("login.html", error=error)
