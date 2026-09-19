@@ -298,36 +298,19 @@ def get_network_fingerprint():
 
 
 def get_wifi_credentials():
-    """(ssid, password) for the currently active Wi-Fi connection, or (None, None)
+    """(ssid, None) for the currently active Wi-Fi connection, or (None, None)
     if not currently on Wi-Fi (e.g. connected via Ethernet, even if wlan0 stays
-    associated to an access point in the background). Looked up fresh each
-    call, so it always reflects the Pi's current network config."""
+    associated to an access point in the background).
+
+    The password is deliberately never looked up: this panel is readable by
+    PINET guests and anyone near the Pi, and the uplink's PSK admits them to
+    the home LAN, where etc/nftables.conf does NOT block SSH/VNC. The QR
+    screen falls back to "Ask your host for the Wi-Fi password"."""
     iface = get_active_interface(get_ip_address())
     ssid = get_wifi_ssid(iface)
     if not ssid or not _is_wifi(iface, ssid):
         return None, None
-    try:
-        result = subprocess.run(
-            ["sudo", "-n", "nmcli", "-s", "-g", "802-11-wireless-security.psk",
-             "connection", "show", ssid],
-            capture_output=True, text=True, timeout=5,
-        )
-        # A broken sudoers grant (bad file permissions, revoked rule, etc.)
-        # exits non-zero with stderr but doesn't raise -- log it here too,
-        # not just the except below, or this failure mode goes completely
-        # silent (this exact case happened once: see the vault's
-        # "power and undervoltage" note, sudoers permissions section).
-        if result.returncode != 0:
-            logger.warning(
-                "Wi-Fi password lookup failed (rc=%s): %s",
-                result.returncode, result.stderr.strip(),
-            )
-            return ssid, None
-        password = result.stdout.strip()
-        return ssid, (password or None)
-    except Exception as exc:
-        logger.warning("Wi-Fi password lookup failed: %s", exc)
-        return ssid, None
+    return ssid, None
 
 
 def get_hotspot_passphrase(hostapd_conf="/etc/hostapd/hostapd.conf"):
@@ -344,8 +327,7 @@ def get_hotspot_passphrase(hostapd_conf="/etc/hostapd/hostapd.conf"):
     return None
 
 
-def get_board_password(path="/etc/pinet-board/guest_password_plaintext.txt",
-                       admin_fallback="/etc/pinet-board/board_password_plaintext.txt"):
+def get_board_password(path="/etc/pinet-board/guest_password_plaintext.txt"):
     """The PINET board's GUEST password, for display next to the Wi-Fi join
     QR on the hotspot screen -- same "physical display only" trust model as
     get_hotspot_passphrase() above. Shows the GUEST tier deliberately: the
@@ -353,17 +335,13 @@ def get_board_password(path="/etc/pinet-board/guest_password_plaintext.txt",
     anyone near the Pi can read. Plaintext copies are written solely for this
     display by /opt/pinet-board/set_guest_password.py (guest) and
     set_password.py (admin); the web app only ever checks salted hashes.
-    Falls back to the admin plaintext only if no guest password is set yet,
-    so the row isn't blank on a fresh setup."""
-    for candidate in (path, admin_fallback):
-        try:
-            with open(candidate) as f:
-                val = f.read().strip()
-            if val:
-                return val
-        except Exception:
-            continue
-    return None
+    Never falls back to the admin plaintext: if the guest file is missing,
+    empty or unreadable the Board row is simply left off."""
+    try:
+        with open(path) as f:
+            return f.read().strip() or None
+    except Exception:
+        return None
 
 
 def get_hotspot_status(iface="wlan0", ssid="PINET"):
