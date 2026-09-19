@@ -64,9 +64,10 @@ shed() {
 restore() {
     need_root stop
     exec 9>>"$LOCK"; flock 9
-    kiosk=no
-    [ "$(cat "$KIOSK_MODE" 2>/dev/null)" = kiosk ] &&
-        systemctl is-active --quiet pi-power-manager.service && kiosk=yes
+    kiosk=no  # "restoring": its paced restore is running, join that queue
+    case "$(cat "$KIOSK_MODE" 2>/dev/null)" in kiosk|restoring)
+        systemctl is-active --quiet pi-power-manager.service && kiosk=yes ;;
+    esac
     if [ -f "$STATE" ]; then
         tac "$STATE" | while IFS= read -r line; do
             [ -n "$line" ] || continue
@@ -89,7 +90,7 @@ restore() {
     fi
     rm -f "$FLAG"
     if [ "$kiosk" = yes ]; then
-        echo "Pentest power mode OFF: a kiosk is open -- services come back when it closes."
+        echo "Pentest power mode OFF: kiosk shedding is active -- pi-power-manager brings services back (paced)."
     else
         echo "Pentest power mode OFF: PINET and other services restored."
     fi

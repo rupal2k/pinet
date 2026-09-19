@@ -7,7 +7,7 @@ the board. While a kiosk is open (an entry in KIOSK_DIR, one per kiosk, or the
 single KIOSK_FLAG, see kiosk_open()), those services are stopped (only the
 ones that were running) and "kiosk" is written to MODE so the kiosk launcher
 knows it may start the browser. When the flag goes away they come back one
-at a time, pausing while the firmware reports live under-voltage so restart
+at a time (MODE "restoring", then "normal"), pausing while the firmware reports live under-voltage so restart
 inrush doesn't land on a sagging rail.
 
 Kept running on purpose: the e-ink dashboard (shows KIOSK MODE ON), wlan1
@@ -180,6 +180,9 @@ def restore():
                 STATE.unlink(missing_ok=True)
                 MODE.write_text("normal\n")
                 return True
+            # Not "kiosk" any more: a kiosk reopening now must wait for the
+            # re-shed, and kali-power-shed hands its units to us, not starts them.
+            MODE.write_text("restoring\n")
             scope, unit = stopped.pop()
             started = False
             if unit in PINET_UNITS and PINET_STOPPED.exists():
@@ -212,13 +215,15 @@ def main():
     kiosk = False
     if (STATE.exists() or HANDOFF.exists()) and not kiosk_open():
         restore()  # manager restarted while services were shed
-    MODE.write_text("normal\n" if not STATE.exists() else "kiosk\n")
+    MODE.write_text("normal\n" if not STATE.exists() else "restoring\n")
     while True:
         want_kiosk = kiosk_open()
         if want_kiosk and not kiosk:
             shed()
             kiosk = True
-        elif not want_kiosk and kiosk:
+        # STATE left over: a restore cut short by a kiosk that closed again
+        # before the next poll -- finish it rather than leave units down.
+        elif not want_kiosk and (kiosk or STATE.exists() or HANDOFF.exists()):
             restore()
             kiosk = False
         time.sleep(POLL_SECONDS)
