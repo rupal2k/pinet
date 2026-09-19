@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 *.png
+# Screen assets (e.g. the DOOM logo) belong in the repo; only stray
+# preview/debug renders should be ignored.
+!assets/*.png

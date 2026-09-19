@@ -12,6 +12,7 @@ import configparser
 import json
 import logging
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -29,6 +30,7 @@ import icons
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config" / "config.ini"
 DOOM_LOGO_PATH = BASE_DIR / "assets" / "doom_logo.png"
+_logo_missing_warned = False
 # Written by the DSI kiosk launcher (/usr/local/bin/dsi-kiosk.sh) while an
 # on-demand kiosk (Ezykam, Camera) is open: line 1 is the screen title (e.g.
 # "CAMERA MODE ON"), line 2 the label (e.g. "Ezykam"). Lives in the tmpfs
@@ -837,6 +839,7 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
     subordinate to the other. No rule lines anywhere -- each row's own
     padding reads as separation without a hard line competing with the
     logo's dithered texture."""
+    global _logo_missing_warned
     W, H = epd.height, epd.width
     margin = 4
     header_h = 16
@@ -857,11 +860,29 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
         lw = draw.textlength(label_line, font=label_font)
         draw.text(((W - lw) // 2, H - 19), label_line, font=label_font, fill=0)
     else:
-        src = Image.open(image_path).convert("L")
-        scale = min((W - 2 * margin) / src.width, (image_area_h - 2 * margin) / src.height)
-        scaled_w, scaled_h = max(1, round(src.width * scale)), max(1, round(src.height * scale))
-        src = src.resize((scaled_w, scaled_h), Image.LANCZOS).convert("1")
-        image.paste(src, ((W - scaled_w) // 2, image_area_y + (image_area_h - scaled_h) // 2))
+        try:
+            src = Image.open(image_path).convert("L")
+        except OSError as exc:
+            # The logo isn't in git (it only lives on the device), so a fresh
+            # clone has no file -- draw a plain text title in its place
+            # rather than failing the whole screen. Warned once, not every
+            # refresh, so it doesn't flood the journal.
+            if not _logo_missing_warned:
+                logger.warning("Logo image unavailable (%s), showing text instead", exc)
+                _logo_missing_warned = True
+            src = None
+        if src is not None:
+            scale = min((W - 2 * margin) / src.width, (image_area_h - 2 * margin) / src.height)
+            scaled_w, scaled_h = max(1, round(src.width * scale)), max(1, round(src.height * scale))
+            src = src.resize((scaled_w, scaled_h), Image.LANCZOS).convert("1")
+            image.paste(src, ((W - scaled_w) // 2, image_area_y + (image_area_h - scaled_h) // 2))
+        else:
+            title, title_font = fit_text(draw, "DOOM", FONT_BOLD_PATH, 56, 16, W - 2 * margin)
+            left, top, right, bottom = draw.textbbox((0, 0), title, font=title_font)
+            draw.text(
+                ((W - (right - left)) // 2 - left, image_area_y + (image_area_h - top - bottom) // 2),
+                title, font=title_font, fill=0,
+            )
 
     volt_text = f"{voltage:.2f}V" if voltage is not None else "V: n/a"
     problem = bool(under_voltage) or bool(throttled)
@@ -956,6 +977,17 @@ def main():
     uv_streak = 0
     thr_streak = 0
 
+    # systemd stops the service with SIGTERM, whose default action kills the
+    # process on the spot -- the `finally:` below never ran, so the panel was
+    # never put to sleep nor its GPIO released. Raising SystemExit routes it
+    # through the same cleanup (SystemExit isn't an Exception, so the
+    # per-frame handler in the loop doesn't swallow it).
+    def _on_sigterm(signum, frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
+    clear_on_exit = True
+
     try:
         while True:
             # Relative to start_time, not raw wall-clock: anchoring to absolute
@@ -1002,95 +1034,108 @@ def main():
                 last_full_refresh_cycle = None
                 last_kiosk_app = kiosk_app
 
-            if kiosk_app:
-                logger.info("Kiosk mode on (%s / %s)", *kiosk_app)
-                image = render_kiosk_screen(epd, *kiosk_app, dark_mode=dark_mode)
-            elif phase == 0:
-                logger.info("Carousel phase=0 (status)")
-                cpu, ram_pct, ram_used_gb, cpu_temp = get_system_stats()
-                # If location never resolved (network/DNS often isn't ready
-                # right after boot -- more so now that boot no longer waits
-                # for the network), keep retrying here so weather isn't dead
-                # for the whole session, not only when the network changes.
-                if (lat is None or lon is None) and not has_fixed_location:
-                    lat, lon, location_name = get_location(cfg)
-                    if lat is not None:
-                        logger.info(
-                            "Location resolved on retry: lat=%s lon=%s name=%s",
-                            lat, lon, location_name,
-                        )
-                new_weather = get_weather(lat, lon)
-                if new_weather:
-                    weather = last_weather = new_weather
+            try:
+                if kiosk_app:
+                    logger.info("Kiosk mode on (%s / %s)", *kiosk_app)
+                    image = render_kiosk_screen(epd, *kiosk_app, dark_mode=dark_mode)
+                elif phase == 0:
+                    logger.info("Carousel phase=0 (status)")
+                    cpu, ram_pct, ram_used_gb, cpu_temp = get_system_stats()
+                    # If location never resolved (network/DNS often isn't ready
+                    # right after boot -- more so now that boot no longer waits
+                    # for the network), keep retrying here so weather isn't dead
+                    # for the whole session, not only when the network changes.
+                    if (lat is None or lon is None) and not has_fixed_location:
+                        lat, lon, location_name = get_location(cfg)
+                        if lat is not None:
+                            logger.info(
+                                "Location resolved on retry: lat=%s lon=%s name=%s",
+                                lat, lon, location_name,
+                            )
+                    new_weather = get_weather(lat, lon)
+                    if new_weather:
+                        weather = last_weather = new_weather
+                    else:
+                        # Transient failure (503 / blip): reuse the last good
+                        # reading; None only if weather has never succeeded.
+                        weather = last_weather
+                    net = get_network_status()
+                    image = render(
+                        epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net,
+                        location_name, dark_mode,
+                    )
+                elif phase == 1:
+                    logger.info("Carousel phase=1 (qr)")
+                    ssid, password = get_wifi_credentials()
+                    net = get_network_status()
+                    image = render_qr_screen(epd, ssid, password, net, dark_mode)
+                elif phase == 2:
+                    logger.info("Carousel phase=2 (doom)")
+                    disk_free_gb, disk_used_gb, disk_total_gb = get_disk_usage()
+                    image = render_image_screen(
+                        epd, DOOM_LOGO_PATH, dark_mode,
+                        voltage=volt_now, under_voltage=uv_show, throttled=thr_show,
+                        disk_free_gb=disk_free_gb, disk_used_gb=disk_used_gb, disk_total_gb=disk_total_gb,
+                        pentest=is_wifi_pentest_active(),
+                    )
                 else:
-                    # Transient failure (503 / blip): reuse the last good
-                    # reading; None only if weather has never succeeded.
-                    weather = last_weather
-                net = get_network_status()
-                image = render(
-                    epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net,
-                    location_name, dark_mode,
-                )
-            elif phase == 1:
-                logger.info("Carousel phase=1 (qr)")
-                ssid, password = get_wifi_credentials()
-                net = get_network_status()
-                image = render_qr_screen(epd, ssid, password, net, dark_mode)
-            elif phase == 2:
-                logger.info("Carousel phase=2 (doom)")
-                disk_free_gb, disk_used_gb, disk_total_gb = get_disk_usage()
-                image = render_image_screen(
-                    epd, DOOM_LOGO_PATH, dark_mode,
-                    voltage=volt_now, under_voltage=uv_show, throttled=thr_show,
-                    disk_free_gb=disk_free_gb, disk_used_gb=disk_used_gb, disk_total_gb=disk_total_gb,
-                    pentest=is_wifi_pentest_active(),
-                )
-            else:
-                logger.info("Carousel phase=3 (hotspot)")
-                hotspot = get_hotspot_status()
-                image = render_hotspot_screen(epd, hotspot, dark_mode)
+                    logger.info("Carousel phase=3 (hotspot)")
+                    hotspot = get_hotspot_status()
+                    image = render_hotspot_screen(epd, hotspot, dark_mode)
 
-            if flip_180:
-                image = image.rotate(180)
+                if flip_180:
+                    image = image.rotate(180)
 
-            image_bytes = image.tobytes()
-            if image_bytes != last_image_bytes:
-                buf = epd.getbuffer(image)
-                cycle_number = int((time.monotonic() - start_time) // cycle_total)
-                if cycle_number != last_full_refresh_cycle:
-                    # Full refresh: this is the one that visibly flashes
-                    # black/white (the panel's own ghost-clearing waveform),
-                    # and also (re-)establishes the base image
-                    # displayPartial() diffs against below. Deliberately
-                    # limited to once per full carousel cycle instead of
-                    # every refresh.
-                    epd.init()
-                    epd.display(buf)
-                    epd.displayPartBaseImage(buf)
-                    last_full_refresh_cycle = cycle_number
+                image_bytes = image.tobytes()
+                if image_bytes != last_image_bytes:
+                    buf = epd.getbuffer(image)
+                    cycle_number = int((time.monotonic() - start_time) // cycle_total)
+                    if cycle_number != last_full_refresh_cycle:
+                        # Full refresh: this is the one that visibly flashes
+                        # black/white (the panel's own ghost-clearing waveform),
+                        # and also (re-)establishes the base image
+                        # displayPartial() diffs against below. Deliberately
+                        # limited to once per full carousel cycle instead of
+                        # every refresh.
+                        epd.init()
+                        epd.display(buf)
+                        epd.displayPartBaseImage(buf)
+                        last_full_refresh_cycle = cycle_number
+                    else:
+                        # Partial refresh: updates only the changed pixels
+                        # directly, no flash -- this is what makes a mode
+                        # change (e.g. into dark mode) show up immediately
+                        # instead of flashing white first.
+                        epd.displayPartial(buf)
+                    # Deliberately no epd.sleep() anywhere in this loop: it
+                    # closes the SPI device and cuts GPIO power outright
+                    # (waveshare_epd's module_exit()), and displayPartial()
+                    # never reopens it -- only init()/init_fast() do, and
+                    # init() does a SWRESET that would also break the
+                    # base-image continuity displayPartial() diffs against.
+                    # There's no way to sleep between a full refresh and the
+                    # partial refreshes that follow it in the same cycle
+                    # without breaking the next displayPartial() call --
+                    # confirmed by two live crash-loops (Bad file descriptor)
+                    # before landing on this. The panel driver (and its 5V
+                    # rail) now stays powered for the life of the process;
+                    # epd.sleep() still runs once in the `finally:` block
+                    # below on actual shutdown/interrupt.
+                    last_image_bytes = image_bytes
                 else:
-                    # Partial refresh: updates only the changed pixels
-                    # directly, no flash -- this is what makes a mode
-                    # change (e.g. into dark mode) show up immediately
-                    # instead of flashing white first.
-                    epd.displayPartial(buf)
-                # Deliberately no epd.sleep() anywhere in this loop: it
-                # closes the SPI device and cuts GPIO power outright
-                # (waveshare_epd's module_exit()), and displayPartial()
-                # never reopens it -- only init()/init_fast() do, and
-                # init() does a SWRESET that would also break the
-                # base-image continuity displayPartial() diffs against.
-                # There's no way to sleep between a full refresh and the
-                # partial refreshes that follow it in the same cycle
-                # without breaking the next displayPartial() call --
-                # confirmed by two live crash-loops (Bad file descriptor)
-                # before landing on this. The panel driver (and its 5V
-                # rail) now stays powered for the life of the process;
-                # epd.sleep() still runs once in the `finally:` block
-                # below on actual shutdown/interrupt.
-                last_image_bytes = image_bytes
-            else:
-                logger.info("Frame unchanged, skipping e-ink refresh")
+                    logger.info("Frame unchanged, skipping e-ink refresh")
+            except Exception:
+                # One bad frame (a render bug, an SPI hiccup, a missing asset)
+                # must not take the whole dashboard down: before this, any
+                # exception reached the `finally:` below, which blanked the
+                # panel and exited, and systemd restarted it into the same
+                # failure every cycle. Leave the last good frame on screen and
+                # carry on to the normal wait below (so this is not a hot
+                # loop). A failure part-way through a panel update can leave
+                # displayPartial()'s base image out of step with the panel, so
+                # force the next frame to be a full refresh.
+                logger.exception("Failed to render/display phase %s, keeping last frame", phase)
+                last_full_refresh_cycle = None
 
             # Wait for the next scheduled refresh, but poll the network and
             # wake up early if it changes (e.g. cable unplugged, Wi-Fi
@@ -1124,10 +1169,20 @@ def main():
                     break
     except KeyboardInterrupt:
         logger.info("Interrupted, clearing screen and exiting")
+    except SystemExit:
+        # Service stop (incl. shutdown/reboot): sleep the panel but don't
+        # Clear() it -- a white flash here would be immediately overdrawn by
+        # pi-eink-shutdown-splash.service (ordered to run after this exits),
+        # and on a plain `systemctl stop` the last frame beats a blank panel.
+        clear_on_exit = False
+        logger.info("Stopped (SIGTERM), putting panel to sleep and exiting")
     finally:
         try:
+            # init() is only a controller reset (no refresh, so no flash);
+            # it's needed so sleep() has an open SPI device to talk to.
             epd.init()
-            epd.Clear(0xFF)
+            if clear_on_exit:
+                epd.Clear(0xFF)
             epd.sleep()
             epd2in13_V4.epdconfig.module_exit(cleanup=True)
         except Exception as exc:

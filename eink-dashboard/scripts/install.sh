@@ -29,8 +29,8 @@ python3 -m pip install $PIP_BREAK "$WAVESHARE_DIR/RaspberryPi_JetsonNano/python"
   python3 -m pip install "$WAVESHARE_DIR/RaspberryPi_JetsonNano/python"
 
 echo "==> Installing Python dependencies for the dashboard"
-python3 -m pip install $PIP_BREAK pillow psutil requests || \
-  python3 -m pip install pillow psutil requests
+python3 -m pip install $PIP_BREAK pillow psutil requests qrcode || \
+  python3 -m pip install pillow psutil requests qrcode
 
 echo "==> Installing systemd service"
 sudo sed \
