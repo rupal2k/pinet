@@ -298,19 +298,36 @@ def get_network_fingerprint():
 
 
 def get_wifi_credentials():
-    """(ssid, None) for the currently active Wi-Fi connection, or (None, None)
+    """(ssid, password) for the currently active Wi-Fi connection, or (None, None)
     if not currently on Wi-Fi (e.g. connected via Ethernet, even if wlan0 stays
-    associated to an access point in the background).
-
-    The password is deliberately never looked up: this panel is readable by
-    PINET guests and anyone near the Pi, and the uplink's PSK admits them to
-    the home LAN, where etc/nftables.conf does NOT block SSH/VNC. The QR
-    screen falls back to "Ask your host for the Wi-Fi password"."""
+    associated to an access point in the background). Looked up fresh each
+    call, so it always reflects the Pi's current network config."""
     iface = get_active_interface(get_ip_address())
     ssid = get_wifi_ssid(iface)
     if not ssid or not _is_wifi(iface, ssid):
         return None, None
-    return ssid, None
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "nmcli", "-s", "-g", "802-11-wireless-security.psk",
+             "connection", "show", ssid],
+            capture_output=True, text=True, timeout=5,
+        )
+        # A broken sudoers grant (bad file permissions, revoked rule, etc.)
+        # exits non-zero with stderr but doesn't raise -- log it here too,
+        # not just the except below, or this failure mode goes completely
+        # silent (this exact case happened once: see the vault's
+        # "power and undervoltage" note, sudoers permissions section).
+        if result.returncode != 0:
+            logger.warning(
+                "Wi-Fi password lookup failed (rc=%s): %s",
+                result.returncode, result.stderr.strip(),
+            )
+            return ssid, None
+        password = result.stdout.strip()
+        return ssid, (password or None)
+    except Exception as exc:
+        logger.warning("Wi-Fi password lookup failed: %s", exc)
+        return ssid, None
 
 
 def get_hotspot_passphrase(hostapd_conf="/etc/hostapd/hostapd.conf"):
