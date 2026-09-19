@@ -3,7 +3,8 @@
 
 This Pi 3B's supply sags under load; stacking a browser on top of the PINET
 hotspot, VNC, Bluetooth and the slideshow has stalled the SD card and reset
-the board. While the kiosk flag exists, those services are stopped (only the
+the board. While a kiosk is open (an entry in KIOSK_DIR, one per kiosk, or the
+single KIOSK_FLAG, see kiosk_open()), those services are stopped (only the
 ones that were running) and "kiosk" is written to MODE so the kiosk launcher
 knows it may start the browser. When the flag goes away they come back one
 at a time, pausing while the firmware reports live under-voltage so restart
@@ -27,6 +28,7 @@ import time
 from pathlib import Path
 
 KIOSK_FLAG = Path("/run/user/1000/kiosk-mode")
+KIOSK_DIR = Path("/run/user/1000/kiosk-mode.d")  # dsi-kiosk.sh: one entry per kiosk
 RUN_DIR = Path("/run/pi-power-manager")
 STATE = RUN_DIR / "stopped.json"
 MODE = RUN_DIR / "mode"
@@ -83,6 +85,17 @@ def under_voltage_now():
         return bool(int(out.strip().split("=")[1], 16) & 0x1)
     except (OSError, ValueError, IndexError):
         return False
+
+
+def kiosk_open():
+    """Any kiosk entry left, or the single flag (the dashboard's copy, and what
+    older dsi-kiosk.sh wrote): one kiosk closing mustn't unshed another."""
+    try:
+        if any(KIOSK_DIR.iterdir()):
+            return True
+    except OSError:
+        pass
+    return KIOSK_FLAG.exists()
 
 
 def load_stopped():
@@ -160,7 +173,7 @@ def restore():
     while True:
         with shed_lock():
             stopped = take_handoff(load_stopped())
-            if KIOSK_FLAG.exists():
+            if kiosk_open():
                 save_stopped(stopped)
                 return False
             if not stopped:
@@ -197,11 +210,11 @@ def restore():
 def main():
     RUN_DIR.mkdir(exist_ok=True)
     kiosk = False
-    if (STATE.exists() or HANDOFF.exists()) and not KIOSK_FLAG.exists():
+    if (STATE.exists() or HANDOFF.exists()) and not kiosk_open():
         restore()  # manager restarted while services were shed
     MODE.write_text("normal\n" if not STATE.exists() else "kiosk\n")
     while True:
-        want_kiosk = KIOSK_FLAG.exists()
+        want_kiosk = kiosk_open()
         if want_kiosk and not kiosk:
             shed()
             kiosk = True

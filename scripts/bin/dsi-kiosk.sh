@@ -13,6 +13,10 @@
 # two loads never overlap; removing the flag on exit makes the manager bring
 # everything back one at a time.
 #
+# Each shedding kiosk has its own entry in $FLAG.d (two can be open at once);
+# $FLAG itself, which the e-ink dashboard reads, mirrors the newest one and is
+# only removed when the last kiosk closes. Both are updated under a lock.
+#
 # Engines (full chromium and Firefox both browned this power-marginal Pi 3B
 # out, so neither is used here):
 # - qtwebengine (default): dsi-webkiosk.py, a bare Chromium-engine window.
@@ -30,22 +34,47 @@ URL="$2"
 ENGINE="${DSI_KIOSK_ENGINE:-qtwebengine}"
 DATA_DIR="$HOME/.local/share/kiosk-$NAME"
 FLAG="/run/user/$(id -u)/kiosk-mode"
+MY_FLAG="$FLAG.d/$NAME.$$"
 MODE=/run/pi-power-manager/mode
 mkdir -p "$DATA_DIR"
 
 browser_pid=""
 button_pid=""
 owns_flag=no
+# add|remove our entry, then point $FLAG at the newest entry left (or remove
+# it). The lock stops two kiosks closing together leaving a stale $FLAG.
+update_flag() {
+    (
+        flock 9
+        if [ "$1" = add ]; then
+            mkdir -p "$FLAG.d"
+            printf '%s\n%s\n' "${DSI_KIOSK_TITLE:-KIOSK MODE ON}" "${DSI_KIOSK_LABEL:-${NAME^}}" > "$MY_FLAG"
+        else
+            rm -f "$MY_FLAG"
+        fi
+        # Drop entries of kiosks killed before their cleanup ran (<name>.<pid>).
+        for f in "$FLAG.d"/*; do
+            [ -e "$f" ] || continue
+            kill -0 "${f##*.}" 2>/dev/null || rm -f "$f"
+        done
+        newest=$(ls -t "$FLAG.d" 2>/dev/null | head -n 1) || true
+        if [ -n "$newest" ]; then
+            cp "$FLAG.d/$newest" "$FLAG.tmp" && mv -f "$FLAG.tmp" "$FLAG"
+        else
+            rm -f "$FLAG"
+        fi
+    ) 9> "$FLAG.lock"
+}
 cleanup() {
     [ -n "$button_pid" ] && kill "$button_pid" 2>/dev/null || true
     [ -n "$browser_pid" ] && kill "$browser_pid" 2>/dev/null || true
-    # Only remove a flag we wrote -- never one of a real kiosk still open.
-    [ "$owns_flag" = yes ] && rm -f "$FLAG" || true
+    # Only remove our own entry -- never one of a real kiosk still open.
+    [ "$owns_flag" = yes ] && update_flag remove || true
 }
 trap cleanup EXIT
 
 if [ "${DSI_KIOSK_SHED:-yes}" != no ]; then
-    printf '%s\n%s\n' "${DSI_KIOSK_TITLE:-KIOSK MODE ON}" "${DSI_KIOSK_LABEL:-${NAME^}}" > "$FLAG"
+    update_flag add
     owns_flag=yes
     for _ in $(seq 1 60); do
         [ "$(cat "$MODE" 2>/dev/null)" = kiosk ] && break
