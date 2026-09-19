@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- hanging wire + nail -->
+  <path d="M15 16.5 L24 10 L33 16.5"/>
+  <circle cx="24" cy="9.5" r="2.3" fill="#e8e8e8" stroke="none"/>
+  <!-- frame -->
+  <rect x="8.5" y="16.5" width="31" height="23" rx="3"/>
+  <!-- landscape: sun + hills -->
+  <circle cx="31" cy="23" r="2.4" fill="#e8e8e8" stroke="none"/>
+  <path d="M13 35 L19.5 27.5 L25 33 L28.5 30 L35 35"/>
+</svg>

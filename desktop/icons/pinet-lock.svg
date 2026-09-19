@@ -1,6 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="12" y="22" width="24" height="18" rx="3.5"/>
-  <path d="M17 22 V16 A7 7 0 0 1 31 16 V22"/>
-  <circle cx="24" cy="29" r="2.3" fill="#e8e8e8" stroke="none"/>
-  <path d="M24 29 V34"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- shackle -->
+  <path d="M17.5 22.5 V15.5 A6.5 6.5 0 0 1 30.5 15.5 V22.5"/>
+  <!-- body -->
+  <rect x="12.5" y="22.5" width="23" height="17" rx="3.5"/>
+  <!-- keyhole -->
+  <circle cx="24" cy="29.5" r="2.4" fill="#e8e8e8" stroke="none"/>
+  <path d="M24 29.5 V34"/>
 </svg>

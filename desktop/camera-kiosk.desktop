@@ -3,6 +3,6 @@ Type=Application
 Name=Camera
 Comment=Live Pi camera view in a kiosk (closable)
 Exec=/usr/local/bin/dsi-kiosk-camera.sh
-Icon=camera-photo
+Icon=/home/rupal/.local/share/icons/camera.svg
 Terminal=false
 Categories=Graphics;

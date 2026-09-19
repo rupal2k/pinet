@@ -3,6 +3,6 @@ Type=Application
 Name=Photo Frame
 Comment=Start the DSI photo frame slideshow (windowed, closable)
 Exec=/usr/local/bin/dsi-photo-demo.sh
-Icon=image-x-generic
+Icon=/home/rupal/.local/share/icons/photo-frame.svg
 Terminal=false
 Categories=Graphics;

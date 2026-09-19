@@ -1,7 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M18 30 A8 8 0 0 1 30 30"/>
-  <path d="M13 25 A15 15 0 0 1 35 25"/>
-  <path d="M8 20 A22 22 0 0 1 40 20"/>
-  <circle cx="24" cy="36" r="2.6" fill="#e8e8e8" stroke="none"/>
-  <line x1="10" y1="11" x2="39" y2="40" stroke="#e8e8e8" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#e8e8e8" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+  <defs>
+    <!-- knock a gap out of the fan around the slash so it reads at 48px -->
+    <mask id="gap" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+      <rect width="48" height="48" fill="#fff"/>
+      <path d="M10 10 L38 38" stroke="#000" stroke-width="7"/>
+    </mask>
+  </defs>
+  <g mask="url(#gap)">
+    <path d="M18.7 29.7 A7.5 7.5 0 0 1 29.3 29.7"/>
+    <path d="M13.39 24.39 A15 15 0 0 1 34.61 24.39"/>
+    <path d="M8.09 19.09 A22.5 22.5 0 0 1 39.91 19.09"/>
+    <circle cx="24" cy="35" r="2.8" fill="#e8e8e8" stroke="none"/>
+  </g>
+  <!-- slash: status accent (off) -->
+  <path d="M10 10 L38 38" stroke="#e5706b"/>
 </svg>
