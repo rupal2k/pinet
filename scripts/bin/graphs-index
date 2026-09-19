@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Rebuild ~/graphs/index.html -- one big tappable row per graphify project.
+
+Projects are pushed from the desktop PC by `graphify-to-pi` into
+~/graphs/<name>/ (graph.html + meta.json; the shared vis-network library sits
+in ~/graphs/_lib so the graphs work offline, i.e. in PINET or pentest mode).
+The Graphs desktop shortcut runs this before opening the index in the DSI
+kiosk, so a folder deleted by hand simply drops off the list. Sized for the
+800x480 DSI touchscreen: rows are finger-height, no hover-only controls.
+"""
+import html
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from urllib.parse import quote
+
+ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "graphs"
+
+PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graphs</title>
+<style>
+  body {{ margin: 0; background: #111; color: #e8e8e8; font: 18px/1.3 sans-serif; }}
+  h1 {{ margin: 0; padding: 16px 20px 8px; font-size: 22px; font-weight: 600; }}
+  ul {{ list-style: none; margin: 0; padding: 0 12px 16px; }}
+  a {{ display: block; margin: 8px 0; padding: 14px 16px; min-height: 48px;
+       background: #1e1e1e; border: 1px solid #333; border-radius: 6px;
+       color: inherit; text-decoration: none; }}
+  a:active {{ background: #2c2c2c; }}
+  .name {{ font-size: 20px; font-weight: 600; }}
+  .meta {{ margin-top: 4px; font-size: 14px; color: #9a9a9a; }}
+  .empty {{ padding: 24px 20px; color: #9a9a9a; }}
+  code {{ color: #e8e8e8; }}
+</style></head>
+<body><h1>Graphs</h1>
+{body}
+</body></html>
+"""
+
+
+def projects():
+    for d in sorted(ROOT.iterdir(), key=lambda p: p.name.lower()):
+        if d.name.startswith((".", "_")) or not (d / "graph.html").is_file():
+            continue
+        try:
+            meta = json.loads((d / "meta.json").read_text())
+        except (OSError, ValueError):
+            meta = {}
+        yield d.name, meta
+
+
+def row(name, meta):
+    bits = []
+    if meta.get("nodes") is not None:
+        bits.append(f"{meta['nodes']} nodes · {meta.get('edges', '?')} edges")
+    if meta.get("updated"):
+        try:
+            bits.append("updated " + datetime.fromisoformat(meta["updated"]).strftime("%d %b %Y %H:%M"))
+        except ValueError:
+            pass
+    if meta.get("source"):
+        bits.append(meta["source"])
+    return (f'<li><a href="{quote(name)}/graph.html">'
+            f'<div class="name">{html.escape(meta.get("title") or name)}</div>'
+            f'<div class="meta">{html.escape(" · ".join(bits))}</div></a></li>')
+
+
+def main():
+    ROOT.mkdir(parents=True, exist_ok=True)
+    rows = [row(n, m) for n, m in projects()]
+    body = ("<ul>\n" + "\n".join(rows) + "\n</ul>") if rows else (
+        '<p class="empty">No graphs yet. On the PC run '
+        "<code>graphify-to-pi &lt;project-dir&gt;</code> to send one here.</p>")
+    tmp = ROOT / ".index.html.tmp"
+    tmp.write_text(PAGE.format(body=body))
+    tmp.replace(ROOT / "index.html")
+
+
+if __name__ == "__main__":
+    main()
