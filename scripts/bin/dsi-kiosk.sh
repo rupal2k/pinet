@@ -80,6 +80,13 @@ if [ "${DSI_KIOSK_SHED:-yes}" != no ]; then
         [ "$(cat "$MODE" 2>/dev/null)" = kiosk ] && break
         sleep 0.5
     done
+    # Still launch (a kiosk is better than none), but say the browser is
+    # stacking on top of PINET/VNC/Bluetooth -- the brownout this exists for.
+    if [ "$(cat "$MODE" 2>/dev/null)" != kiosk ]; then
+        msg="pi-power-manager didn't shed in 30s (not running?) -- starting $NAME without power shedding"
+        echo "dsi-kiosk: $msg" >&2
+        logger -t dsi-kiosk "$msg" 2>/dev/null || true
+    fi
 fi
 /usr/local/bin/dsi-wake.sh
 
