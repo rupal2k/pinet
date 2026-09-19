@@ -2,7 +2,7 @@
 Type=Application
 Name=Graphs
 Comment=View graphify knowledge graphs sent from the PC (graphify-to-pi)
-Exec=sh -c '/usr/local/bin/graphs-index && DSI_KIOSK_TITLE="GRAPH VIEW" DSI_KIOSK_LABEL=Graphs exec /usr/local/bin/dsi-kiosk.sh graphs file:///home/rupal/graphs/index.html'
-Icon=graphs-network
+Exec=sh -c '/usr/local/bin/graphs-index && DSI_CLOSE_CORNER=left DSI_KIOSK_TITLE="GRAPH VIEW" DSI_KIOSK_LABEL=Graphs exec /usr/local/bin/dsi-kiosk.sh graphs file:///home/rupal/graphs/index.html'
+Icon=/home/rupal/.local/share/icons/graphs-network.svg
 Terminal=false
 Categories=Development;
