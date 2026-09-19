@@ -99,14 +99,26 @@ def kiosk_open():
 
 
 def load_stopped():
+    """What's shed, in SHED_UNITS order; entries that aren't SHED_UNITS are
+    ignored. No file means nothing shed, but an unreadable one means we can't
+    tell, so assume everything was: starting a unit that was already off beats
+    leaving hostapd down."""
     try:
-        return [tuple(x) for x in json.loads(STATE.read_text())]
-    except (OSError, ValueError):
+        data = json.loads(STATE.read_text())
+    except FileNotFoundError:
         return []
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, list):
+        print(f"{STATE} unreadable -- treating every shed unit as stopped", flush=True)
+        return list(SHED_UNITS)
+    return [u for u in SHED_UNITS if any(isinstance(x, list) and tuple(x) == u for x in data)]
 
 
 def save_stopped(stopped):
-    STATE.write_text(json.dumps(stopped))
+    tmp = STATE.with_suffix(".tmp")  # never leave a half-written STATE
+    tmp.write_text(json.dumps(stopped))
+    tmp.replace(STATE)
 
 
 class shed_lock:
@@ -156,12 +168,15 @@ def shed():
     with shed_lock():
         # Merge with anything still stopped from an interrupted restore.
         stopped = take_handoff(load_stopped())
+        # Listed units are checked too: the list may be a guess (see
+        # load_stopped) or one may have been started by hand since.
         for scope, unit in SHED_UNITS:
-            if (scope, unit) not in stopped and systemctl(scope, "is-active", "--quiet", unit) == 0:
+            if systemctl(scope, "is-active", "--quiet", unit) == 0:
                 if unit in MASK_WHILE_SHED:
                     systemctl(scope, "mask", "--runtime", unit)
                 systemctl(scope, "stop", unit)
-                stopped.append((scope, unit))
+                if (scope, unit) not in stopped:
+                    stopped.append((scope, unit))
         stopped.sort(key=SHED_UNITS.index)
         save_stopped(stopped)
         MODE.write_text("kiosk\n")
