@@ -12,6 +12,10 @@ as_user() { runuser -u rupal -- env "${USER_ENV[@]}" "$@"; }
 
 case "${1:-}" in
     pre)
+        # Pre/post wrap each dpkg run, so a state file older than any dpkg
+        # run was left by one killed before post. Don't let it disable the
+        # guard until reboot: start over.
+        [ -n "$(find "$STATE" -mmin +30 2>/dev/null)" ] && rm -f "$STATE"
         [ -e "$STATE" ] && exit 0
         sync
         screen=off
@@ -25,6 +29,7 @@ case "${1:-}" in
     post)
         [ -e "$STATE" ] || exit 0
         sync
+        screen=off slideshow=no  # an empty/partial state file restores nothing
         # shellcheck source=/dev/null
         . "$STATE"
         rm -f "$STATE"
