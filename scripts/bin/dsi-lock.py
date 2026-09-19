@@ -17,6 +17,7 @@ Recovery if it ever won't unlock: over SSH run
 import os
 import subprocess
 import sys
+import time
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -63,11 +64,14 @@ button.off:active { background: #7a3c3c; }
 
 
 def read_passcode():
+    # Fail closed: a missing/empty/unreadable passcode file used to unlock
+    # with DEFAULT_PASSCODE. Now nothing unlocks -- recover over SSH with the
+    # kill in the header above.
     try:
         with open(PASSCODE_FILE) as f:
-            return f.readline().strip() or DEFAULT_PASSCODE
+            return f.readline().strip() or None
     except OSError:
-        return DEFAULT_PASSCODE
+        return None
 
 
 def single_instance():
@@ -93,6 +97,8 @@ class Lock:
     def __init__(self):
         self.code = read_passcode()
         self.entered = ""
+        self.fails = 0
+        self.blocked_until = 0.0
 
         prov = Gtk.CssProvider()
         prov.load_from_data(CSS)
@@ -186,6 +192,8 @@ class Lock:
         self.dots.set_text("●" * len(self.entered) if self.entered else "–")
 
     def feed(self, digit):
+        if self.code is None or time.monotonic() < self.blocked_until:
+            return
         self.dots.get_style_context().remove_class("bad")
         self.entered += digit
         if self.entered == self.code:
@@ -196,6 +204,12 @@ class Lock:
             self.reject()
 
     def reject(self):
+        # 4 digits is only 10^4 codes: after 5 wrong ones, ignore input for
+        # 30s, doubling per further miss up to an hour.
+        if time.monotonic() >= self.blocked_until:
+            self.fails += 1
+            if self.fails >= 5:
+                self.blocked_until = time.monotonic() + min(30 << (self.fails - 5), 3600)
         self.dots.set_text("✕")
         self.dots.get_style_context().add_class("bad")
         self.entered = ""
