@@ -44,15 +44,18 @@ shed() {
         echo "Already in pentest power mode (nothing to shed)."
         return 0
     fi
-    : > "$STATE"
+    # Add to (never truncate) a list left by a start that died before the
+    # flag: its units are still down and stop has to bring them back too.
+    touch "$STATE"
+    record() { grep -qxF "$1" "$STATE" || echo "$1" >> "$STATE"; }
     for u in $USER_UNITS; do
         if uctl is-active --quiet "$u" 2>/dev/null; then
-            echo "user:$u" >> "$STATE"; uctl stop "$u" 2>/dev/null || true
+            record "user:$u"; uctl stop "$u" 2>/dev/null || true
         fi
     done
     for u in $SYS_UNITS; do
         if systemctl is-active --quiet "$u" 2>/dev/null; then
-            echo "sys:$u" >> "$STATE"
+            record "sys:$u"
             [ "$u" = bluetooth.service ] && systemctl mask --runtime bluetooth.service 2>/dev/null || true
             systemctl stop "$u" 2>/dev/null || true
         fi
