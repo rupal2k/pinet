@@ -523,8 +523,14 @@ def draw_stat_box(draw, x, y, w, h, label, value, secondary, icon_fn):
     draw.text((text_x, y + 20), value_text, font=value_font, fill=0)
 
     if secondary:
-        secondary_text, secondary_font = fit_text(draw, secondary, FONT_REGULAR_PATH, 13, 9, max_width)
-        draw.text((text_x, y + h - 20), secondary_text, font=secondary_font, fill=0)
+        # Centred across the whole tile, not indented to text_x like the label
+        # and value: the icon sits on the value row, so nothing occupies the
+        # left of this row and a short secondary (a 10.10.10.1, a "Hum 71%")
+        # left-aligned at text_x reads as pushed off-centre. Fit to the full
+        # width for the same reason.
+        secondary_text, secondary_font = fit_text(draw, secondary, FONT_REGULAR_PATH, 13, 9, w - 6)
+        sec_w = draw.textlength(secondary_text, font=secondary_font)
+        draw.text((x + (w - sec_w) / 2, y + h - 20), secondary_text, font=secondary_font, fill=0)
 
 
 def draw_mini_stat(draw, x, y, w, h, icon_fn, text):
