@@ -757,11 +757,11 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False):
             )
             draw.text((qx, qy + qr_size + 2), caption_text, font=caption_font, fill=0)
     else:
-        # PINET is down (on-demand default). Keep the "Hotspot inactive"
+        # PINET is down (on-demand default). Keep the "Portal not active"
         # notice, and use the rest of the screen for a Spotify (raspotify)
         # now-playing panel.
         icons.offline(draw, 22, 30, size=8)
-        draw.text((36, 22), "Hotspot inactive", font=FONT_SMALL, fill=0)
+        draw.text((36, 22), "Portal not active", font=FONT_SMALL, fill=0)
         draw.line((10, 42, W - 10, 42), fill=0)
 
         sp = get_spotify_status()

@@ -163,6 +163,11 @@ def _conf_for(role):
     return PASSWORD_CONF if role == "admin" else GUEST_CONF
 
 
+def _session_valid():
+    tag = _cred_tag(_conf_for(session.get("role")))
+    return bool(session.get("authed")) and tag is not None and session.get("cred") == tag
+
+
 def is_admin():
     return session.get("role") == "admin"
 
@@ -224,8 +229,7 @@ def require_login():
     # password, gate the whole thing" from the auth-scope decision.
     if request.endpoint in ("login", "static"):
         return
-    tag = _cred_tag(_conf_for(session.get("role")))
-    if not session.get("authed") or tag is None or session.get("cred") != tag:
+    if not _session_valid():
         session.clear()
         return redirect(url_for("login", next=request.path))
 
@@ -248,6 +252,11 @@ def require_login():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
+    # Already signed in (the kiosk shortcut, or a guest re-opening the
+    # captive link): go straight to the board instead of asking again.
+    if request.method == "GET" and _session_valid():
+        # Keep ?kiosk=1 so app.js on the board can still remember the kiosk.
+        return redirect(url_for("board", kiosk="1" if request.args.get("kiosk") == "1" else None))
     if request.method == "POST":
         ip = request.remote_addr
         locked, remaining = is_locked_out(ip)

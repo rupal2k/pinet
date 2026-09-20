@@ -203,4 +203,19 @@
       if (!window.confirm(f.getAttribute("data-confirm"))) e.preventDefault();
     });
   });
+
+  // ---- kiosk mode (Pi desktop shortcut opens /login?kiosk=1) ----
+  // Remembered in this browser only, so phones never get it; the class keeps
+  // the header clear of dsi-kiosk's close button in the top-left corner.
+  try {
+    if (/[?&]kiosk=1\b/.test(location.search)) localStorage.setItem("pinetKiosk", "1");
+    if (localStorage.getItem("pinetKiosk") === "1") document.documentElement.classList.add("kiosk");
+  } catch (e) { /* storage disabled: no kiosk spacing, nothing else changes */ }
+
+  // ---- image thumbnails: fall back to the file-type icon if one can't load ----
+  document.querySelectorAll("img[data-thumb]").forEach(function (img) {
+    var drop = function () { img.remove(); };
+    if (img.complete && img.naturalWidth === 0) drop();
+    else img.addEventListener("error", drop);
+  });
 })();

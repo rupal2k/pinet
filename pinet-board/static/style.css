@@ -92,6 +92,7 @@ textarea { min-height: 72px; resize: vertical; }
 }
 .icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
 .icon-btn svg { width: 20px; height: 20px; }
+.icon-btn.is-showing { color: var(--accent); }   /* password is revealed */
 
 button, .btn {
   padding: 13px 20px; font-size: 15px; font-weight: 700; border: none; border-radius: var(--radius-sm);
@@ -134,12 +135,12 @@ button svg { width: 18px; height: 18px; }
 
 /* ---- board page ---- */
 .page { max-width: 680px; margin: 0 auto; }
-.page-header { padding: 6px 2px 18px; }
 .storage-pill {
   display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted);
   background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px 6px 10px;
 }
 .storage-pill svg { width: 13px; height: 13px; flex: none; }
+.storage-text { white-space: nowrap; }
 .storage-track {
   width: 44px; height: 5px; border-radius: 999px; background: var(--bg-inset); overflow: hidden; flex: none;
 }
@@ -192,36 +193,53 @@ body.tabs-on .tab-panel.is-active { display: block; }
 
 .empty { color: var(--text-muted); font-size: 13.5px; padding: 6px 0; text-align: center; }
 
-/* ---- files: responsive grid of cards with thumbnails ---- */
-.file-grid {
-  display: grid; gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+/* ---- files: compact rows (56px thumb, name/meta, 44px actions) ---- */
+.file-list { list-style: none; margin: 0; padding: 0; }
+.file-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border);
 }
-.file-card {
-  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-md);
-  overflow: hidden; display: flex; flex-direction: column;
+.file-row:last-child { border-bottom: none; }
+.file-row .thumb {
+  position: relative; width: 56px; height: 56px; flex: none; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; color: var(--text-muted);
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  transition: border-color .15s ease, color .15s ease;
 }
-.file-card .thumb {
-  display: block; aspect-ratio: 4 / 3; background: var(--bg);
-  border-bottom: 1px solid var(--border); text-decoration: none;
+.file-row .thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.file-row .thumb-icon { display: flex; }
+.file-row .thumb-icon svg { width: 24px; height: 24px; }
+.file-row .thumb:hover, .file-row .thumb:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.file-info { flex: 1; min-width: 0; }
+.file-info .filename {
+  font-size: 14px; font-weight: 700; line-height: 1.35; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.file-card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.file-card .thumb-icon { display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
-.file-card .thumb-icon svg { width: 34px; height: 34px; }
-.file-card .thumb:hover { border-color: var(--accent); }
-.file-card .thumb-icon:hover { color: var(--accent); }
-.file-info { padding: 10px 12px 6px; flex: 1; min-width: 0; }
-.file-info .filename { font-size: 13px; font-weight: 700; word-break: break-word; line-height: 1.35; }
-.file-info .meta { font-size: 11px; }
-.file-actions { display: flex; gap: 6px; padding: 8px 10px 10px; }
+.file-info .meta { font-size: 12px; }
+.file-actions { display: flex; gap: 6px; flex: none; }
 .fa-btn {
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-  text-align: center; font-size: 12.5px; font-weight: 700; padding: 8px 6px; min-height: 38px;
-  border-radius: 9px; background: var(--bg-elevated); border: 1px solid var(--border-strong);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 44px; min-height: 44px; padding: 0 12px; font-size: 13px; font-weight: 700;
+  border-radius: var(--radius-sm); background: var(--bg-elevated); border: 1px solid var(--border-strong);
   color: var(--text); text-decoration: none; transition: border-color .15s ease, color .15s ease;
 }
-.fa-btn svg { width: 15px; height: 15px; }
-.fa-btn:hover { border-color: var(--accent); color: var(--accent); }
+.fa-btn svg { width: 16px; height: 16px; flex: none; }
+.fa-label { white-space: nowrap; }
+.fa-btn:hover, .fa-btn:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+.fa-del { margin: 0; display: flex; }
+.fa-btn-danger { width: 44px; padding: 0; color: var(--danger); background: transparent; }
+.fa-btn-danger:hover, .fa-btn-danger:focus-visible { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+/* Narrow phones: actions move under the name so it keeps the full width. */
+@media (max-width: 479px) {
+  .file-row {
+    display: grid; grid-template-columns: 56px 1fr; gap: 4px 12px; align-items: start;
+    grid-template-areas: "thumb info" "thumb actions";
+  }
+  .file-row .thumb { grid-area: thumb; }
+  .file-row .file-info { grid-area: info; }
+  .file-row .file-actions { grid-area: actions; }
+  .fa-del { margin-left: auto; }   /* keep delete apart from View/Get */
+  .file-row .file-actions { width: 100%; }
+}
 
 .upload-tip { display: flex; gap: 8px; margin: 0 0 14px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
 .upload-tip svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
@@ -248,17 +266,39 @@ body.tabs-on .tab-panel.is-active { display: block; }
 
 .footer { text-align: center; font-size: 11.5px; color: var(--text-muted); margin: 20px 0 6px; }
 
-/* ---- session bar (role badge + logout) ---- */
-.session-bar { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+/* ---- header: logo, storage and session on one row ---- */
+.page-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 2px 2px 14px; }
+.page-header .brand { margin: 0; }
+.session-bar { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .role-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; text-transform: uppercase; letter-spacing: .04em; }
 .role-admin { background: var(--accent); color: var(--accent-contrast); }
 .role-guest { background: var(--bg-inset); color: var(--text-muted); border: 1px solid var(--border); }
-.logout-link { font-size: 12px; font-weight: 700; color: var(--text-muted); text-decoration: none; margin-left: auto; }
-.logout-link:hover { color: var(--accent); }
+.logout-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 8px;
+  font-size: 13px; font-weight: 700; color: var(--text-muted); text-decoration: none; border-radius: var(--radius-sm);
+}
+.logout-link:hover, .logout-link:focus-visible { color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent); }
 
-/* ---- admin-only file delete ---- */
-.file-actions { flex-wrap: wrap; }
-.fa-del { flex: 1 1 100%; margin: 0; display: flex; }
-.fa-del .fa-btn { width: 100%; }
-.fa-btn-danger { color: var(--danger); }
-.fa-btn-danger:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+/* ---- wide screens (Pi kiosk 800x480, tablets, laptops): compose | list ---- */
+@media (min-width: 760px) {
+  .page { max-width: 1100px; }
+  .tab-panel { display: grid; grid-template-columns: minmax(280px, 2fr) 3fr; gap: 16px; align-items: start; }
+  body.tabs-on .tab-panel.is-active { display: grid; }
+  .tab-panel > .section { margin-bottom: 0; }
+  .tab-panel > .section:first-child { position: sticky; top: 76px; }
+}
+/* Short landscape screens (the Pi's 800x480): tighten chrome, scroll lists in place. */
+@media (min-width: 760px) and (max-height: 560px) {
+  body { padding: 10px 14px; }
+  .page-header { padding-bottom: 8px; }
+  .tabs { margin-bottom: 10px; padding: 3px; }
+  .tab { padding: 8px; }
+  .card { padding: 14px 16px; box-shadow: none; }
+  h2 { margin-bottom: 10px; }
+  .tab-panel > .section:first-child { top: 64px; }
+  .tab-panel > .section:last-child { max-height: calc(100vh - 128px); overflow-y: auto; }
+  .upload-tip { display: none; }   /* phone-only advice */
+  .footer { display: none; }
+}
+/* Opened from the Pi desktop (dsi-kiosk, close button top-left): keep clear of it. */
+html.kiosk .page-header { padding-left: 64px; }
