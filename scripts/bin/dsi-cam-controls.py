@@ -6,9 +6,11 @@ deliver taps to web content -- so in-page buttons never fire. These controls
 are instead a Wayland layer-shell overlay (GTK, like dsi-close-button.py, which
 is proven tappable), sitting above the cog view. Tapping a button POSTs to the
 localhost dsi-cam-server capture endpoints; captures are saved to
-/mnt/pinet-media/camera.
+/mnt/pinet-media/camera, and FILES opens that folder in the file manager.
 """
 import json
+import shutil
+import subprocess
 import threading
 import urllib.request
 
@@ -20,6 +22,8 @@ gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
 
 BASE = "http://127.0.0.1:8081"
+# Same directory dsi-cam-server.py writes captures to.
+MEDIA_DIR = "/mnt/pinet-media/camera"
 
 CSS = b"""
 window { background-color: rgba(0, 0, 0, 0); }
@@ -34,8 +38,8 @@ button {
     border: 3px solid rgba(255, 255, 255, 0.85);
     border-radius: 14px;
     font-size: 22px; font-weight: bold;
-    min-width: 120px; min-height: 60px;
-    margin: 0 10px; padding: 0 6px;
+    min-width: 110px; min-height: 60px;
+    margin: 0 8px; padding: 0 6px;
 }
 button:active { background-color: rgba(90, 90, 90, 0.8); }
 button#rec.recording { border-color: #ff4136; color: #ff4136; }
@@ -82,8 +86,10 @@ def main():
     photo_btn = Gtk.Button(label="PHOTO")
     rec_btn = Gtk.Button(label="REC")
     rec_btn.set_name("rec")
+    files_btn = Gtk.Button(label="FILES")
     row.pack_start(photo_btn, False, False, 0)
     row.pack_start(rec_btn, False, False, 0)
+    row.pack_start(files_btn, False, False, 0)
     outer.pack_start(row, False, False, 0)
     window.add(outer)
 
@@ -143,8 +149,22 @@ def main():
         status.set_text(msg)
         return False
 
+    def on_files(_btn):
+        # The kiosk stays up; the file manager opens over it, and the overlay
+        # close button is still there to get back to the desktop.
+        fm = shutil.which("pcmanfm") or shutil.which("xdg-open")
+        if fm is None:
+            set_status("No file manager")
+            return
+        try:
+            subprocess.Popen([fm, MEDIA_DIR])
+            set_status("Opening " + MEDIA_DIR)
+        except OSError:
+            set_status("Could not open folder")
+
     photo_btn.connect("clicked", on_photo)
     rec_btn.connect("clicked", on_rec)
+    files_btn.connect("clicked", on_files)
     window.connect("destroy", Gtk.main_quit)
     window.show_all()
     Gtk.main()

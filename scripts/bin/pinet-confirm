@@ -2,50 +2,93 @@
 # Confirm-then-run wrapper behind the Start PINET / Stop PINET desktop
 # shortcuts. The shortcuts used to call pinet-start/pinet-stop straight away,
 # so a stray double-click on the touchscreen tore the hotspot down under
-# whoever was connected, with no feedback either way.
+# whoever was connected, with no prompt and no feedback either way.
 #
-# What the dialog says depends on what is actually running, so "Start" on an
-# already-up PINET reports that instead of pointlessly re-running the units.
+# Two dialogs per click: ask first (what it says depends on what is actually
+# running), then report the state of all five services once the action has
+# finished, with an OK button to dismiss.
 #   usage: pinet-confirm start|stop
 set -u
 
 ACTION="${1:-}"
 UNITS=(pinet-ap-network.service hostapd.service dnsmasq.service
        pinet-board.service stunnel@pinet-board.service)
+# Shown in the dialog instead of unit names -- this is read at arm's length on
+# a 3.5" panel, not in a terminal.
+NAMES=("Hotspot network" "Access point" "DHCP + DNS" "Message board" "HTTPS")
 TITLE="PINET"
 
-# zenity needs a session bus and a display; without one (ssh, a cron run) fall
-# through to doing the thing rather than failing silently on a dialog.
-have_gui() { [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && command -v zenity >/dev/null; }
-ask()  { zenity --question --title="$TITLE" --width=380 --no-wrap \
-                --ok-label="$1" --cancel-label="Cancel" --text="$2"; }
-note() { zenity --info --title="$TITLE" --width=380 --no-wrap --text="$1"; }
-warn() { zenity --error --title="$TITLE" --width=380 --no-wrap --text="$1"; }
+# Dialog text uses $'...' or printf: a "\n" inside plain double quotes is a
+# literal backslash-n to bash, and zenity prints it as one instead of a break.
+#
+# zenity is GTK4 and defaults to the GL renderer, which the Pi 3B's VideoCore
+# cannot give it under labwc: the process starts, fails with "Unable to create
+# a GL context" and never maps a window -- a click that looks like it did
+# nothing. Cairo software rendering draws fine at this size.
+export GSK_RENDERER=cairo GTK_A11Y=none
+# GTK4 reads its user CSS from $XDG_CONFIG_HOME/gtk-4.0/gtk.css, so pointing
+# that at our own directory themes these dialogs -- black on white, Roboto,
+# square, like the e-ink panel -- without touching the desktop's own theme.
+EINK_GTK=/usr/local/share/pinet-eink-gtk
+[ -r "$EINK_GTK/gtk-4.0/gtk.css" ] && export XDG_CONFIG_HOME="$EINK_GTK"
 
-active=0
-for u in "${UNITS[@]}"; do systemctl is-active --quiet "$u" && active=$((active+1)); done
+# zenity needs a display; without one (ssh, cron) do the thing and print the
+# summary to stdout rather than failing on a dialog that can't be drawn.
+have_gui() { [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && command -v zenity >/dev/null; }
+ask()  { zenity --question --title="$TITLE" --width=360 --no-wrap \
+                --ok-label="$1" --cancel-label="Cancel" --text="$2"; }
+note() { zenity --info --title="$TITLE" --width=340 --no-wrap \
+                --ok-label="OK" --text="$1"; }
+warn() { zenity --error --title="$TITLE" --width=340 --no-wrap \
+                --ok-label="OK" --text="$1"; }
+
+count_active() {
+    local n=0 u
+    for u in "${UNITS[@]}"; do systemctl is-active --quiet "$u" && n=$((n + 1)); done
+    printf '%s' "$n"
+}
+
+# One line per service, "running" / "stopped" as words -- a tick alone would
+# put the whole message on colour and shape. <tt> keeps the columns lined up:
+# zenity renders --text as Pango markup, in a proportional font otherwise.
+status_report() {
+    local headline="$1" i state body=""
+    for i in "${!UNITS[@]}"; do
+        if systemctl is-active --quiet "${UNITS[$i]}"; then state="running"; else state="stopped"; fi
+        body+=$(printf '%-18s%s' "${NAMES[$i]}" "$state")$'\n'
+    done
+    printf '%s\n\n<tt>%s</tt>' "$headline" "$body"
+}
+
+# Same text for a terminal or a log: the Pango tags are for zenity only.
+plain() { printf '%s\n' "$1" | sed 's#</\?tt>##g; s#</\?b>##g'; }
+
+active=$(count_active)
 total=${#UNITS[@]}
 
 case "$ACTION" in
   start)
     if [ "$active" -eq "$total" ]; then
-      have_gui && note "PINET is already running.\n\nSSID <b>PINET</b> at 10.10.10.1"
-      exit 0
+      summary=$(status_report "PINET is already running.")
+      have_gui && note "$summary"
+      plain "$summary"; exit 0
     fi
     if [ "$active" -gt 0 ]; then
-      prompt="PINET is only partly up ($active of $total services).\n\nStart the rest?"
+      prompt=$(printf 'PINET is only partly up (%s of %s services).\n\nStart the rest?' \
+                      "$active" "$total")
     else
-      prompt="Start PINET?\n\nThis brings up the <b>PINET</b> hotspot, the message board and stunnel.\nIt draws more power than idle."
+      prompt=$'Start PINET?\n\nThis brings up the <b>PINET</b> hotspot, the message board\nand stunnel. It draws more power than idle.'
     fi
     have_gui && { ask "Start PINET" "$prompt" || exit 0; }
     out=$(sudo -n /usr/local/sbin/pinet-start 2>&1); rc=$?
     ;;
   stop)
     if [ "$active" -eq 0 ]; then
-      have_gui && note "PINET is already stopped."
-      exit 0
+      summary=$(status_report "PINET is already stopped.")
+      have_gui && note "$summary"
+      plain "$summary"; exit 0
     fi
-    prompt="Stop PINET?\n\nAnyone connected to the <b>PINET</b> hotspot will be disconnected\nand the board will go offline."
+    prompt=$'Stop PINET?\n\nAnyone connected to the <b>PINET</b> hotspot will be\ndisconnected and the board will go offline.'
     have_gui && { ask "Stop PINET" "$prompt" || exit 0; }
     out=$(sudo -n /usr/local/sbin/pinet-stop 2>&1); rc=$?
     ;;
@@ -53,10 +96,26 @@ case "$ACTION" in
     echo "usage: ${0##*/} start|stop" >&2; exit 2 ;;
 esac
 
-if [ "$rc" -eq 0 ]; then
-  have_gui && note "$(echo "$out" | tail -1)"
+# Report what actually happened, re-read from systemd rather than trusting the
+# exit code: a unit can go active and then fail on its own a moment later.
+now_active=$(count_active)
+if [ "$ACTION" = start ]; then
+    if [ "$now_active" -eq "$total" ]; then
+        headline=$'PINET is up.\n\nSSID <b>PINET</b> at 10.10.10.1'
+    else
+        headline="PINET came up only partly ($now_active of $total)."
+    fi
 else
-  have_gui && warn "PINET $ACTION did not finish cleanly:\n\n$(echo "$out" | tail -3)"
+    if [ "$now_active" -eq 0 ]; then headline="PINET is down."
+    else headline="PINET did not fully stop ($now_active of $total still running)."
+    fi
 fi
-echo "$out"
+
+summary=$(status_report "$headline")
+if [ "$rc" -eq 0 ]; then
+    have_gui && note "$summary"
+else
+    have_gui && warn "$(printf '%s\n\n%s' "$summary" "$(printf '%s' "$out" | tail -2)")"
+fi
+plain "$summary"
 exit "$rc"

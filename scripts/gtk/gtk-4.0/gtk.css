@@ -1,0 +1,118 @@
+/* E-ink theme for the PINET dialogs.
+ *
+ * The 2.13" panel is 1-bit: pure black on pure white, Roboto, square edges,
+ * no shadows and no colour anywhere. The Start/Stop dialogs are the same
+ * device speaking, so they look the same.
+ *
+ * This is not a system theme. pinet-confirm points XDG_CONFIG_HOME at the
+ * directory holding this file for the length of one zenity call, so nothing
+ * else on the desktop picks it up.
+ */
+
+:root,
+window,
+window.background,
+.background,
+.dialog-vbox,
+popover > contents {
+    background-color: #ffffff;
+    background-image: none;
+    color: #000000;
+    font-family: "Roboto", sans-serif;
+    font-size: 12pt;
+    border-radius: 0;
+}
+
+/* A drawn frame instead of a drop shadow: the panel has no greys to fade with. */
+window.csd,
+window.dialog,
+window.csd decoration,
+window.dialog decoration,
+window decoration,
+decoration,
+decoration:backdrop {
+    border-radius: 0;
+    border: 2px solid #000000;
+    box-shadow: none;
+    background-color: #ffffff;
+}
+
+window.csd headerbar,
+window.csd .titlebar,
+headerbar > windowhandle,
+headerbar,
+headerbar:backdrop {
+    background-color: #ffffff;
+    background-image: none;
+    border-bottom: 2px solid #000000;
+    box-shadow: none;
+    min-height: 34px;
+    padding: 0 8px;
+}
+
+headerbar label.title,
+headerbar .title {
+    color: #000000;
+    font-weight: 700;
+    font-size: 13pt;
+}
+
+label,
+label:backdrop,
+label:disabled {
+    color: #000000;
+    text-shadow: none;
+}
+
+/* The status list is <tt> so the two columns line up; keep it plain black. */
+label monospace,
+textview text {
+    background-color: #ffffff;
+    color: #000000;
+}
+
+/* Question / info / error all arrive as a colour icon. The panel has no
+ * colour, and the headline already says which one this is. */
+window box image,
+window.dialog image,
+messagedialog image,
+window image {
+    -gtk-icon-size: 0;
+    opacity: 0;
+    margin: 0;
+    min-width: 0;
+}
+
+button,
+button:backdrop {
+    background-color: #ffffff;
+    background-image: none;
+    color: #000000;
+    border: 2px solid #000000;
+    border-radius: 0;
+    box-shadow: none;
+    text-shadow: none;
+    font-weight: 700;
+    min-height: 34px;
+    padding: 4px 16px;
+    margin: 4px;
+}
+
+/* Touch has no hover, so pressed has to be the obvious one: full invert. */
+button:hover {
+    background-color: #ffffff;
+    border-color: #000000;
+}
+
+button:active,
+button:checked {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+/* Focus as a second inner rule, not a colour: the ring would be invisible. */
+button:focus,
+button:focus-visible {
+    outline: 2px solid #000000;
+    outline-offset: -6px;
+}

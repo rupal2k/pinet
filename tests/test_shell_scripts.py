@@ -305,6 +305,61 @@ class PinetConfirm(unittest.TestCase):
         self.assertFalse(self.ran("pinet-start"))
         self.assertFalse(self.ran("pinet-stop"))
 
+    def test_summary_lists_every_service_and_its_state(self):
+        # The dialog after the action is the whole point: it must name all five
+        # services and say which are up, not just echo pinet-start's last line.
+        self.h.set_active(*self.UNITS[:3])
+        r = self.h.run("stop")
+        for label in ("Hotspot network", "Access point", "DHCP + DNS",
+                      "Message board", "HTTPS"):
+            self.assertIn(label, r.stdout)
+        self.assertIn("stopped", r.stdout)
+
+    def test_summary_is_printed_even_when_nothing_was_done(self):
+        self.h.set_active()
+        r = self.h.run("stop")
+        self.assertIn("PINET is already stopped.", r.stdout)
+        self.assertIn("Message board", r.stdout)
+
+    def test_state_is_reread_after_the_action_not_assumed(self):
+        # pinet-start "succeeds" but leaves two units down; the summary has to
+        # show that rather than claiming PINET is up.
+        self.h.set_active()
+        self.h._write_exec(
+            self.h.bin / "pinet-start",
+            '#!/bin/bash\necho "pinet-start ran" >> "$FAKE_DIR/calls.log"\n'
+            'for u in pinet-ap-network.service hostapd.service dnsmasq.service; do\n'
+            '  echo "$u" >> "$FAKE_DIR/active"\ndone\nexit 0\n')
+        r = self.h.run("start")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("only partly", r.stdout)
+        self.assertIn("3 of 5", r.stdout)
+
+    def test_zenity_is_forced_onto_the_cairo_renderer(self):
+        # GTK4 zenity picks the GL renderer by default and the Pi 3B cannot
+        # provide a GL context under labwc -- the dialog silently never
+        # appears. Without this export the whole feature is invisible.
+        src = (REPO / "scripts/bin/pinet-confirm").read_text()
+        self.assertRegex(src, r"export .*GSK_RENDERER=cairo")
+
+    def test_dialog_text_has_no_literal_backslash_n(self):
+        # bash leaves a literal backslash-n alone inside double quotes, and zenity
+        # prints it as one. Line breaks must come from $'...' or printf.
+        src = (REPO / "scripts/bin/pinet-confirm").read_text()
+        for line in src.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("prompt=\"", "headline=\"")):
+                self.assertNotIn("\\n", stripped, line)
+        self.h.set_active()
+        self.h._write_exec(
+            self.h.bin / "pinet-start",
+            '#!/bin/bash\necho "pinet-start ran" >> "$FAKE_DIR/calls.log"\n'
+            'for u in ' + " ".join(self.UNITS) + '; do\n'
+            '  echo "$u" >> "$FAKE_DIR/active"\ndone\nexit 0\n')
+        r = self.h.run("start")
+        self.assertIn("PINET is up.", r.stdout)
+        self.assertNotIn("\\n", r.stdout)
+
     def test_failure_is_reported_as_nonzero(self):
         self.h.set_active()
         self.h._write_exec(self.h.bin / "pinet-start",

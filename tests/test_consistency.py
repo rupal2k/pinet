@@ -73,6 +73,15 @@ def referenced_units():
 class Consistency(unittest.TestCase):
     maxDiff = None
 
+    def test_camera_controls_open_the_folder_the_server_writes_to(self):
+        # The FILES button is only useful if it lands where captures go, and
+        # the two scripts each keep their own copy of that path.
+        server = repo_path("scripts/bin/dsi-cam-server.py").read_text()
+        controls = repo_path("scripts/bin/dsi-cam-controls.py").read_text()
+        pat = re.compile(r'^MEDIA_DIR = "([^"]+)"', re.M)
+        self.assertEqual(pat.findall(server), pat.findall(controls))
+        self.assertTrue(pat.findall(server), "MEDIA_DIR not found in cam server")
+
     def test_desktop_exec_targets_ship(self):
         missing = []
         for name, e in desktop_entries().items():
