@@ -86,7 +86,7 @@ the device (`/etc/pinet-board/`, `/etc/hostapd/hostapd.conf`) — set your own.
 
 These files map onto a running Raspberry Pi OS install: `scripts/bin` →
 `/usr/local/bin`, `scripts/sbin` → `/usr/local/sbin`, `systemd/` →
-`/etc/systemd/system/`, `etc/` → `/etc/`, `desktop/` → `~/Desktop` +
+`/etc/systemd/system/`, `etc/` → `/etc/`, `config/` → `~/.config/`, `desktop/` → `~/Desktop` +
 `~/.local/share/icons`, `eink-dashboard/` → `~/pi-eink-dashboard`, `pinet-board/`
 → `/opt/pinet-board`. The e-ink app has its own `scripts/install.sh`. This is a
 personal single-device project; adapt paths/users to your setup.

@@ -1,0 +1,76 @@
+/* ~/.config/gtk-3.0/gtk.css -- rounding for GTK3 apps (pcmanfm, lxterminal,
+ * the panel's menus).
+ *
+ * labwc rounds the windows it decorates itself, but every GTK app draws its
+ * own frame and its own menus, so the same curve has to be stated here or the
+ * desktop comes out half round and half square.
+ *
+ * Corners only. No blur, no gradients, no animation: this is a Pi 3B with a
+ * software-ish GL stack, and a radius costs nothing per frame.
+ *
+ * The PINET confirm dialogs deliberately do NOT follow this -- they point
+ * XDG_CONFIG_HOME at their own e-ink theme, which is square on purpose.
+ */
+
+/* Client-side decorated windows. Bottom corners too: nothing here has a
+ * status bar flush to the frame. */
+decoration {
+    border-radius: 12px;
+}
+
+decoration:backdrop {
+    border-radius: 12px;
+}
+
+/* Maximised and tiled windows stay square -- a rounded corner against the
+ * screen edge just shows the wallpaper through a notch. */
+window.maximized decoration,
+window.fullscreen decoration,
+window.tiled decoration {
+    border-radius: 0;
+}
+
+headerbar,
+headerbar:backdrop {
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+/* Menus and popovers. Under Wayland a GTK3 menu is its own surface, and the
+ * corner is cut on that surface's decoration node -- rounding the menu node
+ * alone leaves the background painted square underneath. */
+window.popup decoration,
+popup decoration {
+    border-radius: 10px;
+}
+
+menu,
+.menu,
+.context-menu,
+popover.background,
+popover.background > contents {
+    border-radius: 10px;
+    padding: 4px 0;
+}
+
+/* Inset highlight rather than a full-width bar, which is the detail that
+ * reads as "mac" more than the window corners do. */
+menu menuitem,
+.menu menuitem,
+popover.background modelbutton {
+    border-radius: 6px;
+    margin: 0 4px;
+    min-height: 26px;
+}
+
+tooltip,
+tooltip.background {
+    border-radius: 8px;
+}
+
+/* Entries and buttons, softened to match without becoming pills. */
+entry,
+button,
+notebook > header > tabs > tab {
+    border-radius: 7px;
+}

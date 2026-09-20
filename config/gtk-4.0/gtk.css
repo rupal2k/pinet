@@ -1,0 +1,43 @@
+/* ~/.config/gtk-4.0/gtk.css -- same rounding as the GTK3 file, for GTK4 apps.
+ *
+ * The PINET confirm dialogs are GTK4 too but never see this: pinet-confirm
+ * points XDG_CONFIG_HOME at /usr/local/share/pinet-eink-gtk, whose theme is
+ * square on purpose to match the e-ink panel.
+ */
+
+window.csd,
+window.csd decoration {
+    border-radius: 12px;
+}
+
+window.maximized decoration,
+window.fullscreen decoration {
+    border-radius: 0;
+}
+
+headerbar {
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+popover > contents,
+popover > arrow {
+    border-radius: 10px;
+    padding: 4px 0;
+}
+
+popover modelbutton,
+popover > contents button {
+    border-radius: 6px;
+    margin: 0 4px;
+    min-height: 26px;
+}
+
+tooltip {
+    border-radius: 8px;
+}
+
+entry,
+button {
+    border-radius: 7px;
+}

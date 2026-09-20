@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- ~/.config/labwc/rc.xml -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+	<touch deviceName="10-0038 generic ft5x06 (00)" mapToOutput="DSI-1" mouseEmulation="yes"/>
+	<windowRules>
+		<windowRule title="pqiv:*" serverDecoration="no" />
+	</windowRules>
+	<!-- Softer window corners and a shadow under the focused window, the way
+	     macOS floats its windows. Shadow sizes are cut well below labwc's
+	     60/40 defaults: this GPU fills every shadow pixel each frame, and at
+	     800x480 a 22px shadow already reads as depth. -->
+	<theme>
+		<cornerRadius>12</cornerRadius>
+		<dropShadows>yes</dropShadows>
+		<dropShadowsOnTiled>no</dropShadowsOnTiled>
+	</theme>
+</openbox_config>
