@@ -241,6 +241,47 @@ class DsiBacklight(HarnessCase):
 
 
 
+class PinetKeyboard(unittest.TestCase):
+    """The on-screen keyboard has no hide key; this script is the only way off
+    the screen, so it has to ask for the right thing every time."""
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/pinet-keyboard")
+        self.addCleanup(self.h.cleanup)
+
+    def fake_busctl(self, visible):
+        self.h._write_exec(
+            self.h.bin / "busctl",
+            '#!/bin/bash\n'
+            'if [ "$2" = get-property ]; then echo "b ' + visible + '"; exit 0; fi\n'
+            'echo "$@" >> "$FAKE_DIR/calls.log"\nexit 0\n')
+
+    def called_with(self):
+        return " ".join(self.h.calls())
+
+    def test_toggle_hides_a_visible_keyboard(self):
+        self.fake_busctl("true")
+        r = self.h.run("toggle")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("SetVisible b false", self.called_with())
+
+    def test_toggle_shows_a_hidden_keyboard(self):
+        self.fake_busctl("false")
+        self.h.run("toggle")
+        self.assertIn("SetVisible b true", self.called_with())
+
+    def test_hide_always_hides(self):
+        self.fake_busctl("false")
+        self.h.run("hide")
+        self.assertIn("SetVisible b false", self.called_with())
+
+    def test_bad_argument_is_usage_error(self):
+        self.fake_busctl("true")
+        r = self.h.run("wiggle")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(self.h.calls(), [])
+
+
 class PinetConfirm(unittest.TestCase):
     """pinet-confirm decides from the live unit state, so a stray double-click
     can't tear the hotspot down under whoever is connected. zenity is absent
