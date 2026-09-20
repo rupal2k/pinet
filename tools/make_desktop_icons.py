@@ -96,13 +96,6 @@ ICONS = {
                        neon("M24 12 L12 33 M24 12 L36 31 M12 33 L36 31 M24 12 V25 M24 25 L12 33 M24 25 L36 31")
                        + dot(24, 12, 3.2, CYAN) + dot(12, 33, 3.2, CYAN) + dot(36, 31, 3.2, CYAN)
                        + dot(24, 25, 2.6, MAGENTA)),
-    "keyboard-toggle": ("Show or hide the on-screen keyboard",
-                        neon("M9 16 H39 V31 H9 Z")
-                        + neon("M13 20 H16 M19 20 H22 M25 20 H28 M31 20 H34")
-                        + neon("M13 24.5 H19 M22 24.5 H26 M29 24.5 H35")
-                        + neon("M18 28 H30", CYAN)
-                        # chevron down: the same tap puts it away again
-                        + neon("M18 36 L24 41 L30 36", MAGENTA)),
 }
 
 if __name__ == "__main__":

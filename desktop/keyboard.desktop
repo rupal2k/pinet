@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Keyboard
-Comment=Show or hide the on-screen keyboard
-Exec=/usr/local/bin/pinet-keyboard
-Icon=/home/rupal/.local/share/icons/keyboard-toggle.svg
-Terminal=false
-Categories=Utility;

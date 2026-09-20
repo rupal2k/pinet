@@ -22,14 +22,6 @@ decoration:backdrop {
     border-radius: 12px;
 }
 
-/* Maximised and tiled windows stay square -- a rounded corner against the
- * screen edge just shows the wallpaper through a notch. */
-window.maximized decoration,
-window.fullscreen decoration,
-window.tiled decoration {
-    border-radius: 0;
-}
-
 headerbar,
 headerbar:backdrop {
     border-top-left-radius: 12px;

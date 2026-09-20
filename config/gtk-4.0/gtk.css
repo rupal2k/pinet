@@ -10,11 +10,6 @@ window.csd decoration {
     border-radius: 12px;
 }
 
-window.maximized decoration,
-window.fullscreen decoration {
-    border-radius: 0;
-}
-
 headerbar {
     border-top-left-radius: 12px;
     border-top-right-radius: 12px;
