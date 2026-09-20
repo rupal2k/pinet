@@ -1,0 +1,62 @@
+#!/bin/bash
+# Confirm-then-run wrapper behind the Start PINET / Stop PINET desktop
+# shortcuts. The shortcuts used to call pinet-start/pinet-stop straight away,
+# so a stray double-click on the touchscreen tore the hotspot down under
+# whoever was connected, with no feedback either way.
+#
+# What the dialog says depends on what is actually running, so "Start" on an
+# already-up PINET reports that instead of pointlessly re-running the units.
+#   usage: pinet-confirm start|stop
+set -u
+
+ACTION="${1:-}"
+UNITS=(pinet-ap-network.service hostapd.service dnsmasq.service
+       pinet-board.service stunnel@pinet-board.service)
+TITLE="PINET"
+
+# zenity needs a session bus and a display; without one (ssh, a cron run) fall
+# through to doing the thing rather than failing silently on a dialog.
+have_gui() { [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && command -v zenity >/dev/null; }
+ask()  { zenity --question --title="$TITLE" --width=380 --no-wrap \
+                --ok-label="$1" --cancel-label="Cancel" --text="$2"; }
+note() { zenity --info --title="$TITLE" --width=380 --no-wrap --text="$1"; }
+warn() { zenity --error --title="$TITLE" --width=380 --no-wrap --text="$1"; }
+
+active=0
+for u in "${UNITS[@]}"; do systemctl is-active --quiet "$u" && active=$((active+1)); done
+total=${#UNITS[@]}
+
+case "$ACTION" in
+  start)
+    if [ "$active" -eq "$total" ]; then
+      have_gui && note "PINET is already running.\n\nSSID <b>PINET</b> at 10.10.10.1"
+      exit 0
+    fi
+    if [ "$active" -gt 0 ]; then
+      prompt="PINET is only partly up ($active of $total services).\n\nStart the rest?"
+    else
+      prompt="Start PINET?\n\nThis brings up the <b>PINET</b> hotspot, the message board and stunnel.\nIt draws more power than idle."
+    fi
+    have_gui && { ask "Start PINET" "$prompt" || exit 0; }
+    out=$(sudo -n /usr/local/sbin/pinet-start 2>&1); rc=$?
+    ;;
+  stop)
+    if [ "$active" -eq 0 ]; then
+      have_gui && note "PINET is already stopped."
+      exit 0
+    fi
+    prompt="Stop PINET?\n\nAnyone connected to the <b>PINET</b> hotspot will be disconnected\nand the board will go offline."
+    have_gui && { ask "Stop PINET" "$prompt" || exit 0; }
+    out=$(sudo -n /usr/local/sbin/pinet-stop 2>&1); rc=$?
+    ;;
+  *)
+    echo "usage: ${0##*/} start|stop" >&2; exit 2 ;;
+esac
+
+if [ "$rc" -eq 0 ]; then
+  have_gui && note "$(echo "$out" | tail -1)"
+else
+  have_gui && warn "PINET $ACTION did not finish cleanly:\n\n$(echo "$out" | tail -3)"
+fi
+echo "$out"
+exit "$rc"

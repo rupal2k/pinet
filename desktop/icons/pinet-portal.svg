@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
   <title>PINET Portal message board</title>
-  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#00e5ff" stroke-opacity="0.38" stroke-width="1.4"/>
-  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#00e5ff" stroke-width="1.8"/>
-  <path d="M24 8 C29 10 34 15 35 23 C36 29 37 33 40 38 H8 C11 33 12 29 13 23 C14 15 19 10 24 8 Z" stroke="#00e5ff" stroke-width="5.6" stroke-opacity="0.22"/><path d="M24 8 C29 10 34 15 35 23 C36 29 37 33 40 38 H8 C11 33 12 29 13 23 C14 15 19 10 24 8 Z" stroke="#00e5ff" stroke-width="2.4" stroke-opacity="1.00"/><path d="M17 30 C17 22 20 18 24 18 C28 18 31 22 31 30 C28 32 20 32 17 30 Z" fill="#050608" stroke="#00e5ff" stroke-width="2.4"/><path d="M19.8 24.6 L22.6 26 M28.2 24.6 L25.4 26" stroke="#ff2bd6" stroke-width="5.6" stroke-opacity="0.22"/><path d="M19.8 24.6 L22.6 26 M28.2 24.6 L25.4 26" stroke="#ff2bd6" stroke-width="2.4" stroke-opacity="1.00"/>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#e8e8e8" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#e8e8e8" stroke-width="1.8"/>
+  <path d="M24 8 C29 10 34 15 35 23 C36 29 37 33 40 38 H8 C11 33 12 29 13 23 C14 15 19 10 24 8 Z" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.22"/><path d="M24 8 C29 10 34 15 35 23 C36 29 37 33 40 38 H8 C11 33 12 29 13 23 C14 15 19 10 24 8 Z" stroke="#e8e8e8" stroke-width="2.4" stroke-opacity="1.00"/><path d="M17 30 C17 22 20 18 24 18 C28 18 31 22 31 30 C28 32 20 32 17 30 Z" fill="#050608" stroke="#e8e8e8" stroke-width="2.4"/><path d="M19.8 24.6 L22.6 26 M28.2 24.6 L25.4 26" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.22"/><path d="M19.8 24.6 L22.6 26 M28.2 24.6 L25.4 26" stroke="#e8e8e8" stroke-width="2.4" stroke-opacity="1.00"/>
 </svg>

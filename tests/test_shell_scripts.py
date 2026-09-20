@@ -240,5 +240,78 @@ class DsiBacklight(HarnessCase):
         self.assertIn("no backlight device found", r.stderr)
 
 
+
+class PinetConfirm(unittest.TestCase):
+    """pinet-confirm decides from the live unit state, so a stray double-click
+    can't tear the hotspot down under whoever is connected. zenity is absent
+    from the stub PATH, so have_gui() is false and the status branch runs
+    headless -- which is exactly the part worth asserting."""
+
+    UNITS = ["pinet-ap-network.service", "hostapd.service", "dnsmasq.service",
+             "pinet-board.service", "stunnel@pinet-board.service"]
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/pinet-confirm")
+        self.addCleanup(self.h.cleanup)
+        # sudo drops its flags and runs the rest; pinet-start/stop just log.
+        self.h._write_exec(self.h.bin / "sudo",
+                           '#!/bin/bash\nwhile [ "${1:0:1}" = - ]; do shift; done\nexec "$@"\n')
+        for name in ("pinet-start", "pinet-stop"):
+            self.h._write_exec(
+                self.h.bin / name,
+                f'#!/bin/bash\necho "{name} ran" >> "$FAKE_DIR/calls.log"\necho "PINET {name}ed"\n')
+
+    def ran(self, name):
+        return any(line.startswith(name + " ran") for line in self.h.calls())
+
+    def test_start_when_already_up_does_not_rerun(self):
+        self.h.set_active(*self.UNITS)
+        r = self.h.run("start")
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse(self.ran("pinet-start"))
+
+    def test_start_when_down_runs_it(self):
+        self.h.set_active()
+        r = self.h.run("start")
+        self.assertEqual(r.returncode, 0)
+        self.assertTrue(self.ran("pinet-start"))
+
+    def test_start_when_partly_up_runs_it(self):
+        self.h.set_active(*self.UNITS[:2])
+        self.h.run("start")
+        self.assertTrue(self.ran("pinet-start"))
+
+    def test_stop_when_already_down_does_not_rerun(self):
+        self.h.set_active()
+        r = self.h.run("stop")
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse(self.ran("pinet-stop"))
+
+    def test_stop_when_up_runs_it(self):
+        self.h.set_active(*self.UNITS)
+        r = self.h.run("stop")
+        self.assertEqual(r.returncode, 0)
+        self.assertTrue(self.ran("pinet-stop"))
+
+    def test_stop_when_partly_up_still_runs_it(self):
+        self.h.set_active(self.UNITS[0])
+        self.h.run("stop")
+        self.assertTrue(self.ran("pinet-stop"))
+
+    def test_bad_argument_is_usage_error(self):
+        r = self.h.run("restart")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("usage", r.stderr)
+        self.assertFalse(self.ran("pinet-start"))
+        self.assertFalse(self.ran("pinet-stop"))
+
+    def test_failure_is_reported_as_nonzero(self):
+        self.h.set_active()
+        self.h._write_exec(self.h.bin / "pinet-start",
+                           '#!/bin/bash\necho "FAILED hostapd.service" >&2\nexit 1\n')
+        r = self.h.run("start")
+        self.assertEqual(r.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

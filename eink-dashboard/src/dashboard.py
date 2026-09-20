@@ -496,6 +496,16 @@ def fit_text(draw, text, font_path, max_size, min_size, max_width):
     return (trimmed + ".." if trimmed else ".."), font
 
 
+def _centre_block(draw, width, icon_size, gap, lines, font):
+    """x for an icon and for a left-aligned text column, so the icon plus the
+    widest line sits centred in *width*. Text lines stay left-aligned with each
+    other -- centring each line separately would make an IP jitter under its
+    label every time the address changes length."""
+    text_w = max(draw.textlength(line, font=font) for line in lines)
+    x_icon = (width - (icon_size + gap + text_w)) / 2
+    return int(x_icon), int(x_icon + icon_size + gap)
+
+
 def draw_stat_box(draw, x, y, w, h, label, value, secondary, icon_fn):
     """The hero tile: a large value takes the visual weight, with quiet
     label/secondary text around it. Only weather and network use this --
@@ -671,13 +681,19 @@ def render_qr_screen(epd, ssid, password, net, dark_mode=False):
         # explicitly tells the user "you're on Ethernet", so it gets the
         # most prominent rendering of the icon, unlike its compact use in
         # the NETWORK hero box on the status screen.
-        icons.wired(draw, 18, H // 2 - 18, size=24)
-        draw.text((52, H // 2 - 14), "Connected via Ethernet", font=FONT_SMALL, fill=0)
-        draw.text((52, H // 2 + 2), net["ip"], font=FONT_SMALL, fill=0)
+        # Centred as one icon+text group: the x values used to be hard-coded,
+        # which left the whole block sitting left of centre on the panel.
+        x_icon, x_text = _centre_block(draw, W, 24, 10,
+                                       ["Connected via Ethernet", net["ip"]], FONT_SMALL)
+        icons.wired(draw, x_icon, H // 2 - 18, size=24)
+        draw.text((x_text, H // 2 - 14), "Connected via Ethernet", font=FONT_SMALL, fill=0)
+        draw.text((x_text, H // 2 + 2), net["ip"], font=FONT_SMALL, fill=0)
     else:
-        icons.exclamation(draw, 24, H // 2 - 2, size=12)
-        draw.text((44, H // 2 - 14), "No network connection", font=FONT_SMALL, fill=0)
-        draw.text((44, H // 2 + 2), "(offline)", font=FONT_SMALL, fill=0)
+        x_icon, x_text = _centre_block(draw, W, 12, 8,
+                                       ["No network connection", "(offline)"], FONT_SMALL)
+        icons.exclamation(draw, x_icon, H // 2 - 2, size=12)
+        draw.text((x_text, H // 2 - 14), "No network connection", font=FONT_SMALL, fill=0)
+        draw.text((x_text, H // 2 + 2), "(offline)", font=FONT_SMALL, fill=0)
 
     if dark_mode:
         image = ImageOps.invert(image.convert("L")).convert("1")

@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Stop PINET
-Comment=Stop the PINET hotspot and board/server
-Exec=sudo /usr/local/sbin/pinet-stop
+Comment=Stop the PINET hotspot and board/server (asks first)
+Exec=/usr/local/bin/pinet-confirm stop
 Icon=/home/rupal/.local/share/icons/pinet-stop.svg
 Terminal=false
 Categories=Network;

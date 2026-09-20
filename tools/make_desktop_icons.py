@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """Generate the PINET desktop icon set (desktop/icons/*.svg).
 
-Style: ui-ux-pro-max "Cyberpunk UI" (neon cyan/magenta/green on near-black,
-HUD/terminal, angular shapes) adapted to 48px icons on the pcmanfm desktop
-(#14161a) and to librsvg, which draws them:
-- one shared HUD frame (chamfered square) so the nine read as one family;
-- glyphs in one stroke weight, drawn twice -- a wide faint "glow" under a
-  crisp core -- so there's a neon glow without SVG filters;
+Style: the e-ink panel's own look -- one ink tone on a dark panel, no hue --
+in the HUD/chamfered shapes, sized for 48px icons on the pcmanfm desktop
+(#14161a) and for librsvg, which draws them:
+- one shared frame (chamfered square) so the nine read as one family;
+- glyphs in one stroke weight, drawn twice -- a wide faint pass under a crisp
+  core -- which on a single ink tone reads as a soft edge, not a neon glow;
+- nothing is distinguished by colour alone: Start is a dot, Stop is the same
+  dot struck through, so the pair still reads at a glance in one tone;
 - explicit colours, not currentColor: pcmanfm renders outside any CSS, so
   currentColor would come out black on the dark desktop;
 - each icon has a <title>; the label under it on the desktop says the same.
-Contrast on #14161a (measured): cyan 11.8:1, magenta 5.7:1, green 13.4:1, red 5.2:1
-(all above the 3:1 needed for meaningful graphics).
+Contrast on #14161a (measured): ink #e8e8e8 is 13.9:1, well past the 3:1 that
+meaningful graphics need.
 
     python3 tools/make_desktop_icons.py    # rewrites desktop/icons/*.svg
 """
@@ -19,7 +21,12 @@ from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "desktop" / "icons"
 
-CYAN, MAGENTA, GREEN, RED = "#00e5ff", "#ff2bd6", "#39ff14", "#ff3b5c"
+# One ink tone, as on the panel. The four names are kept so the glyph specs
+# below still say which marks were accents; they all resolve to the same ink
+# now, and the shapes carry the meaning.
+INK = "#e8e8e8"
+CYAN = MAGENTA = GREEN = RED = INK
+PANEL, FACE = "#0b0d12", "#050608"   # panel fill, and the portal figure's face
 CORE, GLOW = 2.4, 5.6          # stroke widths: crisp line / halo under it
 FRAME = "M9 4 H44 V39 L39 44 H4 V9 Z"   # chamfered top-left + bottom-right corners
 
@@ -39,7 +46,7 @@ def icon(title, body):
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" '
             f'stroke-linecap="round" stroke-linejoin="round">\n'
             f'  <title>{title}</title>\n'
-            f'  <path d="{FRAME}" fill="#0b0d12" fill-opacity="0.55" stroke="{CYAN}" stroke-opacity="0.38" stroke-width="1.4"/>\n'
+            f'  <path d="{FRAME}" fill="{PANEL}" fill-opacity="0.55" stroke="{CYAN}" stroke-opacity="0.38" stroke-width="1.4"/>\n'
             f'  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="{CYAN}" stroke-width="1.8"/>\n'
             f'  {body}\n</svg>\n')
 
@@ -58,7 +65,7 @@ ICONS = {
                      # the PINET hooded figure: curved hood with a swept tip, dark
                      # face opening, glowing slit eyes (as in the wallpaper art)
                      neon("M24 8 C29 10 34 15 35 23 C36 29 37 33 40 38 H8 C11 33 12 29 13 23 C14 15 19 10 24 8 Z")
-                     + '<path d="M17 30 C17 22 20 18 24 18 C28 18 31 22 31 30 C28 32 20 32 17 30 Z" fill="#050608" stroke="#00e5ff" stroke-width="2.4"/>'
+                     + f'<path d="M17 30 C17 22 20 18 24 18 C28 18 31 22 31 30 C28 32 20 32 17 30 Z" fill="{FACE}" stroke="{INK}" stroke-width="2.4"/>'
                      + neon("M19.8 24.6 L22.6 26 M28.2 24.6 L25.4 26", MAGENTA)),
     "photo-frame": ("Photo frame slideshow",
                     neon("M10 13 H38 V35 H10 Z")

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
   <title>Camera</title>
-  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#00e5ff" stroke-opacity="0.38" stroke-width="1.4"/>
-  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#00e5ff" stroke-width="1.8"/>
-  <path d="M9 17 H16 L19 13 H29 L32 17 H39 V35 H9 Z" stroke="#00e5ff" stroke-width="5.6" stroke-opacity="0.22"/><path d="M9 17 H16 L19 13 H29 L32 17 H39 V35 H9 Z" stroke="#00e5ff" stroke-width="2.4" stroke-opacity="1.00"/><path d="M24 20.5 A5.5 5.5 0 1 1 23.99 20.5 Z" stroke="#00e5ff" stroke-width="5.6" stroke-opacity="0.22"/><path d="M24 20.5 A5.5 5.5 0 1 1 23.99 20.5 Z" stroke="#00e5ff" stroke-width="2.4" stroke-opacity="1.00"/><circle cx="34.5" cy="21.5" r="3.4000000000000004" fill="#ff2bd6" fill-opacity="0.22"/><circle cx="34.5" cy="21.5" r="1.6" fill="#ff2bd6"/>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#e8e8e8" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#e8e8e8" stroke-width="1.8"/>
+  <path d="M9 17 H16 L19 13 H29 L32 17 H39 V35 H9 Z" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.22"/><path d="M9 17 H16 L19 13 H29 L32 17 H39 V35 H9 Z" stroke="#e8e8e8" stroke-width="2.4" stroke-opacity="1.00"/><path d="M24 20.5 A5.5 5.5 0 1 1 23.99 20.5 Z" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.22"/><path d="M24 20.5 A5.5 5.5 0 1 1 23.99 20.5 Z" stroke="#e8e8e8" stroke-width="2.4" stroke-opacity="1.00"/><circle cx="34.5" cy="21.5" r="3.4000000000000004" fill="#e8e8e8" fill-opacity="0.22"/><circle cx="34.5" cy="21.5" r="1.6" fill="#e8e8e8"/>
 </svg>
