@@ -17,7 +17,7 @@ NAMES = [
     "_IMAGE_EXT", "_VIDEO_EXT", "_AUDIO_EXT", "_TEXT_EXT",
     "MAX_ATTEMPTS", "LOCKOUT_SECONDS", "_attempts",
     "is_locked_out", "record_attempt",
-    "UPLOAD_DIR", "free_disk_bytes", "storage_stats", "NOTICES",
+    "UPLOAD_DIR", "free_disk_bytes", "storage_stats", "NOTICES", "LOW_FREE_BYTES",
 ]
 
 
@@ -160,9 +160,6 @@ class StorageStats(unittest.TestCase):
         self.assertEqual(s["used_pct"], 0.0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class SessionValid(unittest.TestCase):
     """_session_valid() is the single gate now shared by require_login() and the
@@ -226,10 +223,11 @@ class BoardTemplate(unittest.TestCase):
         self.src = APP.read_text()
         self.html = repo_path("pinet-board", "templates", "board.html").read_text()
         self.partial = repo_path("pinet-board", "templates", "_message.html").read_text()
+        self.file_partial = repo_path("pinet-board", "templates", "_file.html").read_text()
         self.js = repo_path("pinet-board", "static", "app.js").read_text()
 
     def test_every_form_action_has_a_route(self):
-        actions = set(re.findall(r'action="(/[a-z-]*)', self.html + self.partial))
+        actions = set(re.findall(r'action="(/[a-z-]*)', self.html + self.partial + self.file_partial))
         self.assertIn("/post", actions)
         self.assertIn("/delete-message", actions)
         for action in actions:
@@ -243,7 +241,7 @@ class BoardTemplate(unittest.TestCase):
 
     def test_delete_controls_are_admin_only(self):
         # Both the markup and the routes gate deletion on the admin role.
-        for marker, html in (("/delete/", self.html), ("/delete-message/", self.partial)):
+        for marker, html in (("/delete/", self.file_partial), ("/delete-message/", self.partial)):
             before = html.split(marker)[0]
             self.assertIn("{% if is_admin %}", before.rsplit("{% endif %}", 1)[-1],
                           f"{marker} is not inside an is_admin block")
@@ -261,12 +259,51 @@ class LiveMessages(unittest.TestCase):
     def test_one_partial_renders_both_paths(self):
         # Board rows and polled rows must come from the same template, or the
         # two can drift apart.
-        self.assertIn('{% include "_message.html" %}', self.html)
-        self.assertIn('render_template("_message.html"', self.src)
+        for partial in ("_message.html", "_file.html"):
+            self.assertIn('{%% include "%s" %%}' % partial, self.html)
+            self.assertIn('render_template("%s"' % partial, self.src)
 
     def test_poller_endpoint_matches_and_401s_a_dead_session(self):
-        path = re.search(r'fetch\("([^"?]+)\?since=', self.js).group(1)
+        path = re.search(r'"(/api/[a-z]+)\?since=', self.js).group(1)
         self.assertIn(f'@app.route("{path}")', self.src)
         # Without this the poll would parse the login page as JSON forever.
-        self.assertIn('if request.endpoint == "api_messages":', self.src)
+        self.assertIn('if request.endpoint == "api_state":', self.src)
         self.assertIn('return "", 401', self.src)
+
+
+class Stylesheet(unittest.TestCase):
+    def test_icon_button_resets_the_generic_button_padding(self):
+        # button/.btn is 13px 20px; a 44px-wide .icon-btn keeps 4px of content
+        # box without this reset, and the eye icon shrinks to a sliver.
+        css = repo_path("pinet-board", "static", "style.css").read_text()
+        block = css.split(".icon-btn {", 1)[1].split("}", 1)[0]
+        self.assertIn("padding: 0", block)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class LiveState(unittest.TestCase):
+    """/api/state carries what the header and both lists need to stay current."""
+
+    def setUp(self):
+        self.src = APP.read_text()
+        self.js = repo_path("pinet-board", "static", "app.js").read_text()
+        self.html = repo_path("pinet-board", "templates", "board.html").read_text()
+
+    def test_storage_text_is_formatted_once(self):
+        # The header and the poller must not format the same figures apart.
+        self.assertIn('"storage_text"', self.src)
+        self.assertIn("{{ storage_text }}", self.html)
+        self.assertIn("st.storage_text", self.js)
+
+    def test_low_space_threshold_is_the_servers(self):
+        self.assertIn("LOW_FREE_BYTES", self.src)
+        self.assertIn("{% if storage_low %}", self.html)
+        self.assertNotIn("free_gb < 1", self.html)
+
+    def test_relative_times_use_the_servers_clock(self):
+        self.assertIn('data-now="{{ now }}"', self.html)
+        self.assertIn('"now": time.time()', self.src)
+        self.assertIn("serverNow", self.js)

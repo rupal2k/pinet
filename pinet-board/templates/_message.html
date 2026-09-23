@@ -1,12 +1,12 @@
 {# One message row. Rendered both by board.html and by /api/messages,
    so a live-appended message is byte-identical to a reloaded one. #}
-<div class="list-item">
+<div class="list-item" data-seen-row>
   <div class="item-icon">
     <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
   </div>
   <div class="item-body">
     <div class="msg-text">{{ body }}</div>
-    <div class="meta">{{ created|int|timestamp_str }}</div>
+    <div class="meta"><time data-ts="{{ created|int }}">{{ created|int|timestamp_str }}</time></div>
   </div>
   {% if is_admin %}
   <form class="fa-del" method="post" action="/delete-message/{{ mid }}" data-confirm="Delete this message? This cannot be undone.">

@@ -4,6 +4,29 @@
 (function () {
   "use strict";
 
+  // ---- relative timestamps ----
+  // The hotspot is offline, so a phone's clock can be minutes off the Pi's.
+  // Ages are measured from the server time the page carried, advanced by the
+  // time the page has been open. Without JS the absolute time stays.
+  var page = document.querySelector("[data-now]");
+  var retime = function () {};
+  if (page) {
+    var serverNow = parseFloat(page.getAttribute("data-now")) || 0;
+    var openedAt = Date.now() / 1000;
+    retime = function (root) {
+      var now = serverNow + (Date.now() / 1000 - openedAt);
+      (root || document).querySelectorAll("time[data-ts]").forEach(function (el) {
+        if (!el.title) el.title = el.textContent;   // exact time stays on hover
+        var age = now - parseFloat(el.getAttribute("data-ts"));
+        if (age < 0 || age >= 86400) return;        // older than a day: keep the date
+        el.textContent = age < 60 ? "just now"
+          : age < 3600 ? Math.floor(age / 60) + " min ago"
+          : Math.floor(age / 3600) + " h ago";
+      });
+    };
+    if (serverNow) { retime(); setInterval(retime, 30000); }
+  }
+
   // ---- real tabs (Messages / Files) ----
   // Without JS, CSS leaves both panels visible; adding `tabs-on` to <body>
   // switches on the show-only-active-panel behavior, so this is safe to skip.
@@ -54,6 +77,27 @@
       toggle.setAttribute("aria-label", showing ? "Show password" : "Hide password");
       toggle.classList.toggle("is-showing", !showing);
     });
+  }
+
+  // ---- lockout countdown (login page) ----
+  var lockBanner = document.querySelector(".banner.error[data-retry]");
+  if (lockBanner) {
+    var left = parseInt(lockBanner.getAttribute("data-retry"), 10) || 0;
+    var msg = lockBanner.querySelector("span");
+    var submit = document.querySelector("[data-login-form] button[type=submit]");
+    if (submit) submit.disabled = true;
+    var tick = setInterval(function () {
+      left -= 1;
+      if (left > 0) {
+        if (msg) msg.textContent = "Too many attempts \u2014 try again in " + left + "s.";
+        return;
+      }
+      clearInterval(tick);
+      if (msg) msg.textContent = "You can try again now.";
+      lockBanner.classList.remove("error");
+      lockBanner.classList.add("success");
+      if (submit) submit.disabled = false;
+    }, 1000);
   }
 
   // ---- login submit loading state ----
@@ -153,9 +197,9 @@
   if (filterInput) {
     var filterBox = document.querySelector("[data-filter-box]");
     var status = document.querySelector("[data-filter-status]");
-    var rows = Array.prototype.slice.call(document.querySelectorAll(".file-row"));
     if (filterBox) filterBox.hidden = false;
     filterInput.addEventListener("input", function () {
+      var rows = document.querySelectorAll(".file-row");
       var q = filterInput.value.trim().toLowerCase();
       var shown = 0;
       rows.forEach(function (row) {
@@ -250,42 +294,67 @@
     if (localStorage.getItem("pinetKiosk") === "1") document.documentElement.classList.add("kiosk");
   } catch (e) { /* storage disabled: no kiosk spacing, nothing else changes */ }
 
-  // ---- live messages: poll for anything posted from another device ----
+  // ---- live board: poll for what other devices posted or uploaded ----
   // Cheap on a Pi serving a handful of phones: one small GET every 10s, only
   // while the page is visible, and the server sends nothing but new rows.
   var msgList = document.querySelector("[data-messages]");
-  if (msgList && window.fetch) {
-    var newest = parseInt(msgList.getAttribute("data-newest"), 10) || 0;
-    var badge = document.querySelector('.tab[data-tab="messages"] .count');
+  var fileList = document.querySelector("[data-files]");
+  if (page && window.fetch && (msgList || fileList)) {
+    var seen = function (list) {
+      if (list) list.querySelectorAll("[data-seen-row]").forEach(function (r) {
+        r.setAttribute("data-seen", "");
+      });
+    };
+    var addRows = function (list, data, emptySel) {
+      if (!list || !data.html) return;
+      var empty = list.parentNode.querySelector(emptySel);
+      if (empty) empty.remove();
+      list.insertAdjacentHTML("afterbegin", data.html);
+      list.querySelectorAll("[data-seen-row]:not([data-seen])").forEach(function (row) {
+        row.classList.add("is-new");
+        retime(row);
+      });
+      seen(list);
+      list.setAttribute("data-newest", data.newest);
+    };
+    var badge = function (tab, n) {
+      var el = document.querySelector('.tab[data-tab="' + tab + '"] .count');
+      if (el) el.textContent = n;
+    };
+    var storage = function (st) {
+      var pill = document.querySelector("[data-storage]");
+      if (!pill || !st) return;
+      var text = pill.querySelector("[data-storage-text]");
+      var flag = pill.querySelector("[data-storage-flag]");
+      var fill = pill.querySelector("[data-storage-fill]");
+      if (text) text.textContent = st.storage_text;
+      if (flag) flag.hidden = !st.storage_low;
+      if (fill) fill.style.width = st.used_pct + "%";
+      pill.classList.toggle("is-low", !!st.storage_low);
+    };
     var timer = null;
     var poll = function () {
       if (document.hidden) return;
-      fetch("/api/messages?since=" + newest, { credentials: "same-origin" })
+      var url = "/api/state?since=" + (msgList ? msgList.getAttribute("data-newest") : 0) +
+        "&since_file=" + (fileList ? fileList.getAttribute("data-newest") : 0);
+      fetch(url, { credentials: "same-origin" })
         .then(function (r) {
           if (r.status === 401) { clearInterval(timer); return null; }  // session ended
           return r.ok ? r.json() : null;
         })
         .then(function (data) {
           if (!data) return;
-          if (data.html) {
-            var empty = msgList.querySelector(".empty");
-            if (empty) empty.remove();
-            msgList.insertAdjacentHTML("afterbegin", data.html);
-            newest = data.newest;
-            // Mark only the rows that just arrived, so they are easy to spot.
-            var fresh = msgList.querySelectorAll(".list-item:not([data-seen])");
-            fresh.forEach(function (row) { row.classList.add("is-new"); });
-          }
-          msgList.querySelectorAll(".list-item").forEach(function (row) {
-            row.setAttribute("data-seen", "");
-          });
-          if (badge) badge.textContent = data.total;
+          addRows(msgList, data.messages, ".empty");
+          addRows(fileList, data.files, ".empty");
+          var filter = document.querySelector("[data-file-filter]");
+          if (filter && filter.value.trim()) filter.dispatchEvent(new Event("input"));
+          badge("messages", data.messages.total);
+          badge("files", data.files.total);
+          storage(data.storage);
         })
         .catch(function () { /* offline for a moment: try again next tick */ });
     };
-    msgList.querySelectorAll(".list-item").forEach(function (row) {
-      row.setAttribute("data-seen", "");
-    });
+    seen(msgList); seen(fileList);
     timer = setInterval(poll, 10000);
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden) poll();

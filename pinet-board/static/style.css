@@ -85,13 +85,15 @@ textarea { min-height: 72px; resize: vertical; }
 .field input[type=password], .field input[type=text] { padding-right: 50px; }
 
 .icon-btn {
-  position: absolute; right: 2px; top: 2px; bottom: 2px; width: 44px; min-height: 44px;
+  /* padding:0 matters: the generic button padding below is 13px 20px, which
+     leaves a 44px-wide button only 4px of content box and squashes the icon. */
+  position: absolute; right: 2px; top: 2px; bottom: 2px; width: 44px; min-height: 44px; padding: 0;
   display: flex; align-items: center; justify-content: center;
   background: transparent; border: none; color: var(--text-muted); cursor: pointer;
   border-radius: var(--radius-sm);
 }
 .icon-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
-.icon-btn svg { width: 20px; height: 20px; }
+.icon-btn svg { width: 20px; height: 20px; flex: none; }
 .icon-btn.is-showing { color: var(--accent); }   /* password is revealed */
 
 button, .btn {
@@ -198,13 +200,15 @@ body.tabs-on .tab-panel.is-active { display: block; }
 .item-body .msg-text { font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .meta { color: var(--text-muted); font-size: 11.5px; margin-top: 4px; }
 
-/* A message that arrived from another device while the page was open. */
-.list-item.is-new { animation: msg-in .5s ease; }
-@keyframes msg-in {
+/* A row that arrived from another device while the page was open. */
+.list-item.is-new, .file-row.is-new { animation: row-in .5s ease; }
+@keyframes row-in {
   from { background: rgba(242, 193, 78, 0.16); }
   to { background: transparent; }
 }
-@media (prefers-reduced-motion: reduce) { .list-item.is-new { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .list-item.is-new, .file-row.is-new { animation: none; }
+}
 
 .empty { color: var(--text-muted); font-size: 13.5px; padding: 6px 0; text-align: center; }
 

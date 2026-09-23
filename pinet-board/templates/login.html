@@ -13,7 +13,7 @@
       <p class="sub">Anonymous message board &amp; file drop for this local network.</p>
 
       {% if error %}
-        <div class="banner error">
+        <div class="banner error"{% if retry %} data-retry="{{ retry }}"{% endif %}>
           <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="9"></circle><line x1="12" y1="8" x2="12" y2="13"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>

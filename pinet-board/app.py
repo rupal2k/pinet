@@ -41,6 +41,7 @@ SECRET_KEY_PATH = "/etc/pinet-board/secret_key"
 
 MAX_CONTENT_LENGTH = 1024 * 1024 * 1024  # 1 GiB per upload
 MIN_FREE_BYTES = 500 * 1024 * 1024  # always keep this much free afterward
+LOW_FREE_BYTES = 1024 ** 3  # below this the header warns: the next upload may not fit
 MAX_MESSAGE_LEN = 2000
 
 # Short confirmations rendered as a banner after a redirect (?ok=...), so an
@@ -111,6 +112,12 @@ def _file_kind(filename):
     if ext in {"doc", "docx"}:
         return "doc"
     return "other"
+
+
+def _file_row(fid, filename, size, created):
+    kind = _file_kind(filename)
+    return {"id": fid, "filename": filename, "size": size, "created": created,
+            "kind": kind, "viewable": kind in _VIEWABLE_KINDS}
 
 
 def _load_secret_key():
@@ -227,10 +234,14 @@ def storage_stats():
     free = st.f_bavail * st.f_frsize
     total = st.f_blocks * st.f_frsize
     used_pct = round((1 - free / total) * 100, 1) if total else 0.0
+    free_gb, total_gb = free / (1024**3), total / (1024**3)
     return {
-        "free_gb": free / (1024**3),
-        "total_gb": total / (1024**3),
+        "free_gb": free_gb,
+        "total_gb": total_gb,
         "used_pct": used_pct,
+        # Formatted once here so the header and the poller can never disagree.
+        "storage_text": f"{free_gb:.1f}GB free of {total_gb:.0f}GB",
+        "storage_low": free < LOW_FREE_BYTES,
     }
 
 
@@ -245,7 +256,7 @@ def require_login():
         return
     if not _session_valid():
         session.clear()
-        if request.endpoint == "api_messages":
+        if request.endpoint == "api_state":
             return "", 401  # the poller stops on this instead of parsing a login page
         return redirect(url_for("login", next=request.path))
 
@@ -260,7 +271,7 @@ def require_login():
         needed = request.content_length * 2 + MIN_FREE_BYTES
         if free_disk_bytes() < needed:
             return render_template(
-                "board.html", messages=[], files=[], **storage_stats(),
+                "board.html", messages=[], files=[], now=time.time(), **storage_stats(),
                 error="Not enough free space on the Pi for a file that size right now.",
             ), 413
 
@@ -268,6 +279,7 @@ def require_login():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
+    retry = 0
     # Already signed in (the kiosk shortcut, or a guest re-opening the
     # captive link): go straight to the board instead of asking again.
     if request.method == "GET" and _session_valid():
@@ -278,6 +290,7 @@ def login():
         locked, remaining = is_locked_out(ip)
         if locked:
             error = f"Too many attempts -- try again in {remaining}s."
+            retry = remaining
         else:
             pw = request.form.get("password", "")
             role = "admin" if check_password(pw, PASSWORD_CONF) else (
@@ -296,7 +309,7 @@ def login():
                 return redirect(nxt)
             record_attempt(ip, False)
             error = "Wrong password."
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, retry=retry)
 
 
 @app.route("/", methods=["GET"])
@@ -308,37 +321,45 @@ def board():
     file_rows = db.execute(
         "SELECT id, filename, size, created FROM files ORDER BY id DESC LIMIT 200"
     ).fetchall()
-    files = [
-        {
-            "id": fid, "filename": fname, "size": fsize, "created": fcreated,
-            "kind": _file_kind(fname),
-            "viewable": _file_kind(fname) in _VIEWABLE_KINDS,
-        }
-        for fid, fname, fsize, fcreated in file_rows
-    ]
+    files = [_file_row(*row) for row in file_rows]
     return render_template(
-        "board.html", messages=messages, files=files, error=None,
+        "board.html", messages=messages, files=files, error=None, now=time.time(),
         notice=NOTICES.get(request.args.get("ok")), **storage_stats(),
     )
 
 
-@app.route("/api/messages")
-def api_messages():
-    # Rows posted since the caller's newest id, already rendered with the same
-    # partial board.html uses -- a live-appended message is then identical to a
-    # reloaded one, and the markup lives in exactly one place.
-    since = request.args.get("since", type=int) or 0
+@app.route("/api/state")
+def api_state():
+    # What an open board needs to stay current: messages and files added since
+    # the caller's newest ids, rendered with the same partials board.html uses
+    # (so a live row is identical to a reloaded one), plus the counts, the disk
+    # figures and the Pi's clock -- the hotspot is offline, so phone clocks can
+    # be minutes off and relative times are measured against this instead.
     db = get_db()
-    rows = db.execute(
+    since = request.args.get("since", type=int) or 0
+    since_file = request.args.get("since_file", type=int) or 0
+    msgs = db.execute(
         "SELECT id, body, created FROM messages WHERE id > ? ORDER BY id DESC LIMIT 50",
         (since,),
     ).fetchall()
-    total = db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+    files = db.execute(
+        "SELECT id, filename, size, created FROM files WHERE id > ? ORDER BY id DESC LIMIT 50",
+        (since_file,),
+    ).fetchall()
     return {
-        "total": total,
-        "newest": rows[0][0] if rows else since,
-        "html": "".join(render_template("_message.html", mid=mid, body=body, created=created)
-                        for mid, body, created in rows),
+        "now": time.time(),
+        "messages": {
+            "total": db.execute("SELECT COUNT(*) FROM messages").fetchone()[0],
+            "newest": msgs[0][0] if msgs else since,
+            "html": "".join(render_template("_message.html", mid=mid, body=body, created=created)
+                            for mid, body, created in msgs),
+        },
+        "files": {
+            "total": db.execute("SELECT COUNT(*) FROM files").fetchone()[0],
+            "newest": files[0][0] if files else since_file,
+            "html": "".join(render_template("_file.html", f=_file_row(*row)) for row in files),
+        },
+        "storage": storage_stats(),
     }
 
 
@@ -386,7 +407,7 @@ def download_file(file_id):
 @app.errorhandler(413)
 def too_large(e):
     return render_template(
-        "board.html", messages=[], files=[], **storage_stats(),
+        "board.html", messages=[], files=[], now=time.time(), **storage_stats(),
         error="That file is too large (1GB max) or there isn't enough free space right now.",
     ), 413
 
