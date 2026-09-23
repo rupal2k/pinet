@@ -4,6 +4,7 @@ Defs are extracted with ast so the module's import-time side effects
 (secret key written under /etc, mkdir of /mnt/pinet-media) never run.
 """
 import os
+import re
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -16,7 +17,7 @@ NAMES = [
     "_IMAGE_EXT", "_VIDEO_EXT", "_AUDIO_EXT", "_TEXT_EXT",
     "MAX_ATTEMPTS", "LOCKOUT_SECONDS", "_attempts",
     "is_locked_out", "record_attempt",
-    "UPLOAD_DIR", "free_disk_bytes", "storage_stats",
+    "UPLOAD_DIR", "free_disk_bytes", "storage_stats", "NOTICES",
 ]
 
 
@@ -46,8 +47,6 @@ class FileSizeStr(unittest.TestCase):
     def test_accepts_string_numbers(self):
         self.assertEqual(self.f("2048"), "2.0 KB")
 
-    # QA-1: 1048575 B renders "1024.0 KB" (and 1GiB-1 "1024.0 MB") instead of rolling over.
-    @unittest.expectedFailure
     def test_no_1024_rollover(self):
         self.assertEqual(self.f(1024**2 - 1), "1.0 MB")
         self.assertEqual(self.f(1024**3 - 1), "1.0 GB")
@@ -128,8 +127,6 @@ class Lockout(unittest.TestCase):
         self.fail_n(5)
         self.assertEqual(self.m.is_locked_out("10.10.10.99"), (False, 0))
 
-    # QA-2: still locked with <0.5s left, but round() tells the user "try again in 0s".
-    @unittest.expectedFailure
     def test_locked_never_reports_zero_seconds(self):
         self.fail_n(5)
         self.clock.now += 59.6
@@ -220,3 +217,33 @@ class SessionValid(unittest.TestCase):
         self.sign_in("admin")
         self.session["authed"] = False
         self.assertFalse(self.mod._session_valid())
+
+
+class BoardTemplate(unittest.TestCase):
+    """board.html and app.js against the routes/notices app.py actually defines."""
+
+    def setUp(self):
+        self.src = APP.read_text()
+        self.html = repo_path("pinet-board", "templates", "board.html").read_text()
+        self.js = repo_path("pinet-board", "static", "app.js").read_text()
+
+    def test_every_form_action_has_a_route(self):
+        actions = set(re.findall(r'action="(/[a-z-]*)', self.html))
+        self.assertIn("/post", actions)
+        self.assertIn("/delete-message", actions)
+        for action in actions:
+            self.assertIn(f'@app.route("{action}', self.src, f"no route for {action}")
+
+    def test_every_ok_redirect_has_a_notice(self):
+        keys = set(re.findall(r'url_for\("board", ok="([^"]+)"\)', self.src))
+        js_keys = set(re.findall(r'"/\?ok=([a-z-]+)', self.js))
+        self.assertTrue(keys and js_keys)
+        self.assertEqual((keys | js_keys) - set(load().NOTICES), set())
+
+    def test_delete_controls_are_admin_only(self):
+        # Both the markup and the routes gate deletion on the admin role.
+        for marker in ("/delete/", "/delete-message/"):
+            before = self.html.split(marker)[0]
+            self.assertIn("{% if is_admin %}", before.rsplit("{% endif %}", 1)[-1],
+                          f"{marker} is not inside an is_admin block")
+        self.assertEqual(self.src.count("if not is_admin():"), 2)

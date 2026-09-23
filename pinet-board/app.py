@@ -43,6 +43,15 @@ MAX_CONTENT_LENGTH = 1024 * 1024 * 1024  # 1 GiB per upload
 MIN_FREE_BYTES = 500 * 1024 * 1024  # always keep this much free afterward
 MAX_MESSAGE_LEN = 2000
 
+# Short confirmations rendered as a banner after a redirect (?ok=...), so an
+# action is acknowledged instead of just looking like the page reloaded.
+NOTICES = {
+    "post": "Message posted.",
+    "upload": "File shared.",
+    "file-deleted": "File deleted.",
+    "message-deleted": "Message deleted.",
+}
+
 MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 60
 _attempts = {}  # ip -> (count, locked_until_monotonic)
@@ -60,7 +69,9 @@ def timestamp_str(ts):
 def filesize_str(num):
     num = float(num)
     for unit in ("B", "KB", "MB", "GB"):
-        if num < 1024 or unit == "GB":
+        # Compare what will actually be printed: 1048575 B rounds to 1024.0 KB,
+        # which must roll over to 1.0 MB rather than render as "1024.0 KB".
+        if round(num, 1) < 1024 or unit == "GB":
             return f"{num:.0f} {unit}" if unit == "B" else f"{num:.1f} {unit}"
         num /= 1024
 
@@ -185,7 +196,10 @@ def is_locked_out(ip):
         return False, 0
     count, locked_until = entry
     remaining = locked_until - time.monotonic()
-    return remaining > 0, max(0, round(remaining))
+    if remaining <= 0:
+        return False, 0
+    # Round up: with 0.4s left the user must not be told to retry in 0s.
+    return True, int(remaining) + (1 if remaining % 1 else 0)
 
 
 def record_attempt(ip, success):
@@ -287,7 +301,7 @@ def login():
 def board():
     db = get_db()
     messages = db.execute(
-        "SELECT body, created FROM messages ORDER BY id DESC LIMIT 200"
+        "SELECT id, body, created FROM messages ORDER BY id DESC LIMIT 200"
     ).fetchall()
     file_rows = db.execute(
         "SELECT id, filename, size, created FROM files ORDER BY id DESC LIMIT 200"
@@ -301,7 +315,8 @@ def board():
         for fid, fname, fsize, fcreated in file_rows
     ]
     return render_template(
-        "board.html", messages=messages, files=files, error=None, **storage_stats(),
+        "board.html", messages=messages, files=files, error=None,
+        notice=NOTICES.get(request.args.get("ok")), **storage_stats(),
     )
 
 
@@ -312,7 +327,7 @@ def post_message():
         db = get_db()
         db.execute("INSERT INTO messages (body, created) VALUES (?, ?)", (body, time.time()))
         db.commit()
-    return redirect(url_for("board"))
+    return redirect(url_for("board", ok="post"))
 
 
 @app.route("/upload", methods=["POST"])
@@ -333,7 +348,7 @@ def upload_file():
         (safe_name, stored_name, size, time.time()),
     )
     db.commit()
-    return redirect(url_for("board"))
+    return redirect(url_for("board", ok="upload"))
 
 
 @app.route("/download/<int:file_id>")
@@ -390,7 +405,19 @@ def delete_file(file_id):
             pass  # a missing file is fine; still drop the DB row below
         db.execute("DELETE FROM files WHERE id=?", (file_id,))
         db.commit()
-    return redirect(url_for("board") + "#files")
+    return redirect(url_for("board", ok="file-deleted") + "#files")
+
+
+@app.route("/delete-message/<int:msg_id>", methods=["POST"])
+def delete_message(msg_id):
+    # Admin-only moderation for the anonymous board, mirroring delete_file:
+    # POST-only so a GET or a prefetch can never remove a message.
+    if not is_admin():
+        return redirect(url_for("board"))
+    db = get_db()
+    db.execute("DELETE FROM messages WHERE id=?", (msg_id,))
+    db.commit()
+    return redirect(url_for("board", ok="message-deleted"))
 
 
 @app.route("/logout")

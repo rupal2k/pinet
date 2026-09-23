@@ -11,18 +11,33 @@
   if (tabs.length) {
     document.body.classList.add("tabs-on");
     var panels = document.querySelectorAll(".tab-panel[data-panel]");
-    var activate = function (name) {
+    var activate = function (name, focus) {
       tabs.forEach(function (t) {
         var on = t.getAttribute("data-tab") === name;
         t.classList.toggle("is-active", on);
         t.setAttribute("aria-selected", on ? "true" : "false");
+        // Roving tabindex: Tab reaches the tablist once, arrows move inside it.
+        t.tabIndex = on ? 0 : -1;
+        if (on && focus) t.focus();
       });
       panels.forEach(function (p) {
         p.classList.toggle("is-active", p.getAttribute("data-panel") === name);
       });
     };
-    tabs.forEach(function (t) {
-      t.addEventListener("click", function () { activate(t.getAttribute("data-tab")); });
+    tabs.forEach(function (t, i) {
+      t.addEventListener("click", function () {
+        activate(t.getAttribute("data-tab"));
+        // Keep the tab in the URL so a reload (or the upload redirect) reopens it.
+        try { history.replaceState(null, "", "#" + t.getAttribute("data-tab")); } catch (e) {}
+      });
+      t.addEventListener("keydown", function (e) {
+        var step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        var next = e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1
+          : step ? (i + step + tabs.length) % tabs.length : -1;
+        if (next < 0) return;
+        e.preventDefault();
+        activate(tabs[next].getAttribute("data-tab"), true);
+      });
     });
     // Let the URL hash pick the opening tab (used after an upload reload).
     if (location.hash === "#files") activate("files");
@@ -133,6 +148,30 @@
     });
   }
 
+  // ---- filter the file list by name ----
+  var filterInput = document.querySelector("[data-file-filter]");
+  if (filterInput) {
+    var filterBox = document.querySelector("[data-filter-box]");
+    var status = document.querySelector("[data-filter-status]");
+    var rows = Array.prototype.slice.call(document.querySelectorAll(".file-row"));
+    if (filterBox) filterBox.hidden = false;
+    filterInput.addEventListener("input", function () {
+      var q = filterInput.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (row) {
+        var name = row.querySelector(".filename");
+        var hit = !q || (name && name.textContent.toLowerCase().indexOf(q) !== -1);
+        row.hidden = !hit;
+        if (hit) shown++;
+      });
+      if (!status) return;
+      status.textContent = !q ? ""
+        : shown ? shown + " of " + rows.length + " files"
+        : "No file matches \u201c" + filterInput.value.trim() + "\u201d";
+      status.classList.toggle("show", !!q);
+    });
+  }
+
   function formatBytes(bytes) {
     if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + "GB";
     if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + "MB";
@@ -169,9 +208,8 @@
       });
       xhr.addEventListener("load", function () {
         if (xhr.status >= 200 && xhr.status < 400) {
-          // reopen on the Files tab so the just-uploaded file is in view
-          window.location.hash = "files";
-          window.location.reload();
+          // reopen on the Files tab, with the "File shared." confirmation
+          window.location.href = "/?ok=upload#files";
         } else {
           if (submitBtn) submitBtn.disabled = false;
           if (progressWrap) progressWrap.classList.remove("show");

@@ -145,6 +145,13 @@ button svg { width: 18px; height: 18px; }
   width: 44px; height: 5px; border-radius: 999px; background: var(--bg-inset); overflow: hidden; flex: none;
 }
 .storage-fill { display: block; height: 100%; background: var(--accent); }
+/* Under 1GB free the next upload is close to the 500MB refusal margin. */
+.storage-pill.is-low { color: var(--danger); border-color: var(--danger); }
+.storage-pill.is-low .storage-fill { background: var(--danger); }
+.storage-flag {
+  font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 999px; background: var(--danger-bg); color: var(--danger);
+}
 
 /* ---- tabs (real, JS-driven; both panels visible if JS is off) ---- */
 .tabs {
@@ -199,6 +206,9 @@ body.tabs-on .tab-panel.is-active { display: block; }
   display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border);
 }
 .file-row:last-child { border-bottom: none; }
+/* The filter hides rows with [hidden]; the display:flex/grid above would
+   otherwise win over the browser's default [hidden] rule. */
+.file-row[hidden] { display: none; }
 .file-row .thumb {
   position: relative; width: 56px; height: 56px; flex: none; overflow: hidden;
   display: flex; align-items: center; justify-content: center; color: var(--text-muted);
@@ -240,6 +250,27 @@ body.tabs-on .tab-panel.is-active { display: block; }
   .fa-del { margin-left: auto; }   /* keep delete apart from View/Get */
   .file-row .file-actions { width: 100%; }
 }
+
+/* ---- list filter (Files tab) ---- */
+.list-filter { position: relative; margin-bottom: 12px; }
+.list-filter svg {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  width: 16px; height: 16px; color: var(--text-muted); pointer-events: none;
+}
+.list-filter input[type=search] {
+  width: 100%; padding: 11px 12px 11px 36px; font-size: 16px; color: var(--text);
+  background: var(--bg-inset); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  font-family: inherit; -webkit-appearance: none; appearance: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.list-filter input[type=search]:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(242, 193, 78, 0.35);
+}
+.filter-status { display: none; font-size: 12px; color: var(--text-muted); margin: -4px 0 10px; }
+.filter-status.show { display: block; }
+
+/* Admin delete sits beside a message, top-aligned with its first line. */
+.list-item > .fa-del { align-self: flex-start; }
 
 .upload-tip { display: flex; gap: 8px; margin: 0 0 14px; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
 .upload-tip svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
