@@ -48,7 +48,9 @@ STATE_FILE="$XDG_RUNTIME_DIR/raspotify-nowplaying"
 
 log() { logger -t raspotify-bt-guard "$*"; }
 wp() { timeout 5 wpctl status 2>/dev/null; }
-now() { date +%s; }
+# Builtins, not processes: this runs every couple of seconds for days on a
+# power-marginal Pi 3B, and date/sed/awk per tick is most of its CPU.
+now() { printf '%s' "${EPOCHSECONDS:-$(date +%s)}"; }
 
 # The sink PipeWire is sending new audio to, by name. Same awk the nowplaying
 # hook uses, so both agree on what "the output" is.
@@ -57,13 +59,24 @@ default_sink() {
               sub(/ +\[.*/,""); gsub(/[[:space:]]+$/,""); print; exit}'
 }
 has_stream() { wp | sed -n '/Streams:/,$p' | grep -qi librespot; }
-state() { sed -n 's/^state=//p' "$STATE_FILE" 2>/dev/null; }
-playing() { [ "$(state)" = playing ]; }
+playing() {
+    local line
+    while IFS= read -r line; do
+        case "$line" in state=*) [ "${line#state=}" = playing ]; return;; esac
+    done < "$STATE_FILE" 2>/dev/null
+    return 1
+}
 # No state file at all means the hook isn't writing one; fall back to freezing
 # whatever librespot is doing, rather than never freezing it.
 should_freeze() { [ -f "$STATE_FILE" ] || return 0; playing; }
-pstate() { awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
-frozen() { [ "$(pstate "$1")" = T ]; }
+# /proc/PID/stat field 3, without awk: the comm in brackets can hold spaces,
+# so cut at the closing bracket rather than splitting on them.
+frozen() {
+    local stat
+    stat=$(< "/proc/$1/stat") 2>/dev/null || return 1
+    stat=${stat#*") "}
+    [ "${stat%% *}" = T ]
+}
 
 restart_raspotify() {
     log "$1 -- restarting raspotify"
