@@ -7,7 +7,11 @@
 # Two dialogs per click: ask first (what it says depends on what is actually
 # running), then report the state of every service in the group once the
 # action has finished, with an OK button to dismiss.
-#   usage: pinet-confirm start|stop [pinet|spotify]
+#   usage: pinet-confirm start|stop|toggle|state [pinet|spotify]
+#
+# The desktop has one icon per service rather than a Start and a Stop:
+# `toggle` does whichever the service isn't doing (after asking), and
+# `state` is what pinet-icon-state reads to colour that icon.
 #
 # Spotify is the same shape -- a couple of units, the same two dialogs -- so it
 # is a group here rather than a second copy of all this.
@@ -33,7 +37,7 @@ case "$GROUP" in
     TITLE="Spotify"
     ;;
   *)
-    echo "usage: ${0##*/} start|stop [pinet|spotify]" >&2; exit 2 ;;
+    echo "usage: ${0##*/} start|stop|toggle|state [pinet|spotify]" >&2; exit 2 ;;
 esac
 
 # Dialog text uses $'...' or printf: a "\n" inside plain double quotes is a
@@ -101,6 +105,21 @@ plain() { printf '%s\n' "$1" | sed 's#</\?tt>##g; s#</\?b>##g'; }
 active=$(count_active)
 total=${#UNITS[@]}
 
+# What the desktop icon asks for: on when everything is up, partly when some of
+# it is, off when none of it is. No dialogs, nothing changed.
+if [ "$ACTION" = state ]; then
+    if   [ "$active" -eq "$total" ]; then echo on
+    elif [ "$active" -gt 0 ];        then echo partly
+    else                                  echo off
+    fi
+    exit 0
+fi
+
+# One icon per service: tapping it does whichever the service isn't doing.
+if [ "$ACTION" = toggle ]; then
+    if [ "$active" -eq "$total" ]; then ACTION=stop; else ACTION=start; fi
+fi
+
 # What each group runs, and what the dialogs say about it.
 run_action() {
     case "$GROUP:$1" in
@@ -152,8 +171,12 @@ case "$ACTION" in
     out=$(run_action stop); rc=$?
     ;;
   *)
-    echo "usage: ${0##*/} start|stop [pinet|spotify]" >&2; exit 2 ;;
+    echo "usage: ${0##*/} start|stop|toggle|state [pinet|spotify]" >&2; exit 2 ;;
 esac
+
+# Recolour the desktop icon before the dialog goes up, so the icon behind it
+# already agrees with what the dialog is about to say.
+[ -x /usr/local/bin/pinet-icon-state ] && /usr/local/bin/pinet-icon-state >/dev/null 2>&1
 
 # Report what actually happened, re-read from systemd rather than trusting the
 # exit code: a unit can go active and then fail on its own a moment later.

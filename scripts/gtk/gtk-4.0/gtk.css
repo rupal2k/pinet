@@ -1,8 +1,10 @@
 /* E-ink theme for the PINET dialogs.
  *
- * The 2.13" panel is 1-bit: pure black on pure white, Roboto, square edges,
- * no shadows and no colour anywhere. The Start/Stop dialogs are the same
- * device speaking, so they look the same.
+ * The 2.13" panel is 1-bit: pure black on pure white, Roboto, no shadows and
+ * no colour anywhere. The dialogs are the same device speaking, so they look
+ * the same -- with rounded corners, which is the one place they part company
+ * with the panel: a 3.5" touchscreen is held, not read at arm's length, and
+ * the rounded box reads as something to press.
  *
  * This is not a system theme. pinet-confirm points XDG_CONFIG_HOME at the
  * directory holding this file for the length of one zenity call, so nothing
@@ -20,7 +22,18 @@ popover > contents {
     color: #000000;
     font-family: "Roboto", sans-serif;
     font-size: 12pt;
-    border-radius: 0;
+    border-radius: 16px;
+}
+
+/* The window node is the white card, so it is the thing that gets rounded --
+ * making it transparent (to "let the corners show through") just empties the
+ * dialog: everything inside is drawn on it. */
+window.csd,
+window.dialog,
+window.csd.background,
+window.dialog.background {
+    background-color: #ffffff;
+    border-radius: 16px;
 }
 
 /* A drawn frame instead of a drop shadow: the panel has no greys to fade with. */
@@ -31,7 +44,7 @@ window.dialog decoration,
 window decoration,
 decoration,
 decoration:backdrop {
-    border-radius: 0;
+    border-radius: 16px;
     border: 2px solid #000000;
     box-shadow: none;
     background-color: #ffffff;
@@ -45,6 +58,8 @@ headerbar:backdrop {
     background-color: #ffffff;
     background-image: none;
     border-bottom: 2px solid #000000;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
     box-shadow: none;
     min-height: 34px;
     padding: 0 8px;
@@ -89,7 +104,7 @@ button:backdrop {
     background-image: none;
     color: #000000;
     border: 2px solid #000000;
-    border-radius: 0;
+    border-radius: 10px;   /* same family as the dialog's own corners */
     box-shadow: none;
     text-shadow: none;
     font-weight: 700;

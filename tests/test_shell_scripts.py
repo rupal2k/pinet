@@ -347,6 +347,27 @@ class PinetConfirm(unittest.TestCase):
         self.assertFalse(self.ran("pinet-start"))
         self.assertFalse(self.ran("pinet-stop"))
 
+    def test_state_reports_on_partly_off_without_touching_anything(self):
+        for active, expected in (([], "off"), (self.UNITS[:2], "partly"), (self.UNITS, "on")):
+            self.h.set_active(*active)
+            r = self.h.run("state")
+            self.assertEqual(r.stdout.strip(), expected)
+        self.assertFalse(self.ran("pinet-start") or self.ran("pinet-stop"))
+
+    def test_toggle_starts_what_is_down_and_stops_what_is_up(self):
+        self.h.set_active()
+        self.h.run("toggle")
+        self.assertTrue(self.ran("pinet-start"))
+        self.h.set_active(*self.UNITS)
+        self.h.run("toggle")
+        self.assertTrue(self.ran("pinet-stop"))
+
+    def test_toggle_on_a_partly_up_service_starts_the_rest(self):
+        self.h.set_active(*self.UNITS[:2])
+        self.h.run("toggle")
+        self.assertTrue(self.ran("pinet-start"))
+        self.assertFalse(self.ran("pinet-stop"))
+
     def test_unknown_group_is_usage_error(self):
         r = self.h.run("start", "hifi")
         self.assertEqual(r.returncode, 2)
@@ -700,3 +721,83 @@ class NowPlayingHook(unittest.TestCase):
         self.fire("volume_changed", VOLUME="32768")
         self.assertEqual(self.fire("playing")["volume_pct"], "50")
         self.assertEqual(self.fire("paused")["state"], "paused")
+
+
+
+class IconState(unittest.TestCase):
+    """pinet-icon-state rewrites the Icon= line of the desktop toggles so the
+    icon is green while the service runs. pcmanfm reloads a .desktop when it
+    changes -- which is also why the rewrite must not leave a temp file in the
+    desktop folder, or that temp file shows up as a desktop item."""
+
+    ENTRY = ("[Desktop Entry]\nType=Application\nName={name}\n"
+             "Exec=/usr/local/bin/pinet-confirm toggle {group}\n"
+             "Icon={icons}/{group}-off.svg\nTerminal=false\n")
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/pinet-icon-state")
+        self.addCleanup(self.h.cleanup)
+        self.desktop = self.h.dir / "Desktop"
+        self.icons = self.h.dir / "icons"
+        self.desktop.mkdir()
+        self.icons.mkdir()
+        for group, name in (("pinet", "PINET"), ("spotify", "Spotify")):
+            (self.desktop / f"{group}.desktop").write_text(
+                self.ENTRY.format(name=name, group=group, icons=self.icons))
+        self.says("off")
+
+    def says(self, state):
+        """Stand in for pinet-confirm state <group>."""
+        self.h._write_exec(self.h.bin / "pinet-confirm",
+                           f"#!/bin/bash\necho {state}\n")
+
+    def icon_of(self, group):
+        for line in (self.desktop / f"{group}.desktop").read_text().splitlines():
+            if line.startswith("Icon="):
+                return Path(line.split("=", 1)[1]).name
+        return None
+
+    def run_it(self, **env):
+        return self.h.run(env={"DESKTOP_DIR": str(self.desktop),
+                               "ICON_DIR": str(self.icons), **env})
+
+    def test_running_service_gets_the_green_icon(self):
+        self.says("on")
+        self.run_it()
+        self.assertEqual(self.icon_of("pinet"), "pinet-on.svg")
+        self.assertEqual(self.icon_of("spotify"), "spotify-on.svg")
+
+    def test_partly_up_counts_as_running(self):
+        self.says("partly")
+        self.run_it()
+        self.assertEqual(self.icon_of("pinet"), "pinet-on.svg")
+
+    def test_stopped_service_goes_back_to_ink(self):
+        self.says("on")
+        self.run_it()
+        self.says("off")
+        self.run_it()
+        self.assertEqual(self.icon_of("pinet"), "pinet-off.svg")
+
+    def test_nothing_is_rewritten_when_the_icon_is_already_right(self):
+        before = (self.desktop / "pinet.desktop").stat().st_mtime_ns
+        self.run_it()
+        self.assertEqual((self.desktop / "pinet.desktop").stat().st_mtime_ns, before)
+
+    def test_no_temp_file_is_left_on_the_desktop(self):
+        self.says("on")
+        self.run_it()
+        self.assertEqual(sorted(p.name for p in self.desktop.iterdir()),
+                         ["pinet.desktop", "spotify.desktop"])
+
+    def test_the_rest_of_the_entry_survives(self):
+        self.says("on")
+        self.run_it()
+        text = (self.desktop / "pinet.desktop").read_text()
+        self.assertIn("Exec=/usr/local/bin/pinet-confirm toggle pinet", text)
+        self.assertIn("Name=PINET", text)
+
+    def test_an_unreadable_state_leaves_the_icon_alone(self):
+        self.h._write_exec(self.h.bin / "pinet-confirm", "#!/bin/bash\nexit 1\n")
+        self.run_it()
+        self.assertEqual(self.icon_of("pinet"), "pinet-off.svg")

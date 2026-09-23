@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Start PINET
-Comment=Start the PINET hotspot and board/server (asks first)
-Exec=/usr/local/bin/pinet-confirm start
-Icon=/home/rupal/.local/share/icons/pinet-start.svg
-Terminal=false
-Categories=Network;

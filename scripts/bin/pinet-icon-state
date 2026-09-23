@@ -1,0 +1,48 @@
+#!/bin/bash
+# Colour the desktop toggles by what is actually running: the green icon when
+# the service is up, the struck-through ink one when it is down. pcmanfm
+# reloads a .desktop file when it changes on disk, so the icon follows the
+# service without restarting the desktop.
+#
+#   pinet-icon-state           set both icons once
+#   pinet-icon-state --watch   keep them right (the user service does this)
+#
+# pinet-confirm is the one that knows which units a service is made of; this
+# only asks it for on/partly/off.
+set -u
+DESKTOP_DIR="${DESKTOP_DIR:-$HOME/Desktop}"
+ICON_DIR="${ICON_DIR:-$HOME/.local/share/icons}"
+CONFIRM="${PINET_CONFIRM:-/usr/local/bin/pinet-confirm}"
+INTERVAL="${ICON_INTERVAL:-15}"
+# Not GROUPS: that is a bash built-in array of the user's gids, and
+# assigning to it is quietly ignored.
+SERVICES="${ICON_GROUPS:-pinet spotify}"
+
+update_one() {
+    local group=$1 file="$DESKTOP_DIR/$1.desktop" state want tmp
+    [ -f "$file" ] || return 0
+    state=$("$CONFIRM" state "$group" 2>/dev/null)
+    # "partly" counts as on: something is running and the icon should say so.
+    case "$state" in
+        on|partly) want="$ICON_DIR/$group-on.svg" ;;
+        off)       want="$ICON_DIR/$group-off.svg" ;;
+        *)         return 0 ;;   # couldn't ask: leave the icon alone
+    esac
+    grep -qxF "Icon=$want" "$file" && return 0
+    # Rewrite in place through a temp file kept OUTSIDE the desktop folder --
+    # `sed -i` writes its temp file next to the original, and pcmanfm shows
+    # that as a desktop item for as long as it exists.
+    tmp=$(mktemp "${TMPDIR:-/tmp}/pinet-icon.XXXXXX") || return 0
+    if sed "s|^Icon=.*|Icon=$want|" "$file" > "$tmp" && [ -s "$tmp" ]; then
+        cat "$tmp" > "$file"    # keeps the inode, mode and the trusted flag
+    fi
+    rm -f "$tmp"
+}
+
+update_all() { local g; for g in $SERVICES; do update_one "$g"; done; }
+
+if [ "${1:-}" = --watch ]; then
+    while :; do update_all; sleep "$INTERVAL"; done
+else
+    update_all
+fi

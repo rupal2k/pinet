@@ -7,8 +7,8 @@ in the HUD/chamfered shapes, sized for 48px icons on the pcmanfm desktop
 - one shared frame (chamfered square) so the nine read as one family;
 - glyphs in one stroke weight, drawn twice -- a wide faint pass under a crisp
   core -- which on a single ink tone reads as a soft edge, not a neon glow;
-- nothing is distinguished by colour alone: Start is a dot, Stop is the same
-  dot struck through, so the pair still reads at a glance in one tone;
+- nothing is distinguished by colour alone: running is a dot, stopped is the
+  same dot struck through, and the running state is additionally green;
 - explicit colours, not currentColor: pcmanfm renders outside any CSS, so
   currentColor would come out black on the dark desktop;
 - each icon has a <title>; the label under it on the desktop says the same.
@@ -26,6 +26,10 @@ OUT = Path(__file__).resolve().parent.parent / "desktop" / "icons"
 # now, and the shapes carry the meaning.
 INK = "#e8e8e8"
 CYAN = MAGENTA = GREEN = RED = INK
+# The one exception to the single ink tone: a service that is actually running
+# is drawn in green, so the desktop says at a glance what is up. The off state
+# keeps the struck-through dot, so the pair still reads without the colour.
+LIVE = "#4ade80"
 PANEL, FACE = "#0b0d12", "#050608"   # panel fill, and the portal figure's face
 CORE, GLOW = 2.4, 5.6          # stroke widths: crisp line / halo under it
 FRAME = "M9 4 H44 V39 L39 44 H4 V9 Z"   # chamfered top-left + bottom-right corners
@@ -56,11 +60,28 @@ ARCS = ("M20.2 27.8 A5 5 0 0 1 27.8 27.8 "
         "M16.3 24.3 A10 10 0 0 1 31.7 24.3 "
         "M12.5 20.7 A15 15 0 0 1 35.5 20.7")
 
+# A toggle's glyph and where its state dot sits. on = green and lit,
+# off = ink, dimmed, struck through.
+SPEAKER = ("M12 15 H25 V33 H12 Z M30 20 A8 8 0 0 1 30 28 "
+           "M34.5 16 A14.5 14.5 0 0 1 34.5 32")
+DRIVER = "M18.5 27.5 A4 4 0 1 1 18.49 27.5 Z"
+STRIKE = "M13 13 L35 35"
+
+
+def toggle(glyph, dot_at, on):
+    x, y = dot_at
+    if on:
+        return neon(glyph, LIVE) + dot(x, y, 2.2, LIVE)
+    return neon(glyph, alpha=0.45) + dot(x, y, 2.2, INK) + neon(STRIKE, INK)
+
+
 ICONS = {
-    "pinet-start": ("Start PINET hotspot", neon(ARCS) + dot(24, 32.5, 2.2, GREEN)),
-    "pinet-stop": ("Stop PINET hotspot",
-                   neon(ARCS, alpha=0.45) + dot(24, 32.5, 2.2, CYAN)
-                   + neon("M13 13 L35 35", RED)),
+    "pinet-on": ("PINET hotspot is running", toggle(ARCS, (24, 32.5), True)),
+    "pinet-off": ("PINET hotspot is stopped", toggle(ARCS, (24, 32.5), False)),
+    "spotify-on": ("Spotify player is running",
+                   toggle(SPEAKER + " " + DRIVER, (18.5, 19.5), True)),
+    "spotify-off": ("Spotify player is stopped",
+                    toggle(SPEAKER + " " + DRIVER, (18.5, 19.5), False)),
     "pinet-portal": ("PINET Portal message board",
                      # the PINET hooded figure: curved hood with a swept tip, dark
                      # face opening, glowing slit eyes (as in the wallpaper art)
@@ -92,18 +113,6 @@ ICONS = {
                    neon("M17 22 V17 A7 7 0 0 1 31 17 V22")
                    + neon("M13 22 H35 V37 L32 40 H13 Z")
                    + dot(24, 29.5, 2.2, MAGENTA) + neon("M24 31.5 V35", MAGENTA)),
-    # Bluetooth speaker with sound waves; same Start/Stop grammar as PINET's
-    # pair above -- a dot for on, the dot plus a strike for off.
-    "spotify-start": ("Start Spotify player",
-                      neon("M12 15 H25 V33 H12 Z M30 20 A8 8 0 0 1 30 28 M34.5 16 A14.5 14.5 0 0 1 34.5 32")
-                      + neon("M18.5 27.5 A4 4 0 1 1 18.49 27.5 Z")
-                      + dot(18.5, 19.5, 1.7, GREEN)),
-    "spotify-stop": ("Stop Spotify player",
-                     neon("M12 15 H25 V33 H12 Z M30 20 A8 8 0 0 1 30 28 M34.5 16 A14.5 14.5 0 0 1 34.5 32",
-                          alpha=0.45)
-                     + neon("M18.5 27.5 A4 4 0 1 1 18.49 27.5 Z", alpha=0.45)
-                     + dot(18.5, 19.5, 1.7, CYAN)
-                     + neon("M13 13 L35 35", RED)),
     "graphs-network": ("Graphs viewer",
                        neon("M24 12 L12 33 M24 12 L36 31 M12 33 L36 31 M24 12 V25 M24 25 L12 33 M24 25 L36 31")
                        + dot(24, 12, 3.2, CYAN) + dot(12, 33, 3.2, CYAN) + dot(36, 31, 3.2, CYAN)

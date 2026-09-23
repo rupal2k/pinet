@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep the desktop service icons coloured by what is running
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/local/bin/pinet-icon-state --watch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

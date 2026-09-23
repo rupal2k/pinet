@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=PINET
+Comment=Start or stop the PINET hotspot and board (asks first; the icon is green while it runs)
+Exec=/usr/local/bin/pinet-confirm toggle pinet
+Icon=/home/rupal/.local/share/icons/pinet-off.svg
+Terminal=false
+Categories=Network;

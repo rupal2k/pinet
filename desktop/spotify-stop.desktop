@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Stop Spotify
-Comment=Stop the Spotify Connect player and its speaker guard (asks first)
-Exec=/usr/local/bin/pinet-confirm stop spotify
-Icon=/home/rupal/.local/share/icons/spotify-stop.svg
-Terminal=false
-Categories=AudioVideo;
