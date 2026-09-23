@@ -1006,3 +1006,37 @@ Start Spotify → default + 150% + both units up; the same knock mid-session →
 the guard put it back within 12s ("routed audio to Dubstep Pop 600 at 150%
 (phone at 75%)") and left librespot running rather than freezing it.
 11 new tests (147 total).
+
+## 38. Desktop toggles, rounded dialogs, and Spotify across networks (2026-09-24)
+
+**One icon per service.** Start/Stop PINET and Start/Stop Spotify (four
+launchers) became **PINET** and **Spotify**: `pinet-confirm toggle <group>`
+does whichever the service isn't doing, still asking first. `pinet-confirm
+state` reports on/partly/off, and `pinet-icon-state` (user service, 15s) writes
+the matching `Icon=` into the .desktop -- **green while the service runs**, the
+same glyph in ink with the dot struck through when it doesn't. pcmanfm reloads
+a changed .desktop within a few seconds, so the desktop follows the service.
+
+Two traps found on the way:
+- `sed -i` writes its temp file *next to the original*, so rewriting a
+  launcher in place made pcmanfm show a `sedXXXXXX` item on the desktop. The
+  rewrite goes through a temp file in /tmp and `cat > file`;
+- `GROUPS` is a bash built-in array (the user's gids). Assigning the service
+  list to it was quietly ignored and the loop ran over "1000".
+
+**Rounded dialogs.** The e-ink dialog theme keeps its 1-bit look but has
+rounded corners now -- the dialogs are held on a 3.5" touchscreen, not read at
+arm's length like the panel. First attempt made the window transparent to
+"let the corners show": the window node *is* the white card, so the dialog
+came out see-through.
+
+**Spotify across a network change.** librespot registers its Connect service
+with avahi once, at startup. Move the Pi to another Wi-Fi and the announcement
+belongs to the old network -- a phone freshly joined to the new one scans and
+finds nothing. `/etc/NetworkManager/dispatcher.d/90-pinet-net-changed`
+restarts raspotify on `up`/`dhcp4-change`/`connectivity-change` for any
+interface except PINET's own AP (wlan0 goes up and down every time the hotspot
+is toggled), debounced 20s because NM fires several events per connect.
+**Verified**: fired for wlan1, librespot came back with a new pid, and a
+*different machine on the LAN* then found `PINET _spotify-connect._tcp` at
+192.168.29.125 by mDNS. 164 tests.

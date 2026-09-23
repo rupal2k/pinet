@@ -801,3 +801,58 @@ class IconState(unittest.TestCase):
         self.h._write_exec(self.h.bin / "pinet-confirm", "#!/bin/bash\nexit 1\n")
         self.run_it()
         self.assertEqual(self.icon_of("pinet"), "pinet-off.svg")
+
+
+class NetChanged(unittest.TestCase):
+    """The NetworkManager hook re-announces Spotify when the Pi's uplink
+    changes -- move the Pi to another Wi-Fi and the old announcement is what a
+    phone on the new network would (not) find."""
+
+    def setUp(self):
+        self.h = ShellHarness("etc/NetworkManager/dispatcher.d/90-pinet-net-changed")
+        self.addCleanup(self.h.cleanup)
+        self.h._write_exec(self.h.bin / "logger",
+                           '#!/bin/bash\necho "logger $*" >> "$FAKE_DIR/calls.log"\n')
+        self.h.set_active("raspotify.service")
+        self.stamp = self.h.dir / "stamp"
+
+    def fire(self, iface="wlan1", action="up", **env):
+        return self.h.run(iface, action,
+                          env={"NET_CHANGED_STAMP": str(self.stamp), **env})
+
+    def restarts(self):
+        return [c for c in self.h.calls() if c.startswith("systemctl restart raspotify")]
+
+    def test_uplink_coming_up_re_announces(self):
+        self.fire()
+        self.assertEqual(len(self.restarts()), 1)
+
+    def test_a_new_lease_on_the_same_network_also_counts(self):
+        self.fire(action="dhcp4-change")
+        self.assertEqual(len(self.restarts()), 1)
+
+    def test_the_hotspot_interface_is_not_an_uplink(self):
+        # wlan0 goes up and down every time PINET is toggled, and it is not
+        # the Pi's way out to Spotify.
+        self.fire(iface="wlan0")
+        self.assertEqual(self.restarts(), [])
+
+    def test_going_down_changes_nothing(self):
+        self.fire(action="down")
+        self.assertEqual(self.restarts(), [])
+
+    def test_nothing_to_re_announce_when_the_player_is_off(self):
+        self.h.set_active()
+        self.fire()
+        self.assertEqual(self.restarts(), [])
+
+    def test_the_burst_of_events_one_connect_fires_restarts_once(self):
+        for action in ("up", "dhcp4-change", "connectivity-change"):
+            self.fire(action=action)
+        self.assertEqual(len(self.restarts()), 1)
+
+    def test_a_later_change_restarts_again(self):
+        self.fire()
+        self.stamp.write_text("1")          # long past the debounce window
+        self.fire()
+        self.assertEqual(len(self.restarts()), 2)

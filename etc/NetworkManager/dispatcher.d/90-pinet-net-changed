@@ -1,0 +1,43 @@
+#!/bin/bash
+# NetworkManager dispatcher: re-announce the Spotify player when the Pi's
+# uplink changes.
+#
+# librespot registers its Spotify Connect service with avahi once, at startup,
+# and holds a session to Spotify's servers over whatever network it came up
+# on. Move the Pi to another Wi-Fi -- a phone hotspot, a friend's house -- and
+# the announcement belongs to the old network: a phone freshly joined to the
+# NEW one scans and finds nothing, until raspotify is restarted by hand.
+# Restarting it here rebuilds both the announcement and the session on the
+# network that just came up.
+#
+# NetworkManager runs this as root with: $1 = interface, $2 = action.
+#   /etc/NetworkManager/dispatcher.d/90-pinet-net-changed
+# It must be root-owned and not writable by anyone else, or NM skips it.
+set -u
+IFACE="${1:-}"
+ACTION="${2:-}"
+
+# wlan0 is PINET's own access point: it comes up and down every time the
+# hotspot is toggled, and it is not the Pi's way out to Spotify.
+AP_IFACE="${PINET_AP_IFACE:-wlan0}"
+STAMP="${NET_CHANGED_STAMP:-/run/pinet-net-changed}"
+DEBOUNCE="${NET_CHANGED_DEBOUNCE:-20}"   # NM fires several events per connect
+SYSTEMCTL="${SYSTEMCTL:-systemctl}"
+
+log() { logger -t pinet-net-changed "$*"; }
+
+case "$ACTION" in
+    up|dhcp4-change|dhcp6-change|connectivity-change) ;;
+    *) exit 0 ;;
+esac
+[ -n "$IFACE" ] && [ "$IFACE" != "$AP_IFACE" ] || exit 0
+"$SYSTEMCTL" is-active --quiet raspotify.service || exit 0   # not running: nothing to re-announce
+
+now=${EPOCHSECONDS:-$(date +%s)}
+last=$(cat "$STAMP" 2>/dev/null || echo 0)
+case "$last" in ''|*[!0-9]*) last=0 ;; esac
+[ $(( now - last )) -ge "$DEBOUNCE" ] || exit 0
+echo "$now" > "$STAMP"
+
+log "$IFACE $ACTION -- restarting raspotify so it re-announces on this network"
+"$SYSTEMCTL" restart raspotify.service || log "restart failed"

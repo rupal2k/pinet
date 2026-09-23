@@ -83,8 +83,9 @@ reconnects.
 ## How you operate it
 
 - **Desktop (touchscreen or VNC):** shortcuts for Camera, Ezykam, PINET Portal,
-  Photo Frame, Start/Stop PINET, Start/Stop Spotify, Graphs, and Kali Tools.
-  Slideshow runs when idle.
+  Photo Frame, Graphs and Kali Tools, plus the **PINET** and **Spotify**
+  toggles -- one icon each, green while the service is running, tap to start or
+  stop it (it asks first). Slideshow runs when idle.
 - **At a glance:** the e-ink panel — no interaction needed.
 - **Remotely:** SSH/SFTP over wlan1 or Ethernet (blocked from PINET guests).
 - **On the go:** it's portable; on a phone hotspot the home IPs change (DHCP).
