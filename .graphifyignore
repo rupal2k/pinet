@@ -1,0 +1,19 @@
+# The Obsidian vault was merged into this repo, so every note exists twice:
+# docs/ is the maintained copy, "e-ink project/" is the older vault copy.
+# Graphing both doubled the document nodes and produced the loose cluster of
+# near-duplicate notes hanging off the side of the graph.
+e-ink project/
+
+# Agent scratch, not part of the system.
+.claude-flow/
+.swarm/
+ruvector.db
+*.rvf
+*.rvf.lock
+
+# Tool state that isn't part of the system either.
+.code-review-graph/
+.obsidian/
+
+# The graph's own build output.
+graphify-out/

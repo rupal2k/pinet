@@ -30,3 +30,7 @@ slideshow-cache/
 .claude-flow/
 .swarm/
 ruvector.db
+
+# knowledge graph build output (graphify) -- regenerate with:
+#   graphify update . && graphify-link . --map graphify-out/deploy-map.txt
+graphify-out/
