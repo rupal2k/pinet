@@ -225,10 +225,11 @@ class BoardTemplate(unittest.TestCase):
     def setUp(self):
         self.src = APP.read_text()
         self.html = repo_path("pinet-board", "templates", "board.html").read_text()
+        self.partial = repo_path("pinet-board", "templates", "_message.html").read_text()
         self.js = repo_path("pinet-board", "static", "app.js").read_text()
 
     def test_every_form_action_has_a_route(self):
-        actions = set(re.findall(r'action="(/[a-z-]*)', self.html))
+        actions = set(re.findall(r'action="(/[a-z-]*)', self.html + self.partial))
         self.assertIn("/post", actions)
         self.assertIn("/delete-message", actions)
         for action in actions:
@@ -242,8 +243,30 @@ class BoardTemplate(unittest.TestCase):
 
     def test_delete_controls_are_admin_only(self):
         # Both the markup and the routes gate deletion on the admin role.
-        for marker in ("/delete/", "/delete-message/"):
-            before = self.html.split(marker)[0]
+        for marker, html in (("/delete/", self.html), ("/delete-message/", self.partial)):
+            before = html.split(marker)[0]
             self.assertIn("{% if is_admin %}", before.rsplit("{% endif %}", 1)[-1],
                           f"{marker} is not inside an is_admin block")
         self.assertEqual(self.src.count("if not is_admin():"), 2)
+
+
+class LiveMessages(unittest.TestCase):
+    """The poller, its endpoint and the row partial all have to agree."""
+
+    def setUp(self):
+        self.src = APP.read_text()
+        self.html = repo_path("pinet-board", "templates", "board.html").read_text()
+        self.js = repo_path("pinet-board", "static", "app.js").read_text()
+
+    def test_one_partial_renders_both_paths(self):
+        # Board rows and polled rows must come from the same template, or the
+        # two can drift apart.
+        self.assertIn('{% include "_message.html" %}', self.html)
+        self.assertIn('render_template("_message.html"', self.src)
+
+    def test_poller_endpoint_matches_and_401s_a_dead_session(self):
+        path = re.search(r'fetch\("([^"?]+)\?since=', self.js).group(1)
+        self.assertIn(f'@app.route("{path}")', self.src)
+        # Without this the poll would parse the login page as JSON forever.
+        self.assertIn('if request.endpoint == "api_messages":', self.src)
+        self.assertIn('return "", 401', self.src)

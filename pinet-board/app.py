@@ -245,6 +245,8 @@ def require_login():
         return
     if not _session_valid():
         session.clear()
+        if request.endpoint == "api_messages":
+            return "", 401  # the poller stops on this instead of parsing a login page
         return redirect(url_for("login", next=request.path))
 
     # Reject oversized uploads by their declared Content-Length before
@@ -318,6 +320,26 @@ def board():
         "board.html", messages=messages, files=files, error=None,
         notice=NOTICES.get(request.args.get("ok")), **storage_stats(),
     )
+
+
+@app.route("/api/messages")
+def api_messages():
+    # Rows posted since the caller's newest id, already rendered with the same
+    # partial board.html uses -- a live-appended message is then identical to a
+    # reloaded one, and the markup lives in exactly one place.
+    since = request.args.get("since", type=int) or 0
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, body, created FROM messages WHERE id > ? ORDER BY id DESC LIMIT 50",
+        (since,),
+    ).fetchall()
+    total = db.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+    return {
+        "total": total,
+        "newest": rows[0][0] if rows else since,
+        "html": "".join(render_template("_message.html", mid=mid, body=body, created=created)
+                        for mid, body, created in rows),
+    }
 
 
 @app.route("/post", methods=["POST"])

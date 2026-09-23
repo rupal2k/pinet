@@ -250,6 +250,48 @@
     if (localStorage.getItem("pinetKiosk") === "1") document.documentElement.classList.add("kiosk");
   } catch (e) { /* storage disabled: no kiosk spacing, nothing else changes */ }
 
+  // ---- live messages: poll for anything posted from another device ----
+  // Cheap on a Pi serving a handful of phones: one small GET every 10s, only
+  // while the page is visible, and the server sends nothing but new rows.
+  var msgList = document.querySelector("[data-messages]");
+  if (msgList && window.fetch) {
+    var newest = parseInt(msgList.getAttribute("data-newest"), 10) || 0;
+    var badge = document.querySelector('.tab[data-tab="messages"] .count');
+    var timer = null;
+    var poll = function () {
+      if (document.hidden) return;
+      fetch("/api/messages?since=" + newest, { credentials: "same-origin" })
+        .then(function (r) {
+          if (r.status === 401) { clearInterval(timer); return null; }  // session ended
+          return r.ok ? r.json() : null;
+        })
+        .then(function (data) {
+          if (!data) return;
+          if (data.html) {
+            var empty = msgList.querySelector(".empty");
+            if (empty) empty.remove();
+            msgList.insertAdjacentHTML("afterbegin", data.html);
+            newest = data.newest;
+            // Mark only the rows that just arrived, so they are easy to spot.
+            var fresh = msgList.querySelectorAll(".list-item:not([data-seen])");
+            fresh.forEach(function (row) { row.classList.add("is-new"); });
+          }
+          msgList.querySelectorAll(".list-item").forEach(function (row) {
+            row.setAttribute("data-seen", "");
+          });
+          if (badge) badge.textContent = data.total;
+        })
+        .catch(function () { /* offline for a moment: try again next tick */ });
+    };
+    msgList.querySelectorAll(".list-item").forEach(function (row) {
+      row.setAttribute("data-seen", "");
+    });
+    timer = setInterval(poll, 10000);
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) poll();
+    });
+  }
+
   // ---- image thumbnails: fall back to the file-type icon if one can't load ----
   document.querySelectorAll("img[data-thumb]").forEach(function (img) {
     var drop = function () { img.remove(); };
