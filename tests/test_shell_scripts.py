@@ -569,6 +569,25 @@ class RaspotifyGuard(unittest.TestCase):
         self.guard(STREAM_GRACE="0")
         self.assertTrue(self.restarted())
 
+    def test_a_connected_speaker_is_routed_instead_of_pausing(self):
+        # Right after a reconnect the speaker is usually not the default sink.
+        # Pausing then would strand a player that has somewhere to go.
+        self.h._write_exec(self.h.bin / "spotify-audio-route",
+                           "#!/bin/bash\necho \"router ran\" >> \"$FAKE_DIR/calls.log\"\n"
+                           "echo \"Aavante Bar 1550 at 150%\"\n")
+        self.say("playing")
+        self.guard()
+        self.assertIn("router ran", self.h.calls())
+        self.assertFalse(self.frozen())
+
+    def test_it_still_pauses_when_no_speaker_can_be_routed(self):
+        self.h._write_exec(self.h.bin / "spotify-audio-route",
+                           "#!/bin/bash\necho \"router ran\" >> \"$FAKE_DIR/calls.log\"\nexit 1\n")
+        self.say("playing")
+        self.guard()
+        self.assertIn("router ran", self.h.calls())
+        self.assertTrue(self.frozen())
+
     def test_playing_with_a_stream_is_left_alone(self):
         self.proc.send_signal(signal.SIGSTOP)
         self.say("playing")
@@ -576,3 +595,108 @@ class RaspotifyGuard(unittest.TestCase):
         self.guard(STREAM_GRACE="0")
         self.assertFalse(self.restarted())
         self.assertFalse(self.frozen())
+
+
+
+WPCTL_STUB = """#!/bin/bash
+echo "wpctl $*" >> "$FAKE_DIR/calls.log"
+case "${1:-}" in
+  status)  cat "$FAKE_DIR/status" ;;
+  inspect) cat "$FAKE_DIR/inspect-${2:-}" 2>/dev/null ;;
+esac
+exit 0
+"""
+
+SINKS = (" |- Sinks:\n"
+         " |      68. Built-in Audio Stereo     [vol: 0.88]\n"
+         " |  *   90. Dubstep Pop 600           [vol: 1.00]\n"
+         " |  \n"
+         " |- Sources:\n")
+
+
+class SpotifyAudioRoute(unittest.TestCase):
+    """spotify-audio-route picks a *connected Bluetooth* sink -- whichever one
+    is switched on -- makes it the default and pins its level, so the phone's
+    own slider decides the loudness instead of whatever the speaker
+    remembered from last time."""
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/spotify-audio-route")
+        self.addCleanup(self.h.cleanup)
+        self.h._write_exec(self.h.bin / "wpctl", WPCTL_STUB)
+        self.status(SINKS)
+        self.node(68, "alsa_output.platform-3f00b840.mailbox.stereo-fallback", "Built-in Audio Stereo")
+        self.node(90, "bluez_output.5E_2B_AA_77_66_A8.1", "Dubstep Pop 600")
+
+    def status(self, text):
+        (self.h.dir / "status").write_text(text)
+
+    def node(self, sink_id, name, description):
+        (self.h.dir / f"inspect-{sink_id}").write_text(
+            f'  * node.name = "{name}"\n  * node.description = "{description}"\n')
+
+    def route(self, *args, **env):
+        return self.h.run(*args, env={"XDG_RUNTIME_DIR": str(self.h.dir), **env})
+
+    def test_routes_to_the_connected_bluetooth_sink(self):
+        r = self.route()
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("wpctl set-default 90", self.h.calls())
+        self.assertIn("wpctl set-volume 90 1.5", self.h.calls())
+
+    def test_never_routes_to_the_builtin_card(self):
+        self.route()
+        self.assertNotIn("wpctl set-default 68", self.h.calls())
+
+    def test_says_what_it_picked_and_how_loud(self):
+        r = self.route()
+        self.assertIn("Dubstep Pop 600", r.stdout)
+        self.assertIn("150%", r.stdout)
+
+    def test_reports_the_level_the_phone_is_asking_for(self):
+        (self.h.dir / "raspotify-nowplaying").write_text("state=playing\nvolume_pct=72\n")
+        self.assertIn("phone at 72%", self.route().stdout)
+
+    def test_bt_speaker_picks_between_two_speakers(self):
+        self.status(SINKS.replace(" |  \n",
+                                  " |      92. Aavante Bar 1550          [vol: 0.40]\n |  \n"))
+        self.node(92, "bluez_output.F4_4E_FD_2D_42_3D.1", "Aavante Bar 1550")
+        self.route(BT_SPEAKER="Aavante Bar 1550")
+        self.assertIn("wpctl set-default 92", self.h.calls())
+
+    def test_no_speaker_connected_is_a_clean_failure(self):
+        self.status(" |- Sinks:\n |      68. Built-in Audio Stereo     [vol: 0.88]\n")
+        r = self.route()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no Bluetooth speaker", r.stderr)
+        self.assertFalse([c for c in self.h.calls() if "set-" in c])
+
+    def test_print_changes_nothing(self):
+        r = self.route("--print")
+        self.assertEqual(r.stdout.strip(), "Dubstep Pop 600")
+        self.assertFalse([c for c in self.h.calls() if "set-" in c])
+
+
+class NowPlayingHook(unittest.TestCase):
+    """The --onevent hook carries librespot's volume, so the router can say
+    what the phone is asking for. librespot sends it with volume_changed and
+    with nothing else, so it has to survive the other events."""
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/raspotify-nowplaying-hook")
+        self.addCleanup(self.h.cleanup)
+
+    def fire(self, event, **env):
+        self.h.run(env={"XDG_RUNTIME_DIR": str(self.h.dir), "PLAYER_EVENT": event, **env})
+        text = (self.h.dir / "raspotify-nowplaying").read_text()
+        return dict(l.split("=", 1) for l in text.splitlines() if "=" in l)
+
+    def test_volume_is_recorded_as_a_percentage(self):
+        self.assertEqual(self.fire("volume_changed", VOLUME="65535")["volume_pct"], "100")
+        self.assertEqual(self.fire("volume_changed", VOLUME="32768")["volume_pct"], "50")
+        self.assertEqual(self.fire("volume_changed", VOLUME="0")["volume_pct"], "0")
+
+    def test_volume_survives_events_that_do_not_carry_it(self):
+        self.fire("volume_changed", VOLUME="32768")
+        self.assertEqual(self.fire("playing")["volume_pct"], "50")
+        self.assertEqual(self.fire("paused")["state"], "paused")

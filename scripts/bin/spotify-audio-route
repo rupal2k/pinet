@@ -1,0 +1,81 @@
+#!/bin/bash
+# Point PipeWire at a connected Bluetooth speaker and set that speaker's level,
+# so Spotify plays where you expect, as loud as you expect.
+#
+# Any connected Bluetooth speaker, not one name: more than one is paired here
+# and which one is switched on varies. BT_SPEAKER=<name> pins one of them.
+#
+# The level is the *sink's* own gain, which is what makes 100% in the Spotify
+# app come out at BOOST here. The speaker is quiet at 100%, and the boost that
+# used to be set by hand was lost on every reconnect -- the sink comes back at
+# 1.00 -- so it is re-applied whenever the speaker turns up.
+#
+#   spotify-audio-route          route, set the level, print what it picked
+#   spotify-audio-route --print  print what it would pick, change nothing
+set -uo pipefail
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+BOOST="${SPOTIFY_SINK_VOLUME:-1.5}"   # 1.5 = app at 100% plays at 150%
+STATE_FILE="$XDG_RUNTIME_DIR/raspotify-nowplaying"
+SPEAKER="${BT_SPEAKER:-}"
+DRY=no
+[ "${1:-}" = --print ] && DRY=yes
+
+wp() { timeout 5 wpctl "$@" 2>/dev/null; }
+
+# Ids in the Sinks section. The id is the first "<digits>." on the line, ahead
+# of the description and the [vol: x.xx] the line ends with.
+sink_ids() {
+    wp status | awk '
+        /Sinks:/ {s = 1; next}
+        /Sources:|Filters:|Streams:|Devices:/ {s = 0}
+        s && match($0, /[0-9]+\./) {
+            id = substr($0, RSTART, RLENGTH - 1)
+            if (id ~ /^[0-9]+$/) print id
+        }'
+}
+
+# A Bluetooth sink names itself bluez_output.<MAC>.<n>; the description is what
+# the desktop and the dialogs show ("Dubstep Pop 600").
+describe() { wp inspect "$1" | sed -n 's/.*node.description = "\(.*\)"/\1/p' | head -1; }
+is_bluetooth() { wp inspect "$1" | grep -q 'node\.name = "bluez_output\.'; }
+default_id() {
+    wp status | awk '/Sinks:/{s=1;next} /Sources:|Filters:|Streams:|Devices:/{s=0}
+                      s && /\*/ && match($0, /[0-9]+\./) {
+                          id = substr($0, RSTART, RLENGTH - 1); if (id ~ /^[0-9]+$/) {print id; exit}}'
+}
+
+pick=""; pick_name=""; current=$(default_id)
+for id in $(sink_ids); do
+    is_bluetooth "$id" || continue
+    name=$(describe "$id")
+    if [ -n "$SPEAKER" ]; then
+        [ "$name" = "$SPEAKER" ] || continue
+        pick=$id; pick_name=$name; break
+    fi
+    # No pin: first Bluetooth sink, but prefer one that is already the default
+    # so a deliberate choice between two speakers isn't overruled.
+    [ -z "$pick" ] && { pick=$id; pick_name=$name; }
+    [ "$id" = "$current" ] && { pick=$id; pick_name=$name; break; }
+done
+
+if [ -z "$pick" ]; then
+    echo "no Bluetooth speaker connected" >&2
+    exit 1
+fi
+if [ "$DRY" = yes ]; then
+    printf '%s\n' "$pick_name"
+    exit 0
+fi
+
+# A speaker comes back at whatever level it remembers -- often quiet, and
+# nothing to do with what the phone is asking for. Pinning the sink here is
+# what makes the phone's own slider the thing that sets the loudness: the app
+# at 100% lands at BOOST, at half volume it lands at half of that.
+wp set-default "$pick"
+wp set-volume "$pick" "$BOOST"
+
+line=$(printf '%s at %.0f%%' "$pick_name" "$(awk -v v="$BOOST" 'BEGIN{print v * 100}')")
+app_pct=$(sed -n 's/^volume_pct=//p' "$STATE_FILE" 2>/dev/null)
+[ -n "$app_pct" ] && line="$line (phone at ${app_pct}%)"
+printf '%s\n' "$line"

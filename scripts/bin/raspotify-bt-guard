@@ -25,6 +25,10 @@
 # - A stream that died with its sink leaves librespot running and audible to
 #   nobody. After a resume, if it says it is playing but has no stream a few
 #   seconds later, raspotify is restarted.
+# - A speaker that reconnects is often not made the default sink again, and
+#   comes back at 100%. Before pausing anything, the guard asks
+#   spotify-audio-route to put a connected Bluetooth speaker back as the
+#   default and at its boosted level.
 #
 # Restarting needs `sudo -n systemctl` -- rupal has passwordless sudo here; if
 # that is ever removed the guard logs the failure and keeps going.
@@ -37,6 +41,8 @@ POLL="${GUARD_POLL:-2}"
 IDLE_POLL="${GUARD_IDLE_POLL:-10}"          # nothing playing: look less often
 FREEZE_LIMIT="${FREEZE_LIMIT:-900}"         # 15 min frozen with no speaker
 STREAM_GRACE="${STREAM_GRACE:-5}"           # settle time before the stream check
+ROUTE_EVERY="${GUARD_ROUTE_EVERY:-30}"      # at most one routing attempt this often
+ROUTER="${SPOTIFY_ROUTER:-/usr/local/bin/spotify-audio-route}"
 TICKS="${GUARD_TICKS:-0}"                   # 0 = forever; the tests bound it
 STATE_FILE="$XDG_RUNTIME_DIR/raspotify-nowplaying"
 
@@ -72,7 +78,7 @@ output_up() {
     ! [[ $sink =~ $BUILTIN_RE ]]
 }
 
-last=init frozen_since=0 resumed_at=0 ticks=0
+last=init frozen_since=0 resumed_at=0 last_route=0 rerouted=no ticks=0
 while :; do
     pid=$(pgrep -x librespot | head -1)
     if [ -n "$pid" ]; then
@@ -92,7 +98,21 @@ while :; do
                 playing && ! has_stream && restart_raspotify "playing with no audio stream"
             fi
         else
-            if should_freeze; then
+            # A speaker may be connected but not the default sink (that is the
+            # usual state right after it reconnects). Put it back rather than
+            # pausing a player that has somewhere to go.
+            if [ $(( $(now) - last_route )) -ge "$ROUTE_EVERY" ] && [ -x "$ROUTER" ]; then
+                last_route=$(now)
+                if routed=$("$ROUTER" 2>/dev/null); then
+                    log "routed audio to $routed"
+                    frozen "$pid" && kill -CONT "$pid" 2>/dev/null
+                    frozen_since=0; last=up
+                    rerouted=yes
+                fi
+            fi
+            if [ "${rerouted:-no}" = yes ]; then
+                rerouted=no
+            elif should_freeze; then
                 if ! frozen "$pid"; then
                     kill -STOP "$pid" 2>/dev/null
                     frozen_since=$(now)

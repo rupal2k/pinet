@@ -1,6 +1,7 @@
 #!/bin/bash
 # librespot --onevent hook. Writes /run/user/1000/raspotify-nowplaying for the
-# e-ink Spotify panel. This librespot 0.8.0 build passes TRACK_ID but NOT
+# e-ink Spotify panel and for spotify-audio-route, which reports the level the
+# phone is asking for next to the level the speaker is set to. This librespot 0.8.0 build passes TRACK_ID but NOT
 # NAME/ARTISTS, so the track title is resolved from Spotify's public oEmbed
 # endpoint (no API key). State + title are preserved across events that carry
 # no track info (volume_changed etc.). Runs as rupal, XDG_RUNTIME_DIR inherited.
@@ -14,6 +15,15 @@ case "$ev" in
   stopped|end_of_track) st=idle ;;
   *) st="$(sed -n 's/^state=//p' "$STATE" 2>/dev/null)"; st="${st:-idle}" ;;
 esac
+
+# librespot sends VOLUME (0-65535) with volume_changed, and with nothing else,
+# so the last known value is kept across the other events.
+prev_vol="$(sed -n 's/^volume_pct=//p' "$STATE" 2>/dev/null)"
+if [ -n "${VOLUME:-}" ]; then
+  vol_pct=$(( (VOLUME * 100 + 32767) / 65535 ))
+else
+  vol_pct="$prev_vol"
+fi
 
 prev_tid="$(sed -n 's/^track_id=//p' "$STATE" 2>/dev/null)"
 prev_name="$(sed -n 's/^name=//p' "$STATE" 2>/dev/null)"
@@ -44,6 +54,7 @@ out="$(wpctl status 2>/dev/null | awk '/Sinks:/{s=1;next} s && /\*/ {sub(/^[^0-9
   echo "artists=$(san "$artists")"
   echo "album=$(san "$album")"
   echo "output=$out"
+  echo "volume_pct=$vol_pct"
   echo "ts=$(date +%s)"
 } > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE"
 env | sort > "$RT/raspotify-last-event.env" 2>/dev/null

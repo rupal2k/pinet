@@ -71,10 +71,14 @@ pirate screen — reversing cleanly. (Only test networks you own / are authorize
 to test.)
 
 ### 5. raspotify — Spotify → Bluetooth  ([[Device Overview]])
-A **Spotify Connect** endpoint ("raspotify (raspberrypi)"): select it in the
-Spotify app and it plays through the Pi to the paired **Bluetooth speaker** via
-PipeWire. Configured for the BT output (pulseaudio backend, sandbox opened for
-the session socket, linear volume, sink boosted to 150%).
+A **Spotify Connect** endpoint ("PINET"): select it in the Spotify app and it
+plays through the Pi to whichever paired **Bluetooth speaker** is switched on,
+via PipeWire. Configured for the BT output (pulseaudio backend, sandbox opened
+for the session socket, linear volume). Start/Stop Spotify on the desktop;
+starting it routes audio to the connected speaker and sets that speaker to
+**150%**, so the phone's own volume slider decides the loudness and 100% there
+is 150% here. The speaker guard re-routes and re-boosts when a speaker
+reconnects.
 
 ## How you operate it
 

@@ -977,3 +977,32 @@ ExecStop un-pauses librespot before raspotify goes away. Icons follow the
 PINET pair's grammar: speaker + waves, dot for on, dot struck through for off.
 **Verified** on the Pi: dialog drawn on the real screen, stop → both units
 inactive and librespot gone, start → both back. 14 new tests (136 total).
+
+## 37. Spotify: route to whichever speaker is on, and hold the level (2026-09-24)
+
+`spotify-audio-route` (new) finds a **connected Bluetooth sink** in PipeWire --
+by `node.name = bluez_output.*`, so it is whichever speaker is switched on, not
+a name -- makes it the default sink and pins its level to **150%**
+(`SPOTIFY_SINK_VOLUME`, `BT_SPEAKER=` pins a speaker). That is the boost the
+docs claimed since section 33 but which was set by hand and lost on every
+reconnect: the sink was back at 1.00 when this was picked up.
+
+Where it runs:
+- **Start Spotify** routes *before* raspotify starts, so librespot picks up the
+  right default sink as it comes up;
+- the speaker guard routes when the output isn't a real speaker (at most once
+  every 30s) -- a reconnected speaker is usually not the default again, and
+  pausing then would strand a player that has somewhere to go.
+
+**Volume model**: the sink carries the 150% gain, librespot carries the phone's
+own slider (`LIBRESPOT_VOLUME_CTRL=linear`), so the phone sets the loudness and
+100% there lands at 150% here. The `--onevent` hook now records
+`volume_pct=` from librespot's `VOLUME`, which is what lets the router say
+"Dubstep Pop 600 at 150% (phone at 75%)" -- it is kept across the events that
+don't carry a volume.
+
+**Verified** on the Pi: speaker knocked off default and back to 100%, then
+Start Spotify → default + 150% + both units up; the same knock mid-session →
+the guard put it back within 12s ("routed audio to Dubstep Pop 600 at 150%
+(phone at 75%)") and left librespot running rather than freezing it.
+11 new tests (147 total).
