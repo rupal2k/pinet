@@ -1,22 +1,40 @@
 #!/bin/bash
-# Confirm-then-run wrapper behind the Start PINET / Stop PINET desktop
-# shortcuts. The shortcuts used to call pinet-start/pinet-stop straight away,
-# so a stray double-click on the touchscreen tore the hotspot down under
-# whoever was connected, with no prompt and no feedback either way.
+# Confirm-then-run wrapper behind the Start/Stop desktop shortcuts. They used
+# to call pinet-start/pinet-stop straight away, so a stray double-click on the
+# touchscreen tore the hotspot down under whoever was connected, with no
+# prompt and no feedback either way.
 #
 # Two dialogs per click: ask first (what it says depends on what is actually
-# running), then report the state of all five services once the action has
-# finished, with an OK button to dismiss.
-#   usage: pinet-confirm start|stop
+# running), then report the state of every service in the group once the
+# action has finished, with an OK button to dismiss.
+#   usage: pinet-confirm start|stop [pinet|spotify]
+#
+# Spotify is the same shape -- a couple of units, the same two dialogs -- so it
+# is a group here rather than a second copy of all this.
 set -u
 
 ACTION="${1:-}"
-UNITS=(pinet-ap-network.service hostapd.service dnsmasq.service
-       pinet-board.service stunnel@pinet-board.service)
-# Shown in the dialog instead of unit names -- this is read at arm's length on
-# a 3.5" panel, not in a terminal.
-NAMES=("Hotspot network" "Access point" "DHCP + DNS" "Message board" "HTTPS")
-TITLE="PINET"
+GROUP="${2:-pinet}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"  # for --user units
+
+# Units are "scope:unit"; the speaker guard is a user unit, everything else is
+# a system one. NAMES is what the dialog shows instead -- this is read at arm's
+# length on a 3.5" panel, not in a terminal.
+case "$GROUP" in
+  pinet)
+    UNITS=(system:pinet-ap-network.service system:hostapd.service system:dnsmasq.service
+           system:pinet-board.service system:stunnel@pinet-board.service)
+    NAMES=("Hotspot network" "Access point" "DHCP + DNS" "Message board" "HTTPS")
+    TITLE="PINET"
+    ;;
+  spotify)
+    UNITS=(system:raspotify.service user:raspotify-bt-guard.service)
+    NAMES=("Spotify Connect" "Speaker guard")
+    TITLE="Spotify"
+    ;;
+  *)
+    echo "usage: ${0##*/} start|stop [pinet|spotify]" >&2; exit 2 ;;
+esac
 
 # Dialog text uses $'...' or printf: a "\n" inside plain double quotes is a
 # literal backslash-n to bash, and zenity prints it as one instead of a break.
@@ -42,10 +60,26 @@ note() { zenity --info --title="$TITLE" --width=340 --no-wrap \
 warn() { zenity --error --title="$TITLE" --width=340 --no-wrap \
                 --ok-label="OK" --text="$1"; }
 
+unit_active() {   # scope:unit
+    local scope=${1%%:*} unit=${1#*:}
+    if [ "$scope" = user ]; then systemctl --user is-active --quiet "$unit"
+    else systemctl is-active --quiet "$unit"; fi
+}
+
 count_active() {
     local n=0 u
-    for u in "${UNITS[@]}"; do systemctl is-active --quiet "$u" && n=$((n + 1)); done
+    for u in "${UNITS[@]}"; do unit_active "$u" && n=$((n + 1)); done
     printf '%s' "$n"
+}
+
+# Spotify's dialog also says where the sound is going -- "running" twice tells
+# you nothing when the speaker is off.
+output_line() {
+    [ "$GROUP" = spotify ] || return 0
+    local sink
+    sink=$(timeout 5 wpctl status 2>/dev/null | awk '/Sinks:/{s=1;next} s && /\*/ {
+             sub(/^[^0-9]*[0-9]+\. /,""); sub(/ +\[.*/,""); gsub(/[[:space:]]+$/,""); print; exit}')
+    printf '%-18s%s' "Playing to" "${sink:-nothing}"
 }
 
 # One line per service, "running" / "stopped" as words -- a tick alone would
@@ -54,9 +88,10 @@ count_active() {
 status_report() {
     local headline="$1" i state body=""
     for i in "${!UNITS[@]}"; do
-        if systemctl is-active --quiet "${UNITS[$i]}"; then state="running"; else state="stopped"; fi
+        if unit_active "${UNITS[$i]}"; then state="running"; else state="stopped"; fi
         body+=$(printf '%-18s%s' "${NAMES[$i]}" "$state")$'\n'
     done
+    extra=$(output_line) && [ -n "$extra" ] && body+="$extra"$'\n'""
     printf '%s\n\n<tt>%s</tt>' "$headline" "$body"
 }
 
@@ -66,34 +101,54 @@ plain() { printf '%s\n' "$1" | sed 's#</\?tt>##g; s#</\?b>##g'; }
 active=$(count_active)
 total=${#UNITS[@]}
 
+# What each group runs, and what the dialogs say about it.
+run_action() {
+    case "$GROUP:$1" in
+      pinet:start)   sudo -n /usr/local/sbin/pinet-start 2>&1 ;;
+      pinet:stop)    sudo -n /usr/local/sbin/pinet-stop 2>&1 ;;
+      spotify:start) sudo -n systemctl start raspotify.service 2>&1 \
+                     && systemctl --user start raspotify-bt-guard.service 2>&1 ;;
+      # Guard first: stopping it leaves librespot un-paused (its ExecStop), so
+      # raspotify never goes down frozen.
+      spotify:stop)  systemctl --user stop raspotify-bt-guard.service 2>&1 \
+                     && sudo -n systemctl stop raspotify.service 2>&1 ;;
+    esac
+}
+
 case "$ACTION" in
   start)
     if [ "$active" -eq "$total" ]; then
-      summary=$(status_report "PINET is already running.")
+      summary=$(status_report "$TITLE is already running.")
       have_gui && note "$summary"
       plain "$summary"; exit 0
     fi
     if [ "$active" -gt 0 ]; then
-      prompt=$(printf 'PINET is only partly up (%s of %s services).\n\nStart the rest?' \
-                      "$active" "$total")
+      prompt=$(printf '%s is only partly up (%s of %s services).\n\nStart the rest?' \
+                      "$TITLE" "$active" "$total")
+    elif [ "$GROUP" = spotify ]; then
+      prompt=$'Start Spotify?\n\nThe Pi shows up in the Spotify app as <b>PINET</b>\nand plays to the Bluetooth speaker.'
     else
       prompt=$'Start PINET?\n\nThis brings up the <b>PINET</b> hotspot, the message board\nand stunnel. It draws more power than idle.'
     fi
-    have_gui && { ask "Start PINET" "$prompt" || exit 0; }
-    out=$(sudo -n /usr/local/sbin/pinet-start 2>&1); rc=$?
+    have_gui && { ask "Start $TITLE" "$prompt" || exit 0; }
+    out=$(run_action start); rc=$?
     ;;
   stop)
     if [ "$active" -eq 0 ]; then
-      summary=$(status_report "PINET is already stopped.")
+      summary=$(status_report "$TITLE is already stopped.")
       have_gui && note "$summary"
       plain "$summary"; exit 0
     fi
-    prompt=$'Stop PINET?\n\nAnyone connected to the <b>PINET</b> hotspot will be\ndisconnected and the board will go offline.'
-    have_gui && { ask "Stop PINET" "$prompt" || exit 0; }
-    out=$(sudo -n /usr/local/sbin/pinet-stop 2>&1); rc=$?
+    if [ "$GROUP" = spotify ]; then
+      prompt=$'Stop Spotify?\n\nPlayback stops and the Pi disappears from the\nSpotify app until you start it again.'
+    else
+      prompt=$'Stop PINET?\n\nAnyone connected to the <b>PINET</b> hotspot will be\ndisconnected and the board will go offline.'
+    fi
+    have_gui && { ask "Stop $TITLE" "$prompt" || exit 0; }
+    out=$(run_action stop); rc=$?
     ;;
   *)
-    echo "usage: ${0##*/} start|stop" >&2; exit 2 ;;
+    echo "usage: ${0##*/} start|stop [pinet|spotify]" >&2; exit 2 ;;
 esac
 
 # Report what actually happened, re-read from systemd rather than trusting the
@@ -101,13 +156,19 @@ esac
 now_active=$(count_active)
 if [ "$ACTION" = start ]; then
     if [ "$now_active" -eq "$total" ]; then
-        headline=$'PINET is up.\n\nSSID <b>PINET</b> at 10.10.10.1'
+        if [ "$GROUP" = spotify ]; then
+            headline=$'Spotify is up.\n\nPick <b>PINET</b> in the Spotify app.'
+        else
+            headline=$'PINET is up.\n\nSSID <b>PINET</b> at 10.10.10.1'
+        fi
     else
-        headline="PINET came up only partly ($now_active of $total)."
+        headline="$TITLE came up only partly ($now_active of $total)."
     fi
 else
-    if [ "$now_active" -eq 0 ]; then headline="PINET is down."
-    else headline="PINET did not fully stop ($now_active of $total still running)."
+    if [ "$now_active" -eq 0 ]; then
+        [ "$GROUP" = spotify ] && headline="Spotify is off." || headline="PINET is down."
+    else
+        headline="$TITLE did not fully stop ($now_active of $total still running)."
     fi
 fi
 

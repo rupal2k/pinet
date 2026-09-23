@@ -92,6 +92,18 @@ ICONS = {
                    neon("M17 22 V17 A7 7 0 0 1 31 17 V22")
                    + neon("M13 22 H35 V37 L32 40 H13 Z")
                    + dot(24, 29.5, 2.2, MAGENTA) + neon("M24 31.5 V35", MAGENTA)),
+    # Bluetooth speaker with sound waves; same Start/Stop grammar as PINET's
+    # pair above -- a dot for on, the dot plus a strike for off.
+    "spotify-start": ("Start Spotify player",
+                      neon("M12 15 H25 V33 H12 Z M30 20 A8 8 0 0 1 30 28 M34.5 16 A14.5 14.5 0 0 1 34.5 32")
+                      + neon("M18.5 27.5 A4 4 0 1 1 18.49 27.5 Z")
+                      + dot(18.5, 19.5, 1.7, GREEN)),
+    "spotify-stop": ("Stop Spotify player",
+                     neon("M12 15 H25 V33 H12 Z M30 20 A8 8 0 0 1 30 28 M34.5 16 A14.5 14.5 0 0 1 34.5 32",
+                          alpha=0.45)
+                     + neon("M18.5 27.5 A4 4 0 1 1 18.49 27.5 Z", alpha=0.45)
+                     + dot(18.5, 19.5, 1.7, CYAN)
+                     + neon("M13 13 L35 35", RED)),
     "graphs-network": ("Graphs viewer",
                        neon("M24 12 L12 33 M24 12 L36 31 M12 33 L36 31 M24 12 V25 M24 25 L12 33 M24 25 L36 31")
                        + dot(24, 12, 3.2, CYAN) + dot(12, 33, 3.2, CYAN) + dot(36, 31, 3.2, CYAN)

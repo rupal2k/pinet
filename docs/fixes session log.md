@@ -946,3 +946,34 @@ installs — confirmed the 5V-sag → 600 MHz throttle mechanism (no amperage re
 on a Pi 3B). QA + code audit: both pass (0 failed units, dpkg clean, scripts
 parse). Session temp files + camera test captures cleaned (exact paths,
 `.bak-splash` preserved). New whole-device description written: [[Device Overview]].
+
+## 36. Spotify: reliability + Start/Stop shortcuts (2026-09-24)
+
+The speaker guard was pinned to one speaker's **name** (`Dubstep Pop 600`), and
+two speakers are paired here — playing to the other one left librespot
+SIGSTOPped for as long as it played. It now watches the **default sink** and
+treats anything that isn't the Pi's built-in card as a real output
+(`BT_SPEAKER=` still pins one sink if you want that).
+
+Three more failure modes it now covers:
+- it froze librespot even when **nothing was playing**, which just made the Pi
+  stop answering Spotify and vanish from the device list. It only freezes while
+  the `--onevent` state file says `playing` (no state file → old behaviour);
+- a speaker that never came back left it frozen mid-track for good. After
+  `FREEZE_LIMIT` (15 min) it restarts raspotify, which comes back idle and
+  selectable;
+- a stream that died with its sink left librespot running and audible to
+  nobody. After a resume, playing with no stream restarts raspotify.
+
+Also: `wpctl` every 2s all day cost the old guard **20 min of CPU in four days**;
+it polls every 10s unless something is playing.
+
+**Start Spotify / Stop Spotify** desktop shortcuts, the same
+ask-then-report pair as PINET — `pinet-confirm` took a group argument
+(`pinet-confirm start spotify`) rather than growing a second copy of the dialog
+code. The report adds a "Playing to" line, because "running, running" says
+nothing when the speaker is off. Stop takes the guard down **first**, so its
+ExecStop un-pauses librespot before raspotify goes away. Icons follow the
+PINET pair's grammar: speaker + waves, dot for on, dot struck through for off.
+**Verified** on the Pi: dialog drawn on the real screen, stop → both units
+inactive and librespot gone, start → both back. 14 new tests (136 total).

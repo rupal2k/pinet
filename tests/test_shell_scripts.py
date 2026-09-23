@@ -6,6 +6,7 @@ Each behavioural test runs a copy of the real script whose hard-coded /run,
 """
 import py_compile
 import shutil
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -346,6 +347,11 @@ class PinetConfirm(unittest.TestCase):
         self.assertFalse(self.ran("pinet-start"))
         self.assertFalse(self.ran("pinet-stop"))
 
+    def test_unknown_group_is_usage_error(self):
+        r = self.h.run("start", "hifi")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("usage", r.stderr)
+
     def test_summary_lists_every_service_and_its_state(self):
         # The dialog after the action is the whole point: it must name all five
         # services and say which are up, not just echo pinet-start's last line.
@@ -411,3 +417,162 @@ class PinetConfirm(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SpotifyConfirm(unittest.TestCase):
+    """The same wrapper drives Spotify: one system unit, one user unit."""
+
+    UNITS = ["raspotify.service", "raspotify-bt-guard.service"]
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/pinet-confirm")
+        self.addCleanup(self.h.cleanup)
+        self.h._write_exec(self.h.bin / "sudo",
+                           '#!/bin/bash\nwhile [ "${1:0:1}" = - ]; do shift; done\nexec "$@"\n')
+        self.h._write_exec(
+            self.h.bin / "wpctl",
+            '#!/bin/bash\nprintf "Sinks:\\n *   90. Dubstep Pop 600   [vol: 1.00]\\n"\n')
+
+    def started(self, unit):
+        return any(l.startswith(f"systemctl start {unit}")
+                   or l.startswith(f"systemctl --user start {unit}") for l in self.h.calls())
+
+    def test_start_brings_up_both_units(self):
+        self.h.set_active()
+        r = self.h.run("start", "spotify")
+        self.assertEqual(r.returncode, 0)
+        for unit in self.UNITS:
+            self.assertTrue(self.started(unit), f"{unit} not started")
+
+    def test_start_when_already_running_does_nothing(self):
+        self.h.set_active(*self.UNITS)
+        r = self.h.run("start", "spotify")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("already running", r.stdout)
+        self.assertFalse(any(" start " in l for l in self.h.calls()))
+
+    def test_stop_takes_the_guard_down_first(self):
+        # The guard's ExecStop un-pauses librespot, so raspotify must not go
+        # down before it -- that would leave a frozen process behind.
+        self.h.set_active(*self.UNITS)
+        r = self.h.run("stop", "spotify")
+        self.assertEqual(r.returncode, 0)
+        stops = [l for l in self.h.calls() if " stop " in l]
+        self.assertTrue(stops[0].endswith("raspotify-bt-guard.service"), stops)
+        self.assertTrue(stops[1].endswith("raspotify.service"), stops)
+
+    def test_stop_when_already_off_does_nothing(self):
+        self.h.set_active()
+        r = self.h.run("stop", "spotify")
+        self.assertIn("already stopped", r.stdout)
+        self.assertFalse(any(" stop " in l for l in self.h.calls()))
+
+    def test_report_says_where_the_sound_goes(self):
+        # "running, running" tells you nothing when the speaker is off.
+        self.h.set_active(*self.UNITS)
+        r = self.h.run("start", "spotify")
+        self.assertIn("Playing to", r.stdout)
+        self.assertIn("Dubstep Pop 600", r.stdout)
+
+
+class RaspotifyGuard(unittest.TestCase):
+    """The speaker guard freezes librespot only when freezing is the answer:
+    playing, with the sound going nowhere useful. A real background process
+    stands in for librespot, so the SIGSTOP/SIGCONT are really sent and the
+    assertions read its actual state out of /proc."""
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/raspotify-bt-guard")
+        self.addCleanup(self.h.cleanup)
+        self.proc = subprocess.Popen(["sleep", "60"])
+        self.addCleanup(self.stop_proc)
+        self.h._write_exec(self.h.bin / "pgrep", f"#!/bin/bash\necho {self.proc.pid}\n")
+        self.h._write_exec(self.h.bin / "logger",
+                           '#!/bin/bash\necho "logger $*" >> "$FAKE_DIR/calls.log"\n')
+        self.h._write_exec(self.h.bin / "sudo",
+                           '#!/bin/bash\nwhile [ "${1:0:1}" = - ]; do shift; done\nexec "$@"\n')
+        self.sink("Built-in Audio Stereo")
+
+    def stop_proc(self):
+        self.proc.send_signal(signal.SIGCONT)   # never leave it stopped
+        self.proc.kill()
+        self.proc.wait()
+
+    def sink(self, name, streams=""):
+        """wpctl status with *name* as the default sink."""
+        body = f"Sinks:\\n *   90. {name}   [vol: 1.00]\\nStreams:\\n{streams}"
+        self.h._write_exec(self.h.bin / "wpctl", f'#!/bin/bash\nprintf "{body}\\n"\n')
+
+    def say(self, state):
+        (self.h.dir / "raspotify-nowplaying").write_text(f"state={state}\n")
+
+    def guard(self, ticks=1, **env):
+        return self.h.run(env={"XDG_RUNTIME_DIR": str(self.h.dir),
+                               "GUARD_TICKS": str(ticks), **env})
+
+    def proc_state(self):
+        return Path(f"/proc/{self.proc.pid}/stat").read_text().rsplit(") ", 1)[1].split()[0]
+
+    def frozen(self):
+        return self.proc_state() == "T"
+
+    def restarted(self):
+        return any("restart raspotify.service" in c for c in self.h.calls())
+
+    def test_playing_into_the_builtin_card_is_frozen(self):
+        self.say("playing")
+        self.guard()
+        self.assertTrue(self.frozen())
+
+    def test_a_speaker_resumes_it(self):
+        self.proc.send_signal(signal.SIGSTOP)
+        self.say("playing")
+        self.sink("Dubstep Pop 600")
+        self.guard()
+        self.assertFalse(self.frozen())
+
+    def test_any_speaker_counts_not_just_one_name(self):
+        # The old guard was pinned to one speaker's name, so playing to the
+        # other paired speaker froze librespot for as long as it played.
+        self.say("playing")
+        self.sink("Aavante Bar 1550")
+        self.guard()
+        self.assertFalse(self.frozen())
+
+    def test_bt_speaker_pins_it_to_one_sink(self):
+        self.say("playing")
+        self.sink("Aavante Bar 1550")
+        self.guard(BT_SPEAKER="Dubstep Pop 600")
+        self.assertTrue(self.frozen())
+
+    def test_idle_is_left_running_so_spotify_still_sees_the_pi(self):
+        self.say("idle")
+        self.guard()
+        self.assertFalse(self.frozen())
+
+    def test_without_a_state_file_it_still_freezes(self):
+        # No --onevent hook writing state: fall back to the old behaviour
+        # rather than never pausing and playing into the built-in card.
+        self.guard()
+        self.assertTrue(self.frozen())
+
+    def test_a_long_freeze_restarts_raspotify(self):
+        # A speaker that never comes back would otherwise leave librespot
+        # frozen mid-track and missing from Spotify for good.
+        self.say("playing")
+        self.guard(FREEZE_LIMIT="0")
+        self.assertTrue(self.restarted())
+
+    def test_playing_with_no_stream_restarts_raspotify(self):
+        self.proc.send_signal(signal.SIGSTOP)
+        self.say("playing")
+        self.sink("Dubstep Pop 600")            # resumed, but no stream on it
+        self.guard(STREAM_GRACE="0")
+        self.assertTrue(self.restarted())
+
+    def test_playing_with_a_stream_is_left_alone(self):
+        self.proc.send_signal(signal.SIGSTOP)
+        self.say("playing")
+        self.sink("Dubstep Pop 600", streams=" *   95. librespot")
+        self.guard(STREAM_GRACE="0")
+        self.assertFalse(self.restarted())
+        self.assertFalse(self.frozen())

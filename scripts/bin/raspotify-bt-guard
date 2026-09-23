@@ -1,26 +1,125 @@
 #!/bin/bash
-# Pause Spotify (librespot) whenever the Bluetooth speaker is disconnected and
-# resume on reconnect. librespot's play/pause is driven by the Spotify Connect
-# protocol, not the local sink, so without this it keeps advancing into the
-# built-in output after the BT speaker drops. SIGSTOP freezes librespot exactly
-# where it is (audio + track position); SIGCONT resumes it. The signal is the BT
-# speaker's PipeWire sink being present. Runs as rupal (which owns librespot).
+# Pause Spotify (librespot) when its audio has nowhere good to go, and resume
+# it when it does. librespot's play/pause is driven by the Spotify Connect
+# protocol, not by the local sink, so without this it keeps advancing into the
+# Pi's built-in output after the Bluetooth speaker drops. SIGSTOP freezes
+# librespot exactly where it is (audio + track position); SIGCONT resumes it.
+# Runs as rupal, which owns librespot.
+#
+# What the guard watches is the *default sink*, not one speaker's name. Two
+# speakers are paired here, and pinning the name meant that playing to the
+# other one froze librespot for as long as it played. Anything that is not the
+# Pi's own built-in card counts as a real output; BT_SPEAKER=<sink name> pins
+# it to exactly one sink if that is what you want.
+#
+# Three failure modes the freeze alone doesn't cover, so the guard handles them:
+#
+# - Freezing an *idle* librespot makes the Pi stop answering Spotify, so it
+#   disappears from the device list for no reason. It is only frozen while it
+#   is actually playing, which the --onevent hook's state file tells us. With
+#   no state file (hook not installed) it falls back to freezing either way,
+#   which is what this script always used to do.
+# - A speaker that never comes back leaves librespot frozen mid-track and
+#   missing from Spotify. After FREEZE_LIMIT seconds raspotify is restarted:
+#   it comes back idle and selectable instead of stuck.
+# - A stream that died with its sink leaves librespot running and audible to
+#   nobody. After a resume, if it says it is playing but has no stream a few
+#   seconds later, raspotify is restarted.
+#
+# Restarting needs `sudo -n systemctl` -- rupal has passwordless sudo here; if
+# that is ever removed the guard logs the failure and keeps going.
 set -uo pipefail
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-SPEAKER="${BT_SPEAKER:-Dubstep Pop 600}"
-bt_up(){ timeout 5 wpctl status 2>/dev/null | grep -q "$SPEAKER"; }
-pstate(){ awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
-last=init
-while true; do
+
+SPEAKER="${BT_SPEAKER:-}"                   # empty = any sink but the built-in card
+BUILTIN_RE="${BUILTIN_SINK_RE:-^Built-in }"
+POLL="${GUARD_POLL:-2}"
+IDLE_POLL="${GUARD_IDLE_POLL:-10}"          # nothing playing: look less often
+FREEZE_LIMIT="${FREEZE_LIMIT:-900}"         # 15 min frozen with no speaker
+STREAM_GRACE="${STREAM_GRACE:-5}"           # settle time before the stream check
+TICKS="${GUARD_TICKS:-0}"                   # 0 = forever; the tests bound it
+STATE_FILE="$XDG_RUNTIME_DIR/raspotify-nowplaying"
+
+log() { logger -t raspotify-bt-guard "$*"; }
+wp() { timeout 5 wpctl status 2>/dev/null; }
+now() { date +%s; }
+
+# The sink PipeWire is sending new audio to, by name. Same awk the nowplaying
+# hook uses, so both agree on what "the output" is.
+default_sink() {
+    wp | awk '/Sinks:/{s=1;next} s && /\*/ {sub(/^[^0-9]*[0-9]+\. /,"");
+              sub(/ +\[.*/,""); gsub(/[[:space:]]+$/,""); print; exit}'
+}
+has_stream() { wp | sed -n '/Streams:/,$p' | grep -qi librespot; }
+state() { sed -n 's/^state=//p' "$STATE_FILE" 2>/dev/null; }
+playing() { [ "$(state)" = playing ]; }
+# No state file at all means the hook isn't writing one; fall back to freezing
+# whatever librespot is doing, rather than never freezing it.
+should_freeze() { [ -f "$STATE_FILE" ] || return 0; playing; }
+pstate() { awk '{print $3}' "/proc/$1/stat" 2>/dev/null; }
+frozen() { [ "$(pstate "$1")" = T ]; }
+
+restart_raspotify() {
+    log "$1 -- restarting raspotify"
+    sudo -n systemctl restart raspotify.service 2>/dev/null \
+        || log "could not restart raspotify (no passwordless sudo?)"
+}
+
+output_up() {
+    local sink="$1"
+    [ -n "$sink" ] || return 1
+    if [ -n "$SPEAKER" ]; then [ "$sink" = "$SPEAKER" ]; return; fi
+    ! [[ $sink =~ $BUILTIN_RE ]]
+}
+
+last=init frozen_since=0 resumed_at=0 ticks=0
+while :; do
     pid=$(pgrep -x librespot | head -1)
     if [ -n "$pid" ]; then
-        if bt_up; then
-            [ "$(pstate "$pid")" = T ] && kill -CONT "$pid" 2>/dev/null
-            [ "$last" != up ] && { logger -t raspotify-bt-guard "BT speaker connected -> resume librespot"; last=up; }
+        sink=$(default_sink)
+        if output_up "$sink"; then
+            if frozen "$pid"; then
+                kill -CONT "$pid" 2>/dev/null
+                resumed_at=$(now)
+            fi
+            frozen_since=0
+            if [ "$last" != up ]; then
+                log "output is '${sink}' -> librespot runs"; last=up
+            fi
+            # Playing to a sink it has no stream on: nobody can hear it.
+            if [ "$resumed_at" -gt 0 ] && [ $(( $(now) - resumed_at )) -ge "$STREAM_GRACE" ]; then
+                resumed_at=0
+                playing && ! has_stream && restart_raspotify "playing with no audio stream"
+            fi
         else
-            [ "$(pstate "$pid")" != T ] && kill -STOP "$pid" 2>/dev/null
-            [ "$last" != down ] && { logger -t raspotify-bt-guard "BT speaker disconnected -> pause librespot"; last=down; }
+            if should_freeze; then
+                if ! frozen "$pid"; then
+                    kill -STOP "$pid" 2>/dev/null
+                    frozen_since=$(now)
+                elif [ "$frozen_since" -eq 0 ]; then
+                    frozen_since=$(now)   # already frozen when the guard started
+                fi
+                if [ "$last" != down ]; then
+                    log "no speaker (output '${sink:-none}') -> librespot paused"; last=down
+                fi
+                if [ $(( $(now) - frozen_since )) -ge "$FREEZE_LIMIT" ]; then
+                    restart_raspotify "frozen ${FREEZE_LIMIT}s with no speaker"
+                    frozen_since=0; last=init
+                fi
+            else
+                # Idle: leave it running so the Pi stays visible in Spotify.
+                frozen "$pid" && kill -CONT "$pid" 2>/dev/null
+                frozen_since=0
+                if [ "$last" != idle ]; then
+                    log "no speaker, nothing playing -> librespot left running"; last=idle
+                fi
+            fi
         fi
     fi
-    sleep 2
+    ticks=$((ticks + 1))
+    if [ "$TICKS" -gt 0 ] && [ "$ticks" -ge "$TICKS" ]; then break; fi
+    # Idle is the normal state of this Pi, and a wpctl every 2s all day is how
+    # the old guard burned 20 minutes of CPU in four days. Only pace up when
+    # we know something is playing.
+    if [ -f "$STATE_FILE" ] && ! playing; then sleep "$IDLE_POLL"; else sleep "$POLL"; fi
 done

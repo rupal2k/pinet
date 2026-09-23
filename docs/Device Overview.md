@@ -79,7 +79,8 @@ the session socket, linear volume, sink boosted to 150%).
 ## How you operate it
 
 - **Desktop (touchscreen or VNC):** shortcuts for Camera, Ezykam, PINET Portal,
-  Photo Frame, Start/Stop PINET, and Kali Tools. Slideshow runs when idle.
+  Photo Frame, Start/Stop PINET, Start/Stop Spotify, Graphs, and Kali Tools.
+  Slideshow runs when idle.
 - **At a glance:** the e-ink panel — no interaction needed.
 - **Remotely:** SSH/SFTP over wlan1 or Ethernet (blocked from PINET guests).
 - **On the go:** it's portable; on a phone hotspot the home IPs change (DHCP).
