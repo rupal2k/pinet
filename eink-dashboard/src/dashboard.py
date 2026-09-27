@@ -636,17 +636,39 @@ def _text_width(draw, text, font):
     return bbox[2] - bbox[0]
 
 
+ELLIPSIS = "\u2026"
+
+
 def fit_text(draw, text, font_path, max_size, min_size, max_width):
-    """Shrink font size to fit max_width; truncate with '..' only as a last resort."""
+    """Shrink font size to fit max_width; truncate with an ellipsis only as a
+    last resort, and never return text wider than max_width (if not even the
+    ellipsis fits, return "")."""
     for size in range(max_size, min_size - 1, -1):
         font = ImageFont.truetype(font_path, size)
         if _text_width(draw, text, font) <= max_width:
             return text, font
     font = ImageFont.truetype(font_path, min_size)
-    trimmed = text
-    while len(trimmed) > 1 and _text_width(draw, trimmed + "..", font) > max_width:
-        trimmed = trimmed[:-1]
-    return (trimmed + ".." if trimmed else ".."), font
+    trimmed = text.rstrip()
+    while trimmed and _text_width(draw, trimmed + ELLIPSIS, font) > max_width:
+        trimmed = trimmed[:-1].rstrip()
+    if trimmed:
+        return trimmed + ELLIPSIS, font
+    return (ELLIPSIS if _text_width(draw, ELLIPSIS, font) <= max_width else ""), font
+
+
+def tidy_track_name(name):
+    """What music apps show when space is short: the title without its
+    "(feat. ...)", "[...]" or " - ... Remix/Remaster/Version/Edit" tail."""
+    import re
+    short = re.sub(r"\s*[\(\[][^\)\]]*[\)\]]", "", name)
+    short = re.sub(r"\s+-\s+.*$", "", short).strip()
+    return short or name
+
+
+def short_artists(artists):
+    """ "A, B, C" -> "A +2" for the one-line artist slot."""
+    parts = [a.strip() for a in artists.replace(" & ", ", ").replace(" and ", ", ").split(",") if a.strip()]
+    return artists if len(parts) <= 1 else f"{parts[0]} +{len(parts) - 1}"
 
 
 def _centre_block(draw, width, icon_size, gap, lines, font):
@@ -670,7 +692,15 @@ def draw_stat_box(draw, x, y, w, h, label, value, secondary, icon_fn):
     max_width = x + w - text_x - 3
 
     label_text, label_font = fit_text(draw, label, FONT_REGULAR_PATH, 13, 9, max_width)
-    draw.text((text_x, y + 4), label_text, font=label_font, fill=0)
+    if label_text.endswith(ELLIPSIS):
+        # Too long beside the icon column (e.g. THIRUVANANTHAPURAM): the icon
+        # sits on the value row, so the label row has the whole tile -- use it,
+        # centred like the secondary row. Short labels keep their usual place.
+        label_text, label_font = fit_text(draw, label, FONT_REGULAR_PATH, 13, 9, w - 6)
+        lw = draw.textlength(label_text, font=label_font)
+        draw.text((x + (w - lw) / 2, y + 4), label_text, font=label_font, fill=0)
+    else:
+        draw.text((text_x, y + 4), label_text, font=label_font, fill=0)
 
     value_text, value_font = fit_text(draw, value, FONT_BOLD_PATH, 26, 16, max_width)
     draw.text((text_x, y + 20), value_text, font=value_font, fill=0)
@@ -715,11 +745,15 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
     batt_text = f"{battery['percent']}%" if battery else ""
     has_glyph = bool(battery) and (battery["state"] != "battery" or battery_is_low(battery))
     glyph_w = (icons.POWER_GLYPH_W + 2 if has_glyph else 0) + HEADER_BATT_W + 3
+    # Size the date/time for the widest battery block ("100%" plus a glyph),
+    # whatever is shown now, so the header never changes size between 9% and
+    # 100%, when a glyph comes and goes, or with no HAT at all.
+    widest_batt_w = icons.POWER_GLYPH_W + 2 + HEADER_BATT_W + 3 + 16
     for size in range(18, 12, -1):
         header_font = ImageFont.truetype(FONT_BOLD_PATH, size)
         date_w = _text_width(draw, date_text, header_font)
         time_w = _text_width(draw, time_text, header_font)
-        batt_w = _text_width(draw, batt_text, header_font) + glyph_w + 16 if batt_text else 0
+        batt_w = _text_width(draw, "100%", header_font) + widest_batt_w
         if date_w + batt_w + time_w <= W - 8 - 10:
             break
     draw.text((4, 2), date_text, font=header_font, fill=0)
@@ -772,7 +806,9 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
     hero_h = epd.width - hero_y - 1
 
     if weather:
-        weather_label = (location_name or "WEATHER")[:12].upper()
+        # draw_stat_box shrinks it to fit (and only then truncates with an
+        # ellipsis), so no hard character cut here.
+        weather_label = (location_name or "WEATHER").upper()
         weather_value = f"{weather['temp']:.0f}°C"
         weather_secondary = f"Hum {weather['humidity']:.0f}%"
         weather_icon_fn = lambda x, y: icons.weather_icon(
@@ -847,14 +883,17 @@ def render_qr_screen(epd, ssid, password, net, dark_mode=False):
         draw.text((4, qy + qr_size // 2 - 18), hint_line1, font=hint_font1, fill=0)
         draw.text((4, qy + qr_size // 2), hint_line2, font=hint_font2, fill=0)
     elif ssid and not password:
-        ssid_text, ssid_font = fit_text(draw, f"Connected to: {ssid}", FONT_REGULAR_PATH, 13, 9, W - 20)
-        draw.text((10, H // 2 - 20), ssid_text, font=ssid_font, fill=0)
         # Guest-facing message, not a debug detail -- the technical reason
         # (e.g. a broken sudoers grant) goes to the log via
         # get_wifi_credentials(), never onto this screen: whoever's
         # reading this has no way to act on "check sudoers setup" anyway.
-        draw.text((10, H // 2), "Ask your host for", font=FONT_SMALL, fill=0)
-        draw.text((10, H // 2 + 16), "the Wi-Fi password", font=FONT_SMALL, fill=0)
+        # Centred as one icon+text group, like the Ethernet/offline screens.
+        ssid_line, _ = fit_text(draw, f"Connected to {ssid}", FONT_REGULAR_PATH, 13, 13, W - 60)
+        lines = [ssid_line, "Ask your host for", "the Wi-Fi password"]
+        x_icon, x_text = _centre_block(draw, W, 24, 10, lines, FONT_SMALL)
+        icons.wifi(draw, x_icon + 12, H // 2 + 6, size=11)
+        for i, line in enumerate(lines):
+            draw.text((x_text, H // 2 - 24 + i * 16), line, font=FONT_SMALL, fill=0)
     elif net["ip"]:
         # Icon doubled in size here (was 12) -- this is the one screen that
         # explicitly tells the user "you're on Ethernet", so it gets the
@@ -1004,11 +1043,18 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
             msg, mfont = fit_text(draw, "raspotify not running", FONT_REGULAR_PATH, 13, 9, W - 24)
             draw.text((12, 74), msg, font=mfont, fill=0)
         elif state in ("playing", "paused") and name:
-            name_text, name_font = fit_text(draw, name, FONT_BOLD_PATH, 16, 10, W - 24)
+            # Readable from across the room beats complete: the title never
+            # shrinks below 13px. If it still doesn't fit, drop the tail music
+            # apps hide ("(feat. ...)", " - ... Remix") before an ellipsis.
+            name_text, name_font = fit_text(draw, name, FONT_BOLD_PATH, 16, 13, W - 24)
+            if name_text.endswith(ELLIPSIS):
+                name_text, name_font = fit_text(draw, tidy_track_name(name), FONT_BOLD_PATH, 16, 13, W - 24)
             draw.text((12, 66), name_text, font=name_font, fill=0)
             badge = "[playing]" if state == "playing" else ("[paused]" if state == "paused" else "")
             bw = int(draw.textlength(badge, font=FONT_SMALL)) if badge else 0
-            art_text, art_font = fit_text(draw, artists, FONT_REGULAR_PATH, 13, 9, W - 30 - bw)
+            art_text, art_font = fit_text(draw, artists, FONT_REGULAR_PATH, 13, 11, W - 30 - bw)
+            if art_text.endswith(ELLIPSIS):
+                art_text, art_font = fit_text(draw, short_artists(artists), FONT_REGULAR_PATH, 13, 11, W - 30 - bw)
             draw.text((12, 90), art_text, font=art_font, fill=0)
             if badge:
                 draw.text((W - 10 - bw, 90), badge, font=FONT_SMALL, fill=0)
@@ -1140,16 +1186,18 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
                 title, font=title_font, fill=0,
             )
 
-    volt_text = f"{voltage:.2f}V" if voltage is not None else "V: n/a"
+    volt_text = f"{voltage:.2f}V" if voltage is not None else "Voltage n/a"
     problem = bool(under_voltage) or bool(throttled)
     if problem:
         icons.exclamation(draw, 12, header_h // 2, size=8)
         status_text = "LOW VOLTAGE" if under_voltage else "THROTTLED"
         text_x = 22
     else:
-        status_text = "OK"
+        # "OK" only when the supply was actually read and is fine -- never
+        # next to a reading we don't have.
+        status_text = "OK" if under_voltage is False else ""
         text_x = 6
-    draw.text((text_x, 2), f"{volt_text}  {status_text}", font=FONT_SMALL, fill=0)
+    draw.text((text_x, 2), f"{volt_text}  {status_text}".rstrip(), font=FONT_SMALL, fill=0)
 
     if battery:
         # Charge left out of the pack's capacity, and whether it is charging.

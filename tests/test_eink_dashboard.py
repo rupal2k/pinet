@@ -235,12 +235,11 @@ class FitText(TmpDirCase):
         text, font = self.dash.fit_text(FakeDraw(), "abcdef", "f.ttf", 10, 6, 40)
         self.assertEqual((text, font.size), ("abcdef", 6))
 
-    def test_truncates_with_dots_at_min_size(self):
+    def test_truncates_with_an_ellipsis_at_min_size(self):
         text, font = self.dash.fit_text(FakeDraw(), "abcdefghij", "f.ttf", 10, 10, 50)
-        self.assertEqual((text, font.size), ("abc..", 10))
+        self.assertEqual((text, font.size), ("abcd\u2026", 10))
 
-    # QA-5: when even "x.." is too wide, fit_text returns text wider than max_width.
-    @unittest.expectedFailure
+    # QA-5 (fixed): when even "x..." was too wide, fit_text returned text wider than max_width.
     def test_result_never_wider_than_max_width(self):
         d = FakeDraw()
         text, font = self.dash.fit_text(d, "abcdef", "f.ttf", 10, 10, 25)
@@ -250,6 +249,22 @@ class FitText(TmpDirCase):
 # ---------------------------------------------------------------------------
 # main() on a fake clock / fake EPD
 # ---------------------------------------------------------------------------
+
+class TrackText(TmpDirCase):
+    def test_tidy_drops_what_music_apps_hide(self):
+        t = self.dash.tidy_track_name
+        self.assertEqual(t("Somebody That I Used To Know (feat. Kimbra) - Extended Remix"),
+                         "Somebody That I Used To Know")
+        self.assertEqual(t("Song [Live] - 2011 Remaster"), "Song")
+        self.assertEqual(t("Plain Title"), "Plain Title")
+        self.assertEqual(t("(Only Brackets)"), "(Only Brackets)")   # never shortened to nothing
+
+    def test_long_artist_lists_collapse(self):
+        s = self.dash.short_artists
+        self.assertEqual(s("Gotye, Kimbra, and a Very Long Artist List"), "Gotye +2")
+        self.assertEqual(s("Simon & Garfunkel"), "Simon +1")
+        self.assertEqual(s("M83"), "M83")
+
 
 class Battery(TmpDirCase):
     def reader(self, body):
