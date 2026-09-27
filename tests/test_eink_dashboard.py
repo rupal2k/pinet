@@ -180,6 +180,10 @@ class KioskFlag(TmpDirCase):
 
 
 class PowerStatus(TmpDirCase):
+    def setUp(self):
+        super().setUp()
+        self.dash.PWR_LED = self.tmp / "no-led"
+
     def run_with(self, volts, throttled):
         def fake_run(cmd, **kw):
             if cmd[-1] == "core":
@@ -198,6 +202,25 @@ class PowerStatus(TmpDirCase):
 
     def test_sticky_history_bits_ignored(self):
         self.assertEqual(self.run_with("volt=1.2V\n", "throttled=0x50000\n"), (1.2, False, False))
+
+    def test_pwr_led_catches_what_avoid_warnings_hides(self):
+        led = self.tmp
+        (led / "trigger").write_text("none [input] default-on\n")
+        self.dash.PWR_LED = led
+        (led / "brightness").write_text("0\n")
+        self.assertTrue(self.dash.pwr_led_says_low())
+        (led / "brightness").write_text("255\n")
+        self.assertFalse(self.dash.pwr_led_says_low())
+        (led / "trigger").write_text("[none] input default-on\n")   # LED repurposed: no signal
+        (led / "brightness").write_text("0\n")
+        self.assertFalse(self.dash.pwr_led_says_low())
+
+    def test_led_marks_under_voltage_even_with_flags_zeroed(self):
+        led = self.tmp
+        (led / "trigger").write_text("[input]\n")
+        (led / "brightness").write_text("0\n")
+        self.dash.PWR_LED = led
+        self.assertEqual(self.run_with("volt=1.2V\n", "throttled=0x0\n"), (1.2, True, False))
 
     def test_no_vcgencmd(self):
         self.assertEqual(self.run_with(FileNotFoundError(), FileNotFoundError()), (None, None, None))

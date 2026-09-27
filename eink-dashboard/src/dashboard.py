@@ -187,6 +187,22 @@ def is_wifi_pentest_active():
         return False
 
 
+PWR_LED = Path("/sys/class/leds/PWR")
+
+
+def pwr_led_says_low():
+    """True while the red PWR LED is off in its "input" mode: it mirrors the
+    Pi 3B's PWR_LOW_N line, so off = under-voltage. Unlike get_throttled this
+    still works with avoid_warnings=2 in config.txt, which this Pi runs (full
+    CPU clock) and which zeroes the firmware's under-voltage flags."""
+    try:
+        if "[input]" not in (PWR_LED / "trigger").read_text():
+            return False
+        return (PWR_LED / "brightness").read_text().strip() == "0"
+    except OSError:
+        return False
+
+
 def get_power_status():
     """Core voltage and *current* under-voltage/throttle flags from vcgencmd
     -- this Pi's supply has a history of under-voltage events, so the
@@ -218,6 +234,8 @@ def get_power_status():
         throttled_now = bool(flags & 0x4)
     except Exception:
         pass
+    if pwr_led_says_low():
+        under_voltage_now = True
 
     return voltage, under_voltage_now, throttled_now
 

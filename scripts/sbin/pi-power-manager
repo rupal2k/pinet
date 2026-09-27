@@ -41,6 +41,8 @@ PENTEST_STATE = Path("/run/pentest-shed.list")
 PINET_STOPPED = Path("/run/pinet-stopped")
 PINET_UNITS = {"stunnel@pinet-board.service", "pinet-board.service",
                "dnsmasq.service", "hostapd.service"}
+# The red PWR LED; see pwr_led_says_low().
+PWR_LED = Path("/sys/class/leds/PWR")
 POLL_SECONDS = 2
 RESTORE_GAP_SECONDS = 2
 VOLTAGE_WAIT_MAX_SECONDS = 5
@@ -79,7 +81,22 @@ def systemctl(scope, *args):
     return subprocess.run(cmd, capture_output=True, text=True).returncode
 
 
+def pwr_led_says_low():
+    """True while the red PWR LED is off in its "input" mode: it mirrors the
+    Pi 3B's PWR_LOW_N line, so off = under-voltage. Unlike get_throttled this
+    still works with avoid_warnings=2 in config.txt, which this Pi runs (full
+    CPU clock) and which zeroes the firmware's under-voltage flags."""
+    try:
+        if "[input]" not in (PWR_LED / "trigger").read_text():
+            return False
+        return (PWR_LED / "brightness").read_text().strip() == "0"
+    except OSError:
+        return False
+
+
 def under_voltage_now():
+    if pwr_led_says_low():
+        return True
     try:
         out = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True).stdout
         return bool(int(out.strip().split("=")[1], 16) & 0x1)

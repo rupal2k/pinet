@@ -152,6 +152,7 @@ class ShedRestore(PowerManagerCase):
 
     def test_under_voltage_now_parses_live_bit_only(self):
         pm = load_script(PM_PATH, "pi_power_manager_uv")
+        pm.PWR_LED = Path("/nonexistent/leds/PWR")
         for out, want in (("throttled=0x50005\n", True), ("throttled=0x50000\n", False), ("", False)):
             pm.subprocess = SimpleNamespace(run=lambda *a, _o=out, **k: SimpleNamespace(stdout=_o))
             self.assertEqual(pm.under_voltage_now(), want, out)
@@ -160,6 +161,21 @@ class ShedRestore(PowerManagerCase):
             raise FileNotFoundError("vcgencmd")
         pm.subprocess = SimpleNamespace(run=missing)
         self.assertFalse(pm.under_voltage_now())
+
+
+    def test_pwr_led_catches_what_avoid_warnings_hides(self):
+        pm = load_script(PM_PATH, "pi_power_manager_led")
+        led = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, led, True)
+        (led / "trigger").write_text("none [input] default-on\n")
+        pm.PWR_LED = led
+        (led / "brightness").write_text("0\n")
+        self.assertTrue(pm.pwr_led_says_low())
+        (led / "brightness").write_text("255\n")
+        self.assertFalse(pm.pwr_led_says_low())
+        (led / "trigger").write_text("[none] input default-on\n")   # LED repurposed: no signal
+        (led / "brightness").write_text("0\n")
+        self.assertFalse(pm.pwr_led_says_low())
 
     # QA-7: MODE stays "kiosk" during the whole restore, so a kiosk reopening mid-restore
     # passes dsi-kiosk.sh's MODE gate while restored units are already running.
