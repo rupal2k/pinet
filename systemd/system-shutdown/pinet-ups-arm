@@ -1,0 +1,12 @@
+#!/bin/bash
+# systemd-shutdown hook (/usr/lib/systemd/system-shutdown/): runs as the very
+# last step before the Pi powers off. If pinet-ups-guard is shutting down on a
+# flat battery it leaves ARM_MARK; arm the UPS HAT (D)'s boot-on-power then:
+# 0x55 into register 0x01 of its MCU (0x2D). 30 s later the MCU watches the
+# charging port and pulls GPIO3 low when power returns, booting the halted Pi.
+# Waveshare: the Pi must power off right after this write -- hence here, not
+# in the guard (a normal shutdown can outlast those 30 s).
+MARK=${UPS_ARM_MARK:-/run/pinet-ups-arm-boot}
+I2CSET=${I2CSET:-/usr/sbin/i2cset}
+[ "${1:-}" = poweroff ] && [ -e "$MARK" ] || exit 0
+"$I2CSET" -y 1 0x2d 0x01 0x55

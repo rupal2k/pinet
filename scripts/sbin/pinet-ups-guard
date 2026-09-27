@@ -7,11 +7,16 @@ What Waveshare's own demo does, as a service that runs headless:
     UPS_SHUTDOWN_GRACE seconds -> warn, then power off. Plugging the charger
     in during the countdown cancels it. The warning goes to every terminal
     (wall) and to the e-ink dashboard, which shows a full-screen countdown
-    while LOW_FLAG exists (it holds the power-off time, epoch seconds).
-  * just before powering off, write 0x55 to register 0x01 of the HAT's MCU
-    (0x2D): 30 s later it starts watching the charging port and pulls GPIO3
-    low when power returns, which boots a halted Pi. Waveshare: the Pi must
-    power off right after this write, so it is the last thing done.
+    while LOW_FLAG exists. The flag holds the power-off time on the
+    monotonic clock, which both processes share and which never jumps (this
+    RTC-less Pi's wall clock steps at boot), so the e-ink counts down to the
+    same moment the guard acts on.
+  * arm boot-on-power: 0x55 into register 0x01 of the HAT's MCU (0x2D). 30 s
+    later it starts watching the charging port and pulls GPIO3 low when power
+    returns, which boots a halted Pi. Waveshare: the Pi must power off right
+    after this write. A shutdown can take longer than 30 s, so the guard only
+    leaves ARM_MARK; the systemd-shutdown hook pinet-ups-arm writes the
+    register as the very last step before power-off.
 
 The default cutoff is 3.3 V, not Waveshare's 3.15 V: the HAT's boost
 converter gets weaker as the cells run down, and this Pi browned out at
@@ -36,10 +41,11 @@ SHUTDOWN_V = float(os.environ.get("UPS_SHUTDOWN_V", "3.3"))
 GRACE = int(os.environ.get("UPS_SHUTDOWN_GRACE", "60"))
 # tmpfs: a reboot can never leave a stale countdown behind.
 LOW_FLAG = os.environ.get("UPS_LOW_FLAG", "/run/pinet-ups-low")
+# Read by /usr/lib/systemd/system-shutdown/pinet-ups-arm (arms boot-on-power).
+ARM_MARK = os.environ.get("UPS_ARM_MARK", "/run/pinet-ups-arm-boot")
 INTERVAL = 2
 RECOVER_V = 0.1      # hysteresis: once counting, only SHUTDOWN_V + this counts as recovered
 CANCEL_READINGS = 2  # a lone odd reading (a load spike reversing the current) doesn't cancel
-MCU_ADDR, MCU_BOOT_REG, MCU_BOOT_ON_POWER = 0x2D, 0x01, 0x55
 
 
 def load_reader(path=READER):
@@ -49,28 +55,37 @@ def load_reader(path=READER):
     return mod
 
 
-def decide(state, volts, amps, reader):
-    """One reading -> action: None, "warn" (countdown starts), "cancel" or
-    "shutdown". `state` ({"low_for": s, "ok": n}) carries over between calls.
+def new_state():
+    return {"deadline": None, "ok": 0}
 
-    Once counting, the countdown keeps running until the cells are really
-    back (SHUTDOWN_V + RECOVER_V, or the charger) for CANCEL_READINGS in a row
-    -- so it never stalls in between while the e-ink's deadline runs out."""
+
+def decide(state, volts, amps, reader, now):
+    """One reading at monotonic time `now` -> action: None, "warn" (countdown
+    starts; state["deadline"] = power-off time), "cancel" or "shutdown".
+
+    The countdown is clock time, not a count of readings, so slow or failed
+    reads can't stretch it past what the e-ink shows. Once counting it keeps
+    running until the cells are really back (SHUTDOWN_V + RECOVER_V, or the
+    charger) for CANCEL_READINGS in a row.
+
+    The raw terminal voltage is compared, not the rest-voltage the percent
+    uses: under load it reads lower, so the cutoff errs early -- and the
+    brownouts it guards against follow the terminal voltage."""
     if volts < 2.5:                      # implausible: a bad read, not a flat cell
         return None
     cell_v = volts / (2 if volts > 5.0 else 1)   # 2 cells in series: per cell, like percent()
     on_battery = reader.power_state(amps) == "battery"
-    limit = SHUTDOWN_V + (RECOVER_V if state["low_for"] else 0)
-    if on_battery and cell_v < limit:
+    counting = state["deadline"] is not None
+    if on_battery and cell_v < SHUTDOWN_V + (RECOVER_V if counting else 0):
         state["ok"] = 0
-        state["low_for"] += INTERVAL
-        if state["low_for"] >= GRACE:
-            return "shutdown"
-        return "warn" if state["low_for"] == INTERVAL else None
-    if state["low_for"]:
+        if not counting:
+            state["deadline"] = now + GRACE
+            return "warn"
+        return "shutdown" if now >= state["deadline"] else None
+    if counting:
         state["ok"] += 1
         if state["ok"] >= CANCEL_READINGS:
-            state["low_for"] = state["ok"] = 0
+            state.update(new_state())
             return "cancel"
     return None
 
@@ -82,29 +97,29 @@ def tell(msg):
 
 
 def set_countdown(deadline):
-    """Tell the e-ink when power-off is due (None: countdown over)."""
+    """Tell the e-ink when power-off is due, on the monotonic clock
+    (None: countdown over)."""
     try:
         if deadline is None:
             os.unlink(LOW_FLAG)
         else:
             tmp = LOW_FLAG + ".tmp"
             with open(tmp, "w") as f:
-                f.write(f"{deadline:.0f}\n")
+                f.write(f"{deadline:.1f}\n")
             os.chmod(tmp, 0o644)
             os.replace(tmp, LOW_FLAG)
     except OSError:
         pass
 
 
-def power_off(bus, dry_run):
+def power_off(dry_run):
+    if dry_run:
+        print("pinet-ups-guard: dry run -- would arm boot-on-power and power off", flush=True)
+        return
     try:
-        if dry_run:
-            print("pinet-ups-guard: dry run -- would arm boot-on-power and power off", flush=True)
-            return
-        bus.write_byte_data(MCU_ADDR, MCU_BOOT_REG, MCU_BOOT_ON_POWER)
-        print("pinet-ups-guard: boot-on-power armed; the Pi starts again when the charger is back", flush=True)
+        open(ARM_MARK, "w").close()     # pinet-ups-arm writes the MCU at the very end
     except OSError as e:
-        print(f"pinet-ups-guard: could not arm boot-on-power ({e}); power off anyway", flush=True)
+        print(f"pinet-ups-guard: could not mark boot-on-power ({e}); power off anyway", flush=True)
     subprocess.run(["systemctl", "poweroff"], check=False)
 
 
@@ -126,26 +141,29 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    state = {"low_for": 0, "ok": 0}
+    state = new_state()
     while True:
         try:
             volts, amps = reader.read(bus, addr)
         except OSError:
             time.sleep(INTERVAL)
             continue
-        action = decide(state, volts, amps, reader)
+        action = decide(state, volts, amps, reader, time.monotonic())
         if action == "warn":
-            set_countdown(time.time() + GRACE - INTERVAL)
+            set_countdown(state["deadline"])
             tell(f"Battery low ({volts:.2f} V). Shutting down in {GRACE} s -- plug in the charger to stop it.")
         elif action == "cancel":
             set_countdown(None)
-            tell("Charger connected -- shutdown cancelled.")
+            if reader.power_state(amps) == "battery":
+                tell("Battery recovered -- shutdown cancelled.")
+            else:
+                tell("Charger connected -- shutdown cancelled.")
         elif action == "shutdown":
             tell("Battery flat -- shutting down now. It will start again when the charger is plugged in.")
-            power_off(bus, dry_run)
+            power_off(dry_run)
             if dry_run:
                 set_countdown(None)
-                state = {"low_for": 0, "ok": 0}
+                state = new_state()
             else:
                 return
         time.sleep(INTERVAL)
