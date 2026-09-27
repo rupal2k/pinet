@@ -3,8 +3,9 @@
 
 The panel's own battery widget only reads /sys/class/power_supply, and the
 HAT is just an INA219 on I2C, so this puts a StatusNotifierItem in the
-panel's tray instead. Its icons are pinet-battery-<0|25|50|75|100>[-charging]
-from ~/.local/share/icons, drawn in the PINET theme's white/grey line style.
+panel's tray instead. Its icons are pinet-battery-<0..100 step 10>[-charging]
+from ~/.local/share/icons: a phone-style pill filled to the level in 10%
+steps, bolt inside while on mains, in the PINET theme's colours.
 The tooltip has the percentage, voltage and current.
 
     pinet-battery          run the tray icon (the user service does this)
@@ -14,7 +15,11 @@ Knobs (environment) for a HAT that reads differently from the Waveshare demo:
     UPS_I2C_BUS=1  UPS_ADDR=0x43  UPS_SHUNT_OHMS=0.01
     UPS_CURRENT_SIGN=-1   HAT (D) reads negative while charging: measured
                           3.57 V / +0.9 A unplugged, 3.74 V / -2.2 A plugged in
-    UPS_EMPTY_V=3.0  UPS_FULL_V=4.2   per cell; >5 V on the bus means 2 cells
+    >5 V on the bus means 2 cells in series (percent works per cell)
+    UPS_CAPACITY_MAH=8400   two 21700 4200 mAh cells in parallel
+    UPS_INTERNAL_OHMS=0.045  pack + wiring resistance, measured by pulling the
+                          charger: 3.764 V @ +2.19 A -> 3.640 V @ -0.51 A
+                          (0.046 ohm), and back: 0.042 ohm
 """
 import os
 import sys
@@ -23,20 +28,43 @@ BUS = int(os.environ.get("UPS_I2C_BUS", "1"))
 ADDRS = [int(os.environ["UPS_ADDR"], 0)] if "UPS_ADDR" in os.environ else [0x43, 0x42, 0x41, 0x40]
 SHUNT_OHMS = float(os.environ.get("UPS_SHUNT_OHMS", "0.01"))
 CURRENT_SIGN = float(os.environ.get("UPS_CURRENT_SIGN", "-1"))
-EMPTY_V = float(os.environ.get("UPS_EMPTY_V", "3.0"))
-FULL_V = float(os.environ.get("UPS_FULL_V", "4.2"))
+# Resting cell voltage -> charge, for 3.6 V-nominal NMC 21700 cells. Li-ion
+# is flat through the middle and steep at both ends, so a straight 3.0-4.2 V
+# line read ~10% high mid-range.
+# ponytail: a generic curve, not these exact cells; log rest_volts over one
+# full discharge and replace the points to calibrate it.
+OCV_CURVE = ((3.00, 0), (3.30, 5), (3.45, 10), (3.55, 20), (3.62, 30), (3.68, 40),
+             (3.74, 50), (3.80, 60), (3.87, 70), (3.95, 80), (4.06, 90), (4.20, 100))
+CAPACITY_MAH = int(os.environ.get("UPS_CAPACITY_MAH", "8400"))
+INTERNAL_OHMS = float(os.environ.get("UPS_INTERNAL_OHMS", "0.045"))
 CHARGING_A = 0.02          # current into the cells above this counts as charging
 INTERVAL = 5               # seconds between readings
-# ponytail: voltage -> percent is linear and sags under load; smoothing over
-# SMOOTH readings hides the jitter. A coulomb counter would fix the curve.
+# Smoothing over SMOOTH readings hides what load jitter rest_volts leaves.
 SMOOTH = 6
 ICON_DIR = os.path.expanduser(os.environ.get("ICON_DIR", "~/.local/share/icons"))
 
 
+def rest_volts(volts, amps):
+    """What the cells would read with no current flowing. Charging current
+    lifts the terminal voltage and the Pi's load sags it (I x R), which made
+    the same charge read 66% on the charger and 54% off it."""
+    return volts - amps * INTERNAL_OHMS
+
+
 def percent(volts):
-    cells = 2 if volts > 5.0 else 1
-    p = (volts / cells - EMPTY_V) / (FULL_V - EMPTY_V) * 100
-    return max(0, min(100, round(p)))
+    """Charge (0-100) for a resting voltage, by interpolating OCV_CURVE."""
+    v = volts / (2 if volts > 5.0 else 1)
+    if v <= OCV_CURVE[0][0]:
+        return 0
+    for (v0, p0), (v1, p1) in zip(OCV_CURVE, OCV_CURVE[1:]):
+        if v <= v1:
+            return round(p0 + (p1 - p0) * (v - v0) / (v1 - v0))
+    return 100
+
+
+def remaining_mah(pct):
+    """Charge left, estimated from the percent: the HAT has no fuel gauge."""
+    return round(CAPACITY_MAH * pct / 100 / 10) * 10
 
 
 def power_state(amps):
@@ -53,7 +81,7 @@ LABELS = {"charging": "Charging", "battery": "On battery", "full": "Charged"}
 
 def icon_name(pct, state):
     # The bolt means "on mains": charging, or charged and idle.
-    return f"pinet-battery-{round(pct / 25) * 25}" + ("" if state == "battery" else "-charging")
+    return f"pinet-battery-{round(pct / 10) * 10}" + ("" if state == "battery" else "-charging")
 
 
 def read(bus, addr):
@@ -135,11 +163,12 @@ def tray(bus, addr):
         except OSError as e:
             print(f"pinet-battery: read failed: {e}", file=sys.stderr)
             return True
-        state["volts"] = (state["volts"] + [volts])[-SMOOTH:]
+        state["volts"] = (state["volts"] + [rest_volts(volts, amps)])[-SMOOTH:]
         pct = percent(sum(state["volts"]) / len(state["volts"]))
         ps = power_state(amps)
         icon = icon_name(pct, ps)
-        tip = f"{pct}%  {LABELS[ps]}\n{volts:.2f} V  {amps * 1000:+.0f} mA"
+        tip = f"{pct}%  {LABELS[ps]}\n~{remaining_mah(pct)} / {CAPACITY_MAH} mAh" \
+              f"\n{volts:.2f} V  {amps * 1000:+.0f} mA"
         if icon != state["icon"]:
             state["icon"] = icon
             conn.emit_signal(None, path, "org.kde.StatusNotifierItem", "NewIcon", None)
@@ -164,8 +193,10 @@ def main():
         # key=value, one line: the e-ink dashboard parses this.
         volts, amps = read(bus, addr)
         state = power_state(amps)
-        print(f"addr={addr:#x} volts={volts:.3f} amps={amps:+.3f} percent={percent(volts)} "
-              f"state={state} icon={icon_name(percent(volts), state)}")
+        pct = percent(rest_volts(volts, amps))
+        print(f"addr={addr:#x} volts={volts:.3f} amps={amps:+.3f} percent={pct} "
+              f"mah={remaining_mah(pct)} capacity_mah={CAPACITY_MAH} "
+              f"state={state} icon={icon_name(pct, state)}")
         return
     tray(bus, addr)
 
