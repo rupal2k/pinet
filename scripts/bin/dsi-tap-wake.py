@@ -21,6 +21,7 @@ import glob
 import os
 import select
 import subprocess
+import sys
 import time
 
 import evdev
@@ -34,6 +35,17 @@ LOCK_SCRIPT = "/usr/local/bin/dsi-lock.py"
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
 LOCK_PIDFILE = os.path.join(RUNTIME, "dsi-lock.pid")
 LOCK_READYFILE = os.path.join(RUNTIME, "dsi-lock.ready")
+
+# This daemon is a user service wanted by default.target, so it can start
+# before the desktop session exports these into the systemd user environment.
+# Every Wayland client we run needs them -- without WAYLAND_DISPLAY wlopm
+# exits 1, _output_on() reads that as "output off", and wake_and_lock()
+# returns before lighting the panel: a correct double-tap then does nothing
+# at all, which looks exactly like dead touch. dsi-wake.sh and dsi-sleep.sh
+# already default them for the same reason; do it here too so every child
+# (wlopm included) inherits a usable environment.
+os.environ.setdefault("XDG_RUNTIME_DIR", RUNTIME)
+os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
 
 
 def find_touchscreen():
@@ -73,13 +85,24 @@ def _lock_running():
         return False
 
 
+def _log(msg):
+    print("dsi-tap-wake: %s" % msg, file=sys.stderr, flush=True)
+
+
 def _output_on():
     try:
-        out = subprocess.run(["/usr/bin/wlopm"], capture_output=True,
-                             text=True, check=False).stdout
+        proc = subprocess.run(["/usr/bin/wlopm"], capture_output=True,
+                              text=True, check=False)
     except OSError:
         return True  # if wlopm is missing, assume on rather than stall
-    return "DSI-1 on" in out
+    if proc.returncode != 0:
+        # We could not read the output state. Assume on rather than block the
+        # wake: refusing silently is what turned a working double-tap into an
+        # apparently dead touchscreen.
+        _log("wlopm failed (rc=%d, %s) -- assuming output on"
+             % (proc.returncode, (proc.stderr or "").strip()))
+        return True
+    return "DSI-1 on" in proc.stdout
 
 
 def wake_and_lock():
@@ -101,6 +124,8 @@ def wake_and_lock():
     # dsi-wake.sh only powers the output on once its boot/install guards pass;
     # if it stayed off, honour that and do not light or lock.
     if not _output_on():
+        _log("output still off after dsi-wake.sh (boot/install guard active)"
+             " -- leaving the panel dark")
         return
 
     # Raise the lock (in its own scope) and wait until it has painted a frame;

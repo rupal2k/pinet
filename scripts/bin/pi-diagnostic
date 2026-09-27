@@ -37,6 +37,18 @@ s=u.spec_from_file_location("tw","/usr/local/bin/dsi-tap-wake.py")
 m=u.module_from_spec(s); s.loader.exec_module(m); m.wake_and_lock()
 PY
 }
+# Same wake, with WAYLAND_DISPLAY stripped -- reproduces how dsi-tap-wake.service
+# starts at boot (wanted by default.target, before the session exports it).
+# Without the env defaults in dsi-tap-wake.py, wlopm exits 1, _output_on() reads
+# that as "output off" and wake_and_lock() returns before lighting the panel:
+# every double-tap is received and silently does nothing, which presents as a
+# completely dead touchscreen. Regression guard for that bug.
+call_wake_noenv(){ env -u WAYLAND_DISPLAY python3 - <<'PY'
+import importlib.util as u
+s=u.spec_from_file_location("tw","/usr/local/bin/dsi-tap-wake.py")
+m=u.module_from_spec(s); s.loader.exec_module(m); m.wake_and_lock()
+PY
+}
 inject(){ sudo python3 - "$1" <<'PY'
 import sys, time, evdev
 from evdev import UInput, ecodes as e
@@ -192,6 +204,11 @@ section_dsi(){
     /usr/local/bin/dsi-sleep.sh 2>/dev/null; sleep 0.5; call_wake
     { backlight_on && is_lock_frame && lock_running; } && ok "re-wake #$i: existing lock re-lit" || bad "re-wake #$i fail"
   done
+  kill_lock
+
+  # wake under the boot environment (no WAYLAND_DISPLAY in the daemon's env)
+  kill_lock; /usr/local/bin/dsi-sleep.sh 2>/dev/null; sleep 0.5; call_wake_noenv
+  { backlight_on && is_lock_frame; } && ok "wake lights the panel without WAYLAND_DISPLAY (boot env)" || bad "wake silently fails without WAYLAND_DISPLAY"
   kill_lock
 
   local UP1; UP1=$(cut -d. -f1 /proc/uptime)
