@@ -1,0 +1,24 @@
+# PINET splash: logo centred on the same dark gradient as the desktop
+# wallpaper, shown at boot and at shutdown/reboot. Structure follows pix.script.
+Window.SetBackgroundTopColor(0.059, 0.067, 0.078);
+Window.SetBackgroundBottomColor(0.118, 0.129, 0.157);
+
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+logo = Image("splash.png");
+scale = Math.Min(screen_width / logo.GetWidth(), screen_height / logo.GetHeight());
+if (scale < 1)
+    logo = logo.Scale(logo.GetWidth() * scale, logo.GetHeight() * scale);
+
+sprite = Sprite(logo);
+sprite.SetPosition((screen_width - logo.GetWidth()) / 2, (screen_height - logo.GetHeight()) / 2, -100);
+
+message_sprite = Sprite();
+message_sprite.SetPosition(screen_width * 0.1, screen_height * 0.9, 10000);
+
+fun message_callback(text) {
+    message_sprite.SetImage(Image.Text(text, 0.91, 0.91, 0.91));
+}
+
+Plymouth.SetUpdateStatusFunction(message_callback);

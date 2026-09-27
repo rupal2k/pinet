@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=pinet
+Description=PINET boot splash (replaces the Raspberry Pi "pix" splash)
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/pinet
+ScriptFile=/usr/share/plymouth/themes/pinet/pinet.script

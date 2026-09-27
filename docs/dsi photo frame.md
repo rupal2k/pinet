@@ -140,6 +140,9 @@ back to `initramfs8` (`config.txt.bak-splash`, `cmdline.txt.bak-splash` and
 `/etc/plymouth/plymouthd.conf.bak-splash` are also kept). A plymouth package
 update resets the theme to `pix` (seen 2026-09-28); `pinet-splash-guard`, run by dpkg
 after every package operation (`/etc/dpkg/dpkg.cfg.d/pinet-splash-guard`), restores it.
+The theme is in the repo at `plymouth/pinet/`; to install it on a fresh Pi:
+`sudo install -D -m 644 -t /usr/share/plymouth/themes/pinet plymouth/pinet/*` then
+`sudo plymouth-set-default-theme -R pinet`.
 
 ## Lessons
 
