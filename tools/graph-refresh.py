@@ -94,8 +94,10 @@ def apply_labels():
     for cid, members in communities.items():
         hub = max(members, key=lambda nid: G.degree(nid))
         hub_label = G.nodes[hub].get("label", str(hub))
-        labels[cid] = curated.get(hub_label, hub_label)
-        named += hub_label in curated
+        # A node id key wins over a label key -- for hubs whose label is not
+        # unique (two test classes both called "Battery").
+        labels[cid] = curated.get(hub, curated.get(hub_label, hub_label))
+        named += hub in curated or hub_label in curated
 
     (OUT / ".graphify_labels.json").write_text(
         json.dumps({str(k): v for k, v in labels.items()}, ensure_ascii=False))
