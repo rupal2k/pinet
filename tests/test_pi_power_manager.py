@@ -152,7 +152,7 @@ class ShedRestore(PowerManagerCase):
 
     def test_under_voltage_now_parses_live_bit_only(self):
         pm = load_script(PM_PATH, "pi_power_manager_uv")
-        pm.PWR_LED = Path("/nonexistent/leds/PWR")
+        pm.GPIO_DEBUG = Path("/nonexistent/gpio")
         for out, want in (("throttled=0x50005\n", True), ("throttled=0x50000\n", False), ("", False)):
             pm.subprocess = SimpleNamespace(run=lambda *a, _o=out, **k: SimpleNamespace(stdout=_o))
             self.assertEqual(pm.under_voltage_now(), want, out)
@@ -163,19 +163,40 @@ class ShedRestore(PowerManagerCase):
         self.assertFalse(pm.under_voltage_now())
 
 
-    def test_pwr_led_catches_what_avoid_warnings_hides(self):
-        pm = load_script(PM_PATH, "pi_power_manager_led")
-        led = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, led, True)
-        (led / "trigger").write_text("none [input] default-on\n")
-        pm.PWR_LED = led
-        (led / "brightness").write_text("0\n")
-        self.assertTrue(pm.pwr_led_says_low())
-        (led / "brightness").write_text("255\n")
-        self.assertFalse(pm.pwr_led_says_low())
-        (led / "trigger").write_text("[none] input default-on\n")   # LED repurposed: no signal
-        (led / "brightness").write_text("0\n")
-        self.assertFalse(pm.pwr_led_says_low())
+    GPIO = ("gpiochip2: 8 GPIOs, parent: platform/soc:firmware:expgpio, raspberrypi-exp-gpio, can sleep:\n"
+            " gpio-4   (HDMI_HPD_N          |hpd                 ) in  hi ACTIVE LOW\n"
+            " gpio-7   (PWR_LOW_N           |PWR                 ) in  {level} \n")
+
+    def pm_with_gpio(self, level):
+        pm = load_script(PM_PATH, "pi_power_manager_pin")
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        pm.GPIO_DEBUG = d / "gpio"
+        if level:
+            pm.GPIO_DEBUG.write_text(self.GPIO.format(level=level))
+        pm.UV_STATUS = d / "under-voltage"
+        return pm
+
+    def test_pwr_low_pin_reads_the_live_line(self):
+        self.assertTrue(self.pm_with_gpio("lo").pwr_low_pin())    # low = under-voltage
+        self.assertFalse(self.pm_with_gpio("hi").pwr_low_pin())
+        self.assertIsNone(self.pm_with_gpio(None).pwr_low_pin())  # no debugfs: unknown
+
+    def test_the_pin_counts_even_when_the_firmware_flag_is_hidden(self):
+        pm = self.pm_with_gpio("lo")
+        pm.subprocess = SimpleNamespace(run=lambda *a, **k: SimpleNamespace(stdout="throttled=0x0\n"))
+        self.assertTrue(pm.under_voltage_now())
+
+    def test_publishes_for_the_e_ink(self):
+        pm = self.pm_with_gpio("lo")
+        pm.publish_under_voltage()
+        self.assertEqual(pm.UV_STATUS.read_text(), "1\n")
+        pm.GPIO_DEBUG.write_text(self.GPIO.format(level="hi"))
+        pm.publish_under_voltage()
+        self.assertEqual(pm.UV_STATUS.read_text(), "0\n")
+        pm.GPIO_DEBUG.unlink()
+        pm.publish_under_voltage()
+        self.assertFalse(pm.UV_STATUS.exists())      # can't tell: publish nothing
 
     # QA-7: MODE stays "kiosk" during the whole restore, so a kiosk reopening mid-restore
     # passes dsi-kiosk.sh's MODE gate while restored units are already running.

@@ -188,20 +188,21 @@ def is_wifi_pentest_active():
         return False
 
 
-PWR_LED = Path("/sys/class/leds/PWR")
+# Published by pi-power-manager (root) from the Pi 3B's PWR_LOW_N line, which
+# still reports under-voltage with avoid_warnings=2 in config.txt (this Pi runs
+# it for full CPU clock) while get_throttled reads 0. "1" = under-voltage.
+UV_STATUS = Path("/run/pi-power-manager/under-voltage")
+UV_STATUS_STALE = 30   # older than this: the manager isn't running, ignore it
 
 
-def pwr_led_says_low():
-    """True while the red PWR LED is off in its "input" mode: it mirrors the
-    Pi 3B's PWR_LOW_N line, so off = under-voltage. Unlike get_throttled this
-    still works with avoid_warnings=2 in config.txt, which this Pi runs (full
-    CPU clock) and which zeroes the firmware's under-voltage flags."""
+def published_under_voltage():
+    """True/False from pi-power-manager, or None if it isn't publishing."""
     try:
-        if "[input]" not in (PWR_LED / "trigger").read_text():
-            return False
-        return (PWR_LED / "brightness").read_text().strip() == "0"
-    except OSError:
-        return False
+        if time.time() - UV_STATUS.stat().st_mtime > UV_STATUS_STALE:
+            return None
+        return UV_STATUS.read_text().strip() == "1"
+    except (OSError, ValueError):
+        return None
 
 
 def get_power_status():
@@ -235,7 +236,7 @@ def get_power_status():
         throttled_now = bool(flags & 0x4)
     except Exception:
         pass
-    if pwr_led_says_low():
+    if published_under_voltage():
         under_voltage_now = True
 
     return voltage, under_voltage_now, throttled_now

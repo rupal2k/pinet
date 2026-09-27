@@ -32,6 +32,7 @@ KIOSK_DIR = Path("/run/user/1000/kiosk-mode.d")  # dsi-kiosk.sh: one entry per k
 RUN_DIR = Path("/run/pi-power-manager")
 STATE = RUN_DIR / "stopped.json"
 MODE = RUN_DIR / "mode"
+UV_STATUS = RUN_DIR / "under-voltage"   # "1"/"0" from pwr_low_pin(), for the e-ink
 HANDOFF = RUN_DIR / "handoff.list"  # "sys:unit"/"user:unit" from kali-power-shed
 LOCK = Path("/run/power-shed.lock")  # shared with kali-power-shed
 PENTEST_FLAG = Path("/run/pentest-mode")
@@ -41,8 +42,9 @@ PENTEST_STATE = Path("/run/pentest-shed.list")
 PINET_STOPPED = Path("/run/pinet-stopped")
 PINET_UNITS = {"stunnel@pinet-board.service", "pinet-board.service",
                "dnsmasq.service", "hostapd.service"}
-# The red PWR LED; see pwr_led_says_low().
-PWR_LED = Path("/sys/class/leds/PWR")
+# The kernel's live GPIO view (debugfs, root-only, auto-mounted); see
+# pwr_low_pin(). The answer is published to UV_STATUS for the e-ink.
+GPIO_DEBUG = Path("/sys/kernel/debug/gpio")
 POLL_SECONDS = 2
 RESTORE_GAP_SECONDS = 2
 VOLTAGE_WAIT_MAX_SECONDS = 5
@@ -81,21 +83,39 @@ def systemctl(scope, *args):
     return subprocess.run(cmd, capture_output=True, text=True).returncode
 
 
-def pwr_led_says_low():
-    """True while the red PWR LED is off in its "input" mode: it mirrors the
-    Pi 3B's PWR_LOW_N line, so off = under-voltage. Unlike get_throttled this
-    still works with avoid_warnings=2 in config.txt, which this Pi runs (full
-    CPU clock) and which zeroes the firmware's under-voltage flags."""
+def pwr_low_pin():
+    """True while the Pi 3B's PWR_LOW_N line is low, i.e. under-voltage.
+
+    This Pi runs avoid_warnings=2 in config.txt (full CPU clock), which
+    zeroes get_throttled's under-voltage bits; the line itself is still
+    reported. Read from debugfs because the PWR LED driver holds the line
+    (gpioget: busy) and /sys/class/leds/PWR/brightness is a cached 0, not
+    the pin. Checked 2026-09-27 against the firmware flag with
+    avoid_warnings off: line low in 20/20 samples, flag set in 20/20.
+    None when it can't be read (no debugfs, not a Pi 3B)."""
     try:
-        if "[input]" not in (PWR_LED / "trigger").read_text():
-            return False
-        return (PWR_LED / "brightness").read_text().strip() == "0"
+        for line in GPIO_DEBUG.read_text().splitlines():
+            if "PWR_LOW_N" in line:
+                return " lo" in line
     except OSError:
-        return False
+        pass
+    return None
+
+
+def publish_under_voltage():
+    """Share the pin's answer with the e-ink dashboard, which can't read
+    debugfs: "1"/"0", rewritten every poll so a stale file means we're gone."""
+    uv = pwr_low_pin()
+    if uv is None:
+        UV_STATUS.unlink(missing_ok=True)
+        return
+    tmp = UV_STATUS.with_suffix(".tmp")
+    tmp.write_text("1\n" if uv else "0\n")
+    tmp.replace(UV_STATUS)
 
 
 def under_voltage_now():
-    if pwr_led_says_low():
+    if pwr_low_pin():
         return True
     try:
         out = subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True).stdout
@@ -249,6 +269,10 @@ def main():
         restore()  # manager restarted while services were shed
     MODE.write_text("normal\n" if not STATE.exists() else "restoring\n")
     while True:
+        try:
+            publish_under_voltage()
+        except OSError:
+            pass
         want_kiosk = kiosk_open()
         if want_kiosk and not kiosk:
             shed()
