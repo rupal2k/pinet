@@ -256,11 +256,13 @@ class FitText(TmpDirCase):
 class Battery(TmpDirCase):
     def reader(self, body):
         path = self.tmp / "pinet-battery"
-        path.write_text("BUS = 1\nSMOOTH = 6\n" + body)
+        path.write_text("BUS = 1\nSMOOTH = 6\nLABELS = {'charging': 'Charging', 'full': 'Charged'}\n" + body)
         self.dash.BATTERY_READER = str(path)
         self.dash._battery = None
         self.dash._battery_missing_since = None
         self.dash._rest_volts = []
+        self.dash._last_battery = None
+        self.dash._battery_failures = 0
         self.closed = []
         smbus = make_module("smbus2", SMBus=lambda n: SimpleNamespace(close=lambda: self.closed.append(n)))
         return stub_modules({"smbus2": smbus})
@@ -275,7 +277,7 @@ class Battery(TmpDirCase):
                 "def power_state(a): return 'charging'\n")
         with self.reader(body):
             self.assertEqual(self.dash.get_battery(), {"percent": 62, "state": "charging", "charging": True,
-                                                       "mah": 5210, "capacity_mah": 8400})
+                                                       "label": "Charging", "mah": 5210, "capacity_mah": 8400})
             self.assertEqual(self.dash.get_battery()["state"], "charging")  # bus kept open
 
     def test_no_hat_is_none(self):
@@ -295,12 +297,49 @@ class Battery(TmpDirCase):
             self.assertEqual(self.dash.get_battery()["percent"], 370)
             self.assertEqual(self.dash.get_battery()["percent"], 375)   # mean of 3.70 and 3.80
 
-    def test_a_failed_read_closes_the_bus(self):
-        body = ("def find(bus): return 0x43\n"
-                "def read(bus, addr): raise OSError('i2c gone')\n")
-        with self.reader(body):
+    GOOD_THEN = ("reads = iter([{first}])\n"
+                 "def find(bus): return 0x43\n"
+                 "def read(bus, addr):\n"
+                 "    r = next(reads)\n"
+                 "    if r is None: raise OSError('i2c glitch')\n"
+                 "    return r\n"
+                 "def rest_volts(v, a): return v\n"
+                 "def percent(v): return round(v * 10)\n"
+                 "def remaining_mah(p): return 0\n"
+                 "def power_state(a): return 'full'\n"
+                 "CAPACITY_MAH = 8400\n")
+
+    def test_a_lasting_outage_closes_the_bus(self):
+        with self.reader(self.GOOD_THEN.format(first="None, None, None, None")):
+            for _ in range(self.dash.BATTERY_READ_GRACE):
+                self.assertIsNone(self.dash.get_battery())  # nothing good to fall back on yet
+            self.assertEqual(self.closed, [])               # a glitch keeps the bus
             self.assertIsNone(self.dash.get_battery())
-        self.assertEqual(self.closed, [1])
+        self.assertEqual(self.closed, [1])                  # an outage closes it: no fd leak
+
+    def test_a_glitch_keeps_the_last_reading_on_screen(self):
+        # Review finding: one I2C error used to hide the battery for 60 s.
+        with self.reader(self.GOOD_THEN.format(first="(3.7, 0.0), None, None, None, None, (3.7, 0.0)")):
+            good = self.dash.get_battery()
+            self.assertEqual(good["percent"], 37)
+            for _ in range(self.dash.BATTERY_READ_GRACE):
+                self.assertEqual(self.dash.get_battery(), good)   # short run of glitches: still shown
+            self.assertIsNone(self.dash.get_battery())            # a real outage: gone
+            self.assertEqual(self.dash.get_battery()["percent"], 37)   # and back straight away
+
+    def test_an_impossible_reading_is_ignored(self):
+        with self.reader(self.GOOD_THEN.format(first="(3.7, 0.0), (0.0, 0.0)")):
+            good = self.dash.get_battery()
+            self.assertEqual(self.dash.get_battery(), good)   # 0 V never reaches the average
+            self.assertEqual(self.dash._rest_volts, [3.7])
+
+    def test_only_a_moving_icon_is_animated(self):
+        a = self.dash.battery_animates
+        self.assertTrue(a({"percent": 60, "state": "charging", "charging": True}))
+        self.assertFalse(a({"percent": 100, "state": "charging", "charging": True}))
+        self.assertFalse(a({"percent": 60, "state": "battery", "charging": False}))
+        self.assertTrue(a({"percent": 10, "state": "battery", "charging": False}))
+        self.assertFalse(a({"percent": 10, "state": "full", "charging": False}))
 
     def test_no_hat_is_not_searched_for_again_straight_away(self):
         with self.reader("calls = []\ndef find(bus):\n    calls.append(1)\n    return None\n"):
@@ -336,11 +375,12 @@ class UpsCountdown(TmpDirCase):
         flag = self.tmp / "pinet-ups-low"
         self.dash.UPS_LOW_FLAG = flag
         self.assertIsNone(self.dash.get_ups_countdown())
-        flag.write_text(f"{self.dash.time.time() + 42:.0f}\n")
+        now = self.dash.time.monotonic()
+        flag.write_text(f"{now + 42:.1f}\n")
         self.assertIn(self.dash.get_ups_countdown(), (41, 42))
-        flag.write_text(f"{self.dash.time.time() - 5:.0f}\n")
+        flag.write_text(f"{now - 5:.1f}\n")
         self.assertEqual(self.dash.get_ups_countdown(), 0)      # just overdue, never negative
-        flag.write_text("0\n")
+        flag.write_text(f"{now - 100:.1f}\n")
         self.assertIsNone(self.dash.get_ups_countdown())        # long overdue: guard gone
         flag.write_text("garbage")
         self.assertIsNone(self.dash.get_ups_countdown())

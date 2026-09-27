@@ -58,6 +58,9 @@ class Battery(unittest.TestCase):
                 name = batt.icon_name(pct, state)
                 self.assertTrue(repo_path("desktop", "icons", name + ".svg").exists(), name)
 
+    def test_the_no_reading_icon_ships(self):
+        self.assertTrue(repo_path("desktop", "icons", batt.UNKNOWN_ICON + ".svg").exists())
+
     def test_icon_levels(self):
         self.assertEqual(batt.icon_name(4, "battery"), "pinet-battery-0")
         self.assertEqual(batt.icon_name(44, "charging"), "pinet-battery-40-charging")

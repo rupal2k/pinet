@@ -9,7 +9,11 @@ steps, bolt inside while on mains, in the PINET theme's colours.
 The tooltip has the percentage, voltage and current.
 
     pinet-battery          run the tray icon (the user service does this)
-    pinet-battery --once   print one reading and exit (the e-ink dashboard uses this)
+    pinet-battery --once   print one reading and exit (for a quick check by hand)
+
+The e-ink dashboard and pinet-ups-guard import this file as a module (read,
+find, percent, rest_volts, power_state, remaining_mah, LABELS, SMOOTH...), so
+the maths lives here once; keep those names stable.
 
 Knobs (environment) for a HAT that reads differently from the Waveshare demo:
     UPS_I2C_BUS=1  UPS_ADDR=0x43  UPS_SHUNT_OHMS=0.01
@@ -79,6 +83,10 @@ def power_state(amps):
 LABELS = {"charging": "Charging", "battery": "On battery", "full": "Charged"}
 
 
+UNKNOWN_ICON = "pinet-battery-unknown"   # dim outline: no reading (yet)
+READ_FAILURES_SHOWN = 3   # failed reads in a row before the tray admits it has no reading
+
+
 def icon_name(pct, state):
     # The bolt means "on mains": charging, or charged and idle.
     return f"pinet-battery-{round(pct / 10) * 10}" + ("" if state == "battery" else "-charging")
@@ -125,7 +133,8 @@ SNI_XML = """<node><interface name="org.kde.StatusNotifierItem">
 def tray(bus, addr):
     from gi.repository import Gio, GLib
 
-    state = {"icon": "pinet-battery-100", "tip": "Battery", "volts": []}
+    # No reading yet: say so, rather than start out claiming a full battery.
+    state = {"icon": UNKNOWN_ICON, "tip": "Battery: reading\u2026", "volts": [], "failures": 0}
     conn = Gio.bus_get_sync(Gio.BusType.SESSION)
     name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
     path = "/StatusNotifierItem"
@@ -160,15 +169,25 @@ def tray(bus, addr):
     def update():
         try:
             volts, amps = read(bus, addr)
+            if volts < 2.5:
+                raise OSError(f"implausible reading {volts:.2f} V")   # a bad read, not a flat cell
         except OSError as e:
             print(f"pinet-battery: read failed: {e}", file=sys.stderr)
-            return True
-        state["volts"] = (state["volts"] + [rest_volts(volts, amps)])[-SMOOTH:]
-        pct = percent(sum(state["volts"]) / len(state["volts"]))
-        ps = power_state(amps)
-        icon = icon_name(pct, ps)
-        tip = f"{pct}%  {LABELS[ps]}\n~{remaining_mah(pct)} / {CAPACITY_MAH} mAh" \
-              f"\n{volts:.2f} V  {amps * 1000:+.0f} mA"
+            state["failures"] += 1
+            # A glitch keeps the last reading; a run of failures stops the
+            # tray from showing a level it is no longer measuring.
+            if state["failures"] < READ_FAILURES_SHOWN:
+                return True
+            icon, tip = UNKNOWN_ICON, "Battery: no reading from the UPS HAT"
+            state["volts"] = []
+        else:
+            state["failures"] = 0
+            state["volts"] = (state["volts"] + [rest_volts(volts, amps)])[-SMOOTH:]
+            pct = percent(sum(state["volts"]) / len(state["volts"]))
+            ps = power_state(amps)
+            icon = icon_name(pct, ps)
+            tip = f"{pct}%  {LABELS[ps]}\n~{remaining_mah(pct)} / {CAPACITY_MAH} mAh" \
+                  f"\n{volts:.2f} V  {amps * 1000:+.0f} mA"
         if icon != state["icon"]:
             state["icon"] = icon
             conn.emit_signal(None, path, "org.kde.StatusNotifierItem", "NewIcon", None)

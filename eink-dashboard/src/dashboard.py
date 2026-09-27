@@ -39,8 +39,9 @@ _logo_missing_warned = False
 # runtime dir so a crash or reboot can't leave it stale.
 KIOSK_FLAG = Path("/run/user") / str(os.getuid()) / "kiosk-mode"
 # Written by pinet-ups-guard while the UPS battery is flat and a power-off is
-# counting down: one line, the power-off time (epoch seconds). tmpfs, so a
-# reboot never leaves it behind.
+# counting down: one line, the power-off time on the monotonic clock (shared
+# by both processes, and it never jumps the way this RTC-less Pi's wall clock
+# does at boot). tmpfs, so a reboot never leaves it behind.
 UPS_LOW_FLAG = Path("/run/pinet-ups-low")
 UPS_COUNTDOWN_REFRESH = 5   # seconds between countdown redraws (partial refreshes)
 
@@ -242,9 +243,12 @@ def get_power_status():
 
 BATTERY_READER = "/usr/local/bin/pinet-battery"
 BATTERY_RETRY_SECONDS = 60   # no HAT found: don't look again before this
+BATTERY_READ_GRACE = 3       # failed reads in a row that still show the last good reading
 _battery = None   # (reader module, open SMBus, INA219 address) once found
 _battery_missing_since = None   # monotonic time the last search came up empty
 _rest_volts = []   # last SMOOTH resting voltages, averaged like the taskbar does
+_last_battery = None   # last good reading, shown through a short run of failed reads
+_battery_failures = 0
 
 
 def _drop_battery():
@@ -266,7 +270,7 @@ def get_battery():
     open: the wait loop polls this every few seconds to catch a charger
     being plugged in or pulled, and a python subprocess per poll would cost
     the Pi 3B real CPU."""
-    global _battery, _battery_missing_since, _rest_volts
+    global _battery, _battery_missing_since, _rest_volts, _last_battery, _battery_failures
     if _battery is None and _battery_missing_since is not None \
             and time.monotonic() - _battery_missing_since < BATTERY_RETRY_SECONDS:
         return None
@@ -280,26 +284,50 @@ def get_battery():
             addr = mod.find(bus)
             if addr is None:
                 bus.close()
-                _battery_missing_since = time.monotonic()
+                _battery_missing_since, _last_battery = time.monotonic(), None
                 return None
-            _battery, _battery_missing_since, _rest_volts = (mod, bus, addr), None, []
-        mod, bus, addr = _battery
-        volts, amps = mod.read(bus, addr)
-        state = mod.power_state(amps)
-        _rest_volts = (_rest_volts + [mod.rest_volts(volts, amps)])[-mod.SMOOTH:]
-        pct = mod.percent(sum(_rest_volts) / len(_rest_volts))
-        return {"percent": pct, "state": state, "charging": state == "charging",
-                "mah": mod.remaining_mah(pct), "capacity_mah": mod.CAPACITY_MAH}
+            _battery, _battery_missing_since = (mod, bus, addr), None
     except Exception:
-        # HAT gone or an I2C hiccup: close the bus (no fd leak) and look again
-        # on the next call -- an unreadable reader counts as no HAT.
+        # The reader itself can't be loaded or opened: count it as no HAT.
         _drop_battery()
-        _battery_missing_since = time.monotonic()
+        _battery_missing_since, _last_battery = time.monotonic(), None
         return None
+    mod, bus, addr = _battery
+    try:
+        volts, amps = mod.read(bus, addr)
+        if volts < 2.5:
+            raise OSError(f"implausible reading {volts:.2f} V")   # a bad read, not a flat cell
+    except Exception:
+        # One I2C hiccup (the tray and the guard share the bus) must not wipe
+        # the battery off every screen: keep the bus and show the last good
+        # reading for a few polls. Only a longer outage closes the bus (no fd
+        # leak) and looks for the HAT again.
+        _battery_failures += 1
+        if _battery_failures <= BATTERY_READ_GRACE:
+            return _last_battery
+        _drop_battery()
+        _battery_failures, _last_battery = 0, None
+        return None
+    _battery_failures = 0
+    state = mod.power_state(amps)
+    _rest_volts = (_rest_volts + [mod.rest_volts(volts, amps)])[-mod.SMOOTH:]
+    pct = mod.percent(sum(_rest_volts) / len(_rest_volts))
+    _last_battery = {"percent": pct, "state": state, "charging": state == "charging",
+                     "label": mod.LABELS.get(state, ""),
+                     "mah": mod.remaining_mah(pct), "capacity_mah": mod.CAPACITY_MAH}
+    return _last_battery
 
 
 CHARGE_SWEEP_FRAMES = 5
 LOW_BATTERY_PCT = 15
+
+
+def battery_animates(battery):
+    """Whether battery_fill() changes between frames at all -- only then is
+    the icon worth redrawing every battery_anim_seconds."""
+    if battery["charging"]:
+        return battery["percent"] < 100
+    return battery["state"] == "battery" and battery["percent"] <= LOW_BATTERY_PCT
 
 
 def battery_fill(battery, frame=0):
@@ -316,7 +344,6 @@ def battery_fill(battery, frame=0):
     return pct
 
 
-BATTERY_LABELS = {"charging": "Charging", "battery": "On battery", "full": "Charged"}
 
 
 def get_disk_usage(path="/"):
@@ -591,7 +618,7 @@ def get_ups_countdown():
         deadline = float(UPS_LOW_FLAG.read_text().split()[0])
     except (OSError, ValueError, IndexError):
         return None
-    left = deadline - time.time()
+    left = deadline - time.monotonic()
     if left < -UPS_COUNTDOWN_STALE:
         return None
     return max(0, round(left))
@@ -944,7 +971,7 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
             bx, by = spotify_battery_xy(W)
             draw_spotify_battery(draw, bx, by, battery, 0, color=0)
             draw.text((bx + SPOTIFY_BATT_W + 4, 22), f"{battery['percent']}%", font=FONT_SMALL, fill=0)
-            label = BATTERY_LABELS.get(battery["state"], "")
+            label = battery.get("label", "")
             draw.text((W - 10 - draw.textlength(label, font=FONT_SMALL), 4), label, font=FONT_SMALL, fill=0)
         draw.line((10, 42, W - 10, 42), fill=0)
 
@@ -1109,7 +1136,7 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
         # Charge left out of the pack's capacity, and whether it is charging.
         y = header_h + image_area_h + 2
         text = f"{battery['percent']}%  ~{battery['mah']}/{battery['capacity_mah']}mAh  " \
-               f"{BATTERY_LABELS.get(battery['state'], '')}"
+               f"{battery.get('label', '')}"
         on_mains = battery["state"] != "battery"
         icon_w = (icons.POWER_GLYPH_W + 2 if on_mains else 0) + HEADER_BATT_W + 4
         line, font = fit_text(draw, text, FONT_REGULAR_PATH, 13, 8, W - 2 * margin - icon_w)
@@ -1319,12 +1346,14 @@ def main():
                 elif phase == 2:
                     logger.info("Carousel phase=2 (doom)")
                     disk_free_gb, disk_used_gb, disk_total_gb = get_disk_usage()
-                    battery = get_battery()
+                    pentest = is_wifi_pentest_active()
+                    # Pentest mode's layout has no battery row: don't poll it.
+                    battery = None if pentest else get_battery()
                     image = render_image_screen(
                         epd, DOOM_LOGO_PATH, dark_mode,
                         voltage=volt_now, under_voltage=uv_show, throttled=thr_show,
                         disk_free_gb=disk_free_gb, disk_used_gb=disk_used_gb, disk_total_gb=disk_total_gb,
-                        pentest=is_wifi_pentest_active(), battery=battery,
+                        pentest=pentest, battery=battery,
                     )
                 else:
                     logger.info("Carousel phase=3 (hotspot)")
@@ -1333,7 +1362,7 @@ def main():
                     image = render_hotspot_screen(epd, hotspot, dark_mode, battery=battery)
                     if hotspot["active"]:
                         battery = None   # the PINET join screen shows no battery
-                    elif battery and battery_anim_seconds > 0:
+                    elif battery and battery_anim_seconds > 0 and battery_animates(battery):
                         anim_base = image
 
                 if flip_180:
