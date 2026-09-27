@@ -485,34 +485,48 @@ def seigaiha(draw, x, y, w, h, scale=None, rings=3, rows=2, color=0):
                 draw.arc(bbox, start=180, end=360, fill=color, width=1)
 
 
-def battery(draw, x, y, bars, color=0, bg=None):
-    """UPS battery, bounded by (x, y, x+BATTERY_W-1, y+BATTERY_H-1): a 2px
-    rounded body, a solid nub on the right and `bars` (0-4) 2px cells with
-    2px gaps inside. The box is cleared to `bg` first (default: the other
-    colour) so the carousel can redraw it in place for each animation frame."""
+_BOLT_SMALL = ("...##", "..##.", ".##..", "#####", "..##.", ".##..", "##...", "#....")
+_BOLT_BIG = ("....###", "...###.", "..###..", ".###...", "#######", "...###.", "..###..",
+             ".###...", "###....", "##.....")
+
+
+def battery(draw, x, y, fill_pct, charging=False, w=34, h=16, color=0, bg=None):
+    """Phone-style battery (the One UI look): a rounded pill, a small nub, and
+    one solid rounded fill proportional to `fill_pct` instead of cells. While
+    `charging` a bolt sits in the middle, knocked out of the fill and solid
+    over the empty part, so it reads at any level. Bounded by
+    (x, y, x+w-1, y+h-1), and cleared to `bg` first so the carousel can
+    redraw it in place for each animation frame."""
     x, y = int(x), int(y)
     bg = _bg(color) if bg is None else bg
-    draw.rectangle((x, y, x + BATTERY_W - 1, y + BATTERY_H - 1), fill=bg)
-    draw.rounded_rectangle((x, y, x + BATTERY_W - 3, y + BATTERY_H - 1), radius=2, outline=color, width=2)
-    draw.rectangle((x + BATTERY_W - 2, y + 3, x + BATTERY_W - 1, y + BATTERY_H - 4), fill=color)
-    for i in range(max(0, min(4, bars))):
-        cx = x + 4 + 4 * i
-        draw.rectangle((cx, y + 4, cx + 1, y + BATTERY_H - 5), fill=color)
+    draw.rectangle((x, y, x + w - 1, y + h - 1), fill=bg)
+    body_r = x + w - 4
+    draw.rounded_rectangle((x, y, body_r, y + h - 1), radius=max(2, h // 3), outline=color, width=2)
+    draw.rectangle((x + w - 2, y + h // 4 + 1, x + w - 1, y + h - 2 - h // 4), fill=color)
+    # 1px of air between the outline and the fill, like the phone icon.
+    left, right, top, bottom = x + 3, body_r - 3, y + 3, y + h - 4
+    fill_r = left + round((right - left + 1) * max(0, min(100, fill_pct)) / 100) - 1
+    if fill_r >= left:
+        draw.rounded_rectangle((left, top, fill_r, bottom), radius=1, fill=color)
+    if charging:
+        rows = _BOLT_BIG if bottom - top + 1 >= len(_BOLT_BIG) else _BOLT_SMALL
+        bx = (left + right + 1 - len(rows[0])) // 2
+        by = (top + bottom + 1 - len(rows)) // 2
+        for dy, row in enumerate(rows):
+            for dx, ch in enumerate(row):
+                if ch == "#":
+                    px = bx + dx
+                    draw.point((px, by + dy), fill=bg if px <= fill_r else color)
 
-
-BATTERY_W, BATTERY_H = 24, 12
 
 POWER_GLYPH_W, POWER_GLYPH_H = 8, 12
 _BOLT = ("....###.", "...###..", "..###...", ".###....", "#######.", "######..",
          "...###..", "..###...", ".###....", ".##.....", "##......", "#.......")
-_MINI_BATTERY = ("..####..", "########", "#......#", "#......#", "#.####.#", "#.####.#",
-                 "#.####.#", "#.####.#", "#.####.#", "#......#", "#......#", "########")
 
 
-def power_glyph(draw, x, y, state, color=0):
-    """8x12 sprite in front of the header percentage: a bolt while on mains
-    (charging or charged), an upright battery while running on it."""
-    _sprite(draw, int(x), int(y), _MINI_BATTERY if state == "battery" else _BOLT, color)
+def bolt(draw, x, y, color=0):
+    """8x12 bolt: 'on mains', in front of the header's small battery."""
+    _sprite(draw, int(x), int(y), _BOLT, color)
 
 
 def spotify(draw, cx, cy, size=9, color=0, bg=255):

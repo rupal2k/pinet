@@ -9,6 +9,7 @@ and class name below to match your model (e.g. epd2in7, epd2in9_V2) -- the
 rest of the script (drawing, data collection) does not need to change.
 """
 import configparser
+import importlib.machinery
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import socket
 import subprocess
 import sys
 import time
+import types
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +38,11 @@ _logo_missing_warned = False
 # "CAMERA MODE ON"), line 2 the label (e.g. "Ezykam"). Lives in the tmpfs
 # runtime dir so a crash or reboot can't leave it stale.
 KIOSK_FLAG = Path("/run/user") / str(os.getuid()) / "kiosk-mode"
+# Written by pinet-ups-guard while the UPS battery is flat and a power-off is
+# counting down: one line, the power-off time (epoch seconds). tmpfs, so a
+# reboot never leaves it behind.
+UPS_LOW_FLAG = Path("/run/pinet-ups-low")
+UPS_COUNTDOWN_REFRESH = 5   # seconds between countdown redraws (partial refreshes)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("eink-dashboard")
@@ -215,29 +222,80 @@ def get_power_status():
     return voltage, under_voltage_now, throttled_now
 
 
+BATTERY_READER = "/usr/local/bin/pinet-battery"
+BATTERY_RETRY_SECONDS = 60   # no HAT found: don't look again before this
+_battery = None   # (reader module, open SMBus, INA219 address) once found
+_battery_missing_since = None   # monotonic time the last search came up empty
+_rest_volts = []   # last SMOOTH resting voltages, averaged like the taskbar does
+
+
+def _drop_battery():
+    global _battery
+    if _battery is not None:
+        try:
+            _battery[1].close()
+        except Exception:
+            pass
+    _battery = None
+
+
 def get_battery():
     """{"percent": int, "state": "charging"|"battery"|"full", "charging": bool}
-    from the UPS HAT, or None when there is no HAT (or I2C is off). Asks /usr/local/bin/pinet-battery -- the same
-    reader the taskbar icon uses -- so the INA219 maths lives in one place."""
+    from the UPS HAT, or None when there is no HAT (or I2C is off).
+
+    Loads /usr/local/bin/pinet-battery -- the reader the taskbar icon runs --
+    as a module, so the INA219 maths lives in one place, and keeps its bus
+    open: the wait loop polls this every few seconds to catch a charger
+    being plugged in or pulled, and a python subprocess per poll would cost
+    the Pi 3B real CPU."""
+    global _battery, _battery_missing_since, _rest_volts
+    if _battery is None and _battery_missing_since is not None \
+            and time.monotonic() - _battery_missing_since < BATTERY_RETRY_SECONDS:
+        return None
     try:
-        out = subprocess.run(
-            ["/usr/local/bin/pinet-battery", "--once"],
-            capture_output=True, text=True, timeout=5,
-        ).stdout
-        kv = dict(part.split("=", 1) for part in out.split() if "=" in part)
-        state = kv["state"]
-        return {"percent": int(kv["percent"]), "state": state, "charging": state == "charging"}
+        if _battery is None:
+            loader = importlib.machinery.SourceFileLoader("pinet_battery", BATTERY_READER)
+            mod = types.ModuleType(loader.name)
+            loader.exec_module(mod)
+            from smbus2 import SMBus
+            bus = SMBus(mod.BUS)
+            addr = mod.find(bus)
+            if addr is None:
+                bus.close()
+                _battery_missing_since = time.monotonic()
+                return None
+            _battery, _battery_missing_since, _rest_volts = (mod, bus, addr), None, []
+        mod, bus, addr = _battery
+        volts, amps = mod.read(bus, addr)
+        state = mod.power_state(amps)
+        _rest_volts = (_rest_volts + [mod.rest_volts(volts, amps)])[-mod.SMOOTH:]
+        pct = mod.percent(sum(_rest_volts) / len(_rest_volts))
+        return {"percent": pct, "state": state, "charging": state == "charging",
+                "mah": mod.remaining_mah(pct), "capacity_mah": mod.CAPACITY_MAH}
     except Exception:
+        # HAT gone or an I2C hiccup: close the bus (no fd leak) and look again
+        # on the next call -- an unreadable reader counts as no HAT.
+        _drop_battery()
+        _battery_missing_since = time.monotonic()
         return None
 
 
-def battery_bars(battery, frame=0):
-    """Cells lit (0-4) for animation frame `frame`: charging fills up from the
-    current level to full and starts again; on battery the top cell blinks."""
-    level = max(0, min(4, round(battery["percent"] / 25)))
+CHARGE_SWEEP_FRAMES = 5
+LOW_BATTERY_PCT = 15
+
+
+def battery_fill(battery, frame=0):
+    """Percent of the icon to fill on animation frame `frame`. Charging: the
+    fill sweeps from the real level up to full in CHARGE_SWEEP_FRAMES steps and
+    starts again, like a phone on its charger. On battery it sits still at the
+    real level, except when low, where it blinks."""
+    pct = battery["percent"]
     if battery["charging"]:
-        return level + frame % (5 - level) if level < 4 else 4
-    return level - (frame % 2) if level > 0 else 0
+        step = frame % CHARGE_SWEEP_FRAMES
+        return pct + (100 - pct) * step // (CHARGE_SWEEP_FRAMES - 1)
+    if battery["state"] == "battery" and pct <= LOW_BATTERY_PCT:
+        return pct if frame % 2 == 0 else 0
+    return pct
 
 
 BATTERY_LABELS = {"charging": "Charging", "battery": "On battery", "full": "Charged"}
@@ -506,6 +564,21 @@ def get_kiosk_mode():
     return "KIOSK MODE ON", (lines[0] if lines else "Kiosk")
 
 
+UPS_COUNTDOWN_STALE = 30   # overdue by this much: the guard is gone, ignore it
+
+
+def get_ups_countdown():
+    """Seconds until pinet-ups-guard powers off (0 when due), or None."""
+    try:
+        deadline = float(UPS_LOW_FLAG.read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    left = deadline - time.time()
+    if left < -UPS_COUNTDOWN_STALE:
+        return None
+    return max(0, round(left))
+
+
 def _text_width(draw, text, font):
     bbox = draw.textbbox((0, 0), text, font=font)
     return bbox[2] - bbox[0]
@@ -584,11 +657,12 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
     now = datetime.now()
     date_text = now.strftime("%a %d %b")
     time_text = now.strftime("%-I:%M:%S %p")
-    # UPS HAT charge as a short percentage centred between date and time.
-    # A bolt in front means on mains (charging/charged), a small battery
-    # means running on it.
+    # UPS HAT charge centred between date and time: a small phone-style
+    # battery filled to the level and the percentage, with a bolt in front
+    # while on mains (charging or charged) and none when running on it.
     batt_text = f"{battery['percent']}%" if battery else ""
-    glyph_w = icons.POWER_GLYPH_W + 3
+    on_mains = bool(battery) and battery["state"] != "battery"
+    glyph_w = (icons.POWER_GLYPH_W + 2 if on_mains else 0) + HEADER_BATT_W + 3
     for size in range(18, 12, -1):
         header_font = ImageFont.truetype(FONT_BOLD_PATH, size)
         date_w = _text_width(draw, date_text, header_font)
@@ -603,8 +677,13 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
         gap_l, gap_r = 4 + date_w, W - 4 - time_w
         bw = _text_width(draw, batt_text, header_font) + glyph_w
         bx = int((gap_l + gap_r - bw) / 2)
-        icons.power_glyph(draw, bx, 5 + (header_font.size - icons.POWER_GLYPH_H) // 2, battery["state"])
-        draw.text((bx + glyph_w, 2), batt_text, font=header_font, fill=0)
+        mid = 3 + header_font.size // 2 + 1
+        if on_mains:
+            icons.bolt(draw, bx, mid - icons.POWER_GLYPH_H // 2)
+            bx += icons.POWER_GLYPH_W + 2
+        icons.battery(draw, bx, mid - HEADER_BATT_H // 2, battery["percent"],
+                      w=HEADER_BATT_W, h=HEADER_BATT_H)
+        draw.text((bx + HEADER_BATT_W + 3, 2), batt_text, font=header_font, fill=0)
 
     box_w = (W - 6) // 2
     col1_x = 2
@@ -748,13 +827,22 @@ def render_qr_screen(epd, ssid, password, net, dark_mode=False):
     return image
 
 
+HEADER_BATT_W, HEADER_BATT_H = 20, 10
+SPOTIFY_BATT_W, SPOTIFY_BATT_H = 34, 16
+
+
 def spotify_battery_xy(W):
     """Top-left of the animated battery on the Spotify screen: right end of
     the "Portal not active" row, room left for "100%" after it. Fixed (not
     measured from the current text) so animation frames can redraw just the
     icon in place."""
     pct_w = int(FONT_SMALL.getlength("100%"))
-    return W - 10 - pct_w - 4 - icons.BATTERY_W, 25
+    return W - 10 - pct_w - 4 - SPOTIFY_BATT_W, 23
+
+
+def draw_spotify_battery(draw, x, y, battery, frame, color=0):
+    icons.battery(draw, x, y, battery_fill(battery, frame), charging=battery["state"] != "battery",
+                  w=SPOTIFY_BATT_W, h=SPOTIFY_BATT_H, color=color)
 
 
 def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
@@ -836,8 +924,8 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
         draw.text((36, 22), "Portal not active", font=FONT_SMALL, fill=0)
         if battery:
             bx, by = spotify_battery_xy(W)
-            icons.battery(draw, bx, by, battery_bars(battery), color=0)
-            draw.text((bx + icons.BATTERY_W + 4, 22), f"{battery['percent']}%", font=FONT_SMALL, fill=0)
+            draw_spotify_battery(draw, bx, by, battery, 0, color=0)
+            draw.text((bx + SPOTIFY_BATT_W + 4, 22), f"{battery['percent']}%", font=FONT_SMALL, fill=0)
             label = BATTERY_LABELS.get(battery["state"], "")
             draw.text((W - 10 - draw.textlength(label, font=FONT_SMALL), 4), label, font=FONT_SMALL, fill=0)
         draw.line((10, 42, W - 10, 42), fill=0)
@@ -881,6 +969,28 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
     return image
 
 
+def render_battery_low_screen(epd, seconds_left, battery=None, dark_mode=False):
+    """Takes over the carousel while pinet-ups-guard counts down to a power-off
+    on a flat battery: what is happening, how long is left, and how to stop it."""
+    W, H = epd.height, epd.width
+    image = Image.new("1", (W, H), 255)
+    draw = ImageDraw.Draw(image)
+
+    def centered(text, font_path, max_size, min_size, y):
+        line, font = fit_text(draw, text, font_path, max_size, min_size, W - 12)
+        draw.text(((W - draw.textlength(line, font=font)) / 2, y), line, font=font, fill=0)
+
+    bw, bh = 56, 26
+    icons.battery(draw, (W - bw) // 2, 6, battery["percent"] if battery else 0, w=bw, h=bh)
+    centered("BATTERY LOW", FONT_BOLD_PATH, 22, 12, 38)
+    centered(f"Shutting down in {seconds_left} s", FONT_BOLD_PATH, 17, 10, 66)
+    centered("Plug in the charger to cancel", FONT_REGULAR_PATH, 14, 9, 94)
+
+    if dark_mode:
+        image = ImageOps.invert(image.convert("L")).convert("1")
+    return image
+
+
 def render_kiosk_screen(epd, title, label, dark_mode=False):
     """Replaces the whole carousel while a DSI kiosk is open. The kiosk
     launcher stops the PINET hotspot + board for the duration (frees power
@@ -905,7 +1015,7 @@ def render_kiosk_screen(epd, title, label, dark_mode=False):
 
 def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
                          under_voltage=None, throttled=None, disk_free_gb=None,
-                         disk_used_gb=None, disk_total_gb=None, pentest=False):
+                         disk_used_gb=None, disk_total_gb=None, pentest=False, battery=None):
     """Renders an arbitrary image file for the carousel's third screen
     (currently the DOOM logo): loaded, downscaled to fit the panel
     (aspect-preserved, letterboxed), and dithered to 1-bit so grayscale
@@ -922,7 +1032,11 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
     margin = 4
     header_h = 16
     footer_h = 16
-    image_area_h = H - header_h - footer_h
+    # UPS battery row just above the disk row: the logo gives up 16px for it.
+    # Not in pentest mode: its skull and label use their own layout.
+    battery = None if pentest else battery
+    batt_h = 16 if battery else 0
+    image_area_h = H - header_h - footer_h - batt_h
     image_area_y = header_h
 
     image = Image.new("1", (W, H), 255)
@@ -973,13 +1087,28 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
         text_x = 6
     draw.text((text_x, 2), f"{volt_text}  {status_text}", font=FONT_SMALL, fill=0)
 
+    if battery:
+        # Charge left out of the pack's capacity, and whether it is charging.
+        y = header_h + image_area_h + 2
+        text = f"{battery['percent']}%  ~{battery['mah']}/{battery['capacity_mah']}mAh  " \
+               f"{BATTERY_LABELS.get(battery['state'], '')}"
+        on_mains = battery["state"] != "battery"
+        icon_w = (icons.POWER_GLYPH_W + 2 if on_mains else 0) + HEADER_BATT_W + 4
+        line, font = fit_text(draw, text, FONT_REGULAR_PATH, 13, 8, W - 2 * margin - icon_w)
+        x = int((W - icon_w - draw.textlength(line, font=font)) / 2)
+        if on_mains:
+            icons.bolt(draw, x, y + 1)
+            x += icons.POWER_GLYPH_W + 2
+        icons.battery(draw, x, y + 2, battery["percent"], w=HEADER_BATT_W, h=HEADER_BATT_H)
+        draw.text((x + HEADER_BATT_W + 4, y - 1), line, font=font, fill=0)
+
     if not pentest:
         if disk_used_gb is not None and disk_total_gb is not None and disk_free_gb is not None:
             disk_text = f"{disk_used_gb:.1f}/{disk_total_gb:.1f}GB used · {disk_free_gb:.1f}GB free"
         else:
             disk_text = "disk: n/a"
         disk_line, disk_font = fit_text(draw, disk_text, FONT_REGULAR_PATH, 13, 8, W - 2 * margin)
-        draw.text((6, header_h + image_area_h + 2), disk_line, font=disk_font, fill=0)
+        draw.text((6, header_h + image_area_h + batt_h + 2), disk_line, font=disk_font, fill=0)
 
     if dark_mode:
         image = ImageOps.invert(image.convert("L")).convert("1")
@@ -1010,6 +1139,10 @@ def main():
     # Seconds per frame of the Spotify screen's battery animation (partial
     # refreshes of just that icon); 0 turns the animation off.
     battery_anim_seconds = cfg.getfloat("battery_anim_seconds", fallback=2)
+    # How often the UPS HAT is read between refreshes while a battery is on
+    # screen; a charger plugged in or pulled redraws the screen (partial
+    # refresh) within about two of these.
+    battery_poll_seconds = cfg.getfloat("battery_poll_seconds", fallback=2)
     # Whether location comes from IP geolocation (blank config) rather than a
     # fixed configured lat/lon -- only the former needs re-resolving when the
     # network changes, since ip-api.com geolocates the request's own public
@@ -1109,18 +1242,28 @@ def main():
             uv_show = uv_streak >= uv_min_readings
             thr_show = thr_streak >= uv_min_readings
             kiosk_app = get_kiosk_mode()
-            if kiosk_app != last_kiosk_app:
-                # Entering/leaving kiosk mode swaps the whole layout; force a
-                # full refresh so the old screen doesn't ghost under the new.
+            # A low-battery countdown outranks everything, kiosks included.
+            ups_left = get_ups_countdown()
+            takeover = ("ups",) if ups_left is not None else kiosk_app
+            if takeover != last_kiosk_app:
+                # Entering/leaving kiosk mode (or the low-battery screen) swaps
+                # the whole layout; force a full refresh so the old screen
+                # doesn't ghost under the new.
                 last_full_refresh_cycle = None
-                last_kiosk_app = kiosk_app
+                last_kiosk_app = takeover
 
             # The frame last rendered (before flip_180) when the battery on the
             # Spotify screen should animate during the wait below, else None.
             anim_base = None
+            # The battery reading drawn on this frame; None if the screen
+            # shows no battery (then its state isn't watched below).
             battery = None
             try:
-                if kiosk_app:
+                if ups_left is not None:
+                    logger.info("Battery low: power-off in %ss", ups_left)
+                    battery = get_battery()
+                    image = render_battery_low_screen(epd, ups_left, battery, dark_mode)
+                elif kiosk_app:
                     logger.info("Kiosk mode on (%s / %s)", *kiosk_app)
                     image = render_kiosk_screen(epd, *kiosk_app, dark_mode=dark_mode)
                 elif phase == 0:
@@ -1145,9 +1288,10 @@ def main():
                         # reading; None only if weather has never succeeded.
                         weather = last_weather
                     net = get_network_status()
+                    battery = get_battery()
                     image = render(
                         epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net,
-                        location_name, dark_mode, battery=get_battery(),
+                        location_name, dark_mode, battery=battery,
                     )
                 elif phase == 1:
                     logger.info("Carousel phase=1 (qr)")
@@ -1157,18 +1301,21 @@ def main():
                 elif phase == 2:
                     logger.info("Carousel phase=2 (doom)")
                     disk_free_gb, disk_used_gb, disk_total_gb = get_disk_usage()
+                    battery = get_battery()
                     image = render_image_screen(
                         epd, DOOM_LOGO_PATH, dark_mode,
                         voltage=volt_now, under_voltage=uv_show, throttled=thr_show,
                         disk_free_gb=disk_free_gb, disk_used_gb=disk_used_gb, disk_total_gb=disk_total_gb,
-                        pentest=is_wifi_pentest_active(),
+                        pentest=is_wifi_pentest_active(), battery=battery,
                     )
                 else:
                     logger.info("Carousel phase=3 (hotspot)")
                     hotspot = get_hotspot_status()
                     battery = get_battery()
                     image = render_hotspot_screen(epd, hotspot, dark_mode, battery=battery)
-                    if battery and not hotspot["active"] and battery_anim_seconds > 0:
+                    if hotspot["active"]:
+                        battery = None   # the PINET join screen shows no battery
+                    elif battery and battery_anim_seconds > 0:
                         anim_base = image
 
                 if flip_180:
@@ -1237,31 +1384,69 @@ def main():
             wait_seconds = max(1, min(refresh_minutes * 60, remaining_in_phase))
             elapsed = 0
             next_poll = network_poll_seconds
+            next_frame = battery_anim_seconds
+            next_batt = battery_poll_seconds
+            tick = min((t for t in (
+                network_poll_seconds,
+                battery_poll_seconds if battery is not None else 0,
+                battery_anim_seconds if anim_base else 0,
+                UPS_COUNTDOWN_REFRESH if ups_left is not None else 0,
+            ) if t > 0), default=5)   # every interval set to 0: still tick, don't crash
             frame = 0
+            # Consecutive polls that saw a different power state from the one
+            # on screen. Two in a row, so a current hovering at the
+            # charging threshold can't flicker the panel.
+            state_changes = 0
             while elapsed < wait_seconds:
-                step = min(battery_anim_seconds if anim_base else network_poll_seconds,
-                           wait_seconds - elapsed)
+                step = min(tick, wait_seconds - elapsed)
                 time.sleep(step)
                 elapsed += step
-                if anim_base:
+                # Checked every tick (a file read): a low-battery countdown
+                # starting or being cancelled shows at once, and while it
+                # runs the seconds left are redrawn every UPS_COUNTDOWN_REFRESH.
+                if (get_ups_countdown() is None) != (ups_left is None):
+                    break
+                if ups_left is not None and elapsed >= UPS_COUNTDOWN_REFRESH:
+                    break
+                if battery is not None and elapsed >= next_batt:
+                    next_batt = elapsed + battery_poll_seconds
+                    now_batt = get_battery()
+                    # Only plugging in or pulling the charger redraws at once;
+                    # charging <-> charged waits for the normal refresh, so a
+                    # current hovering at the threshold can't flicker the panel.
+                    if now_batt and (now_batt["state"] == "battery") != (battery["state"] == "battery"):
+                        state_changes += 1
+                        if state_changes >= 2:
+                            # Charger plugged in or pulled: re-render now.
+                            # Within a cycle that is a partial refresh, so the
+                            # new state shows without a flash.
+                            logger.info("Power %s -> %s, refreshing early",
+                                        battery["state"], now_batt["state"])
+                            break
+                    else:
+                        state_changes = 0
+                if anim_base and elapsed >= next_frame:
                     # Only the battery icon changes: a partial refresh of an
                     # otherwise identical frame, so no flash. In dark mode the
                     # frame is already inverted, hence the swapped colours.
+                    next_frame = elapsed + battery_anim_seconds
                     frame += 1
                     try:
                         anim = anim_base.copy()
                         bx, by = spotify_battery_xy(anim.width)
-                        icons.battery(ImageDraw.Draw(anim), bx, by, battery_bars(battery, frame),
-                                      color=255 if dark_mode else 0)
+                        draw_spotify_battery(ImageDraw.Draw(anim), bx, by, battery, frame,
+                                             color=255 if dark_mode else 0)
                         if flip_180:
                             anim = anim.rotate(180)
-                        epd.displayPartial(epd.getbuffer(anim))
-                        last_image_bytes = anim.tobytes()
+                        anim_bytes = anim.tobytes()
+                        if anim_bytes != last_image_bytes:   # a still icon costs no refresh
+                            epd.displayPartial(epd.getbuffer(anim))
+                            last_image_bytes = anim_bytes
                     except Exception:
                         logger.exception("Battery animation frame failed, stopping it")
                         anim_base = None
                         last_full_refresh_cycle = None
-                if elapsed < next_poll and elapsed < wait_seconds:
+                if elapsed < next_poll:
                     continue
                 next_poll = elapsed + network_poll_seconds
                 if get_kiosk_mode() != kiosk_app:

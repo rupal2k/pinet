@@ -231,28 +231,96 @@ class FitText(TmpDirCase):
 # ---------------------------------------------------------------------------
 
 class Battery(TmpDirCase):
-    def test_parses_the_reader(self):
-        for state in ("charging", "battery", "full"):
-            out = f"addr=0x43 volts=3.748 amps=+2.230 percent=62 state={state} icon=pinet-battery-50\n"
-            self.dash.subprocess = SimpleNamespace(run=lambda cmd, **kw: SimpleNamespace(stdout=out, returncode=0))
-            self.assertEqual(self.dash.get_battery(),
-                             {"percent": 62, "state": state, "charging": state == "charging"})
+    def reader(self, body):
+        path = self.tmp / "pinet-battery"
+        path.write_text("BUS = 1\nSMOOTH = 6\n" + body)
+        self.dash.BATTERY_READER = str(path)
+        self.dash._battery = None
+        self.dash._battery_missing_since = None
+        self.dash._rest_volts = []
+        self.closed = []
+        smbus = make_module("smbus2", SMBus=lambda n: SimpleNamespace(close=lambda: self.closed.append(n)))
+        return stub_modules({"smbus2": smbus})
+
+    def test_uses_the_taskbar_reader_in_process(self):
+        body = ("def find(bus): return 0x43\n"
+                "def read(bus, addr): return 3.75, 2.2\n"
+                "def rest_volts(v, a): return v\n"
+                "def percent(v): return 62\n"
+                "def remaining_mah(p): return 5210\n"
+                "CAPACITY_MAH = 8400\n"
+                "def power_state(a): return 'charging'\n")
+        with self.reader(body):
+            self.assertEqual(self.dash.get_battery(), {"percent": 62, "state": "charging", "charging": True,
+                                                       "mah": 5210, "capacity_mah": 8400})
+            self.assertEqual(self.dash.get_battery()["state"], "charging")  # bus kept open
 
     def test_no_hat_is_none(self):
-        self.dash.subprocess = SimpleNamespace(run=lambda cmd, **kw: SimpleNamespace(stdout="", returncode=1))
+        with self.reader("def find(bus): return None\n"):
+            self.assertIsNone(self.dash.get_battery())
+
+    def test_percent_is_averaged_like_the_taskbar(self):
+        body = ("volts = iter([3.70, 3.80])\n"
+                "def find(bus): return 0x43\n"
+                "def read(bus, addr): return next(volts), 0.0\n"
+                "def rest_volts(v, a): return v\n"
+                "def percent(v): return round(v * 100)\n"
+                "def remaining_mah(p): return 0\n"
+                "def power_state(a): return 'full'\n"
+                "CAPACITY_MAH = 8400\n")
+        with self.reader(body):
+            self.assertEqual(self.dash.get_battery()["percent"], 370)
+            self.assertEqual(self.dash.get_battery()["percent"], 375)   # mean of 3.70 and 3.80
+
+    def test_a_failed_read_closes_the_bus(self):
+        body = ("def find(bus): return 0x43\n"
+                "def read(bus, addr): raise OSError('i2c gone')\n")
+        with self.reader(body):
+            self.assertIsNone(self.dash.get_battery())
+        self.assertEqual(self.closed, [1])
+
+    def test_no_hat_is_not_searched_for_again_straight_away(self):
+        with self.reader("calls = []\ndef find(bus):\n    calls.append(1)\n    return None\n"):
+            self.assertIsNone(self.dash.get_battery())
+            self.assertIsNone(self.dash.get_battery())
+            self.assertEqual(len(self.closed), 1)          # searched once, not twice
+            self.dash._battery_missing_since -= self.dash.BATTERY_RETRY_SECONDS
+            self.assertIsNone(self.dash.get_battery())
+            self.assertEqual(len(self.closed), 2)          # and again after the wait
+
+    def test_missing_reader_is_none(self):
+        self.dash.BATTERY_READER = str(self.tmp / "nope")
+        self.dash._battery = None
         self.assertIsNone(self.dash.get_battery())
 
-    def test_charging_fills_up_then_starts_again(self):
-        b = {"percent": 50, "charging": True}
-        self.assertEqual([self.dash.battery_bars(b, f) for f in range(6)], [2, 3, 4, 2, 3, 4])
-        b = {"percent": 100, "charging": True}
-        self.assertEqual({self.dash.battery_bars(b, f) for f in range(4)}, {4})
+    def test_charging_sweeps_from_the_level_to_full(self):
+        b = {"percent": 60, "state": "charging", "charging": True}
+        self.assertEqual([self.dash.battery_fill(b, f) for f in range(6)], [60, 70, 80, 90, 100, 60])
+        b = {"percent": 100, "state": "charging", "charging": True}
+        self.assertEqual({self.dash.battery_fill(b, f) for f in range(5)}, {100})
 
-    def test_on_battery_the_top_cell_blinks(self):
-        b = {"percent": 75, "charging": False}
-        self.assertEqual([self.dash.battery_bars(b, f) for f in range(4)], [3, 2, 3, 2])
-        b = {"percent": 5, "charging": False}
-        self.assertEqual({self.dash.battery_bars(b, f) for f in range(4)}, {0})
+    def test_on_battery_it_sits_still_unless_low(self):
+        b = {"percent": 75, "state": "battery", "charging": False}
+        self.assertEqual({self.dash.battery_fill(b, f) for f in range(4)}, {75})
+        b = {"percent": 12, "state": "battery", "charging": False}
+        self.assertEqual([self.dash.battery_fill(b, f) for f in range(4)], [12, 0, 12, 0])
+        b = {"percent": 12, "state": "full", "charging": False}
+        self.assertEqual({self.dash.battery_fill(b, f) for f in range(4)}, {12})
+
+
+class UpsCountdown(TmpDirCase):
+    def test_reads_seconds_left_from_the_guard_flag(self):
+        flag = self.tmp / "pinet-ups-low"
+        self.dash.UPS_LOW_FLAG = flag
+        self.assertIsNone(self.dash.get_ups_countdown())
+        flag.write_text(f"{self.dash.time.time() + 42:.0f}\n")
+        self.assertIn(self.dash.get_ups_countdown(), (41, 42))
+        flag.write_text(f"{self.dash.time.time() - 5:.0f}\n")
+        self.assertEqual(self.dash.get_ups_countdown(), 0)      # just overdue, never negative
+        flag.write_text("0\n")
+        self.assertIsNone(self.dash.get_ups_countdown())        # long overdue: guard gone
+        flag.write_text("garbage")
+        self.assertIsNone(self.dash.get_ups_countdown())
 
 
 class FakeEPD:
@@ -301,7 +369,7 @@ class FakeImage:
 
 
 class MainLoop(TmpDirCase):
-    def run_main(self, cfg_text, seconds, power=None, kiosk=None, battery=None, hotspot=None):
+    def run_main(self, cfg_text, seconds, power=None, kiosk=None, battery=None, hotspot=None, ups=None):
         dash = self.dash
         clock = FakeClock(stop_after=seconds)
         epd_log, frames = [], []
@@ -320,9 +388,11 @@ class MainLoop(TmpDirCase):
         dash.is_wifi_pentest_active = lambda: False
         dash.get_hotspot_status = lambda: hotspot or {"active": True}
         dash.get_network_fingerprint = lambda: "fp"
-        dash.get_battery = lambda: battery
+        dash.get_battery = battery if callable(battery) else (lambda: battery)
+        dash.get_ups_countdown = ups or (lambda: None)
         dash.icons.battery = lambda *a, **kw: None
         dash.spotify_battery_xy = lambda W: (0, 0)
+        dash.draw_spotify_battery = lambda *a, **kw: None
         dash.ImageDraw.Draw = lambda image: None
 
         def recorder(name):
@@ -335,6 +405,7 @@ class MainLoop(TmpDirCase):
         dash.render_image_screen = recorder("doom")
         dash.render_hotspot_screen = recorder("hotspot")
         dash.render_kiosk_screen = recorder("kiosk")
+        dash.render_battery_low_screen = recorder("ups")
 
         epd_mod = make_module("waveshare_epd.epd2in13_V4",
                               EPD=lambda: FakeEPD(epd_log),
@@ -384,23 +455,66 @@ class MainLoop(TmpDirCase):
         shown = [(kw["under_voltage"], kw["throttled"]) for _, n, kw in frames if n == "doom"]
         self.assertEqual(shown, [(False, False)] * 5 + [(True, True)])
 
+    STATUS_ONLY = "refresh_minutes = 1\nstatus_seconds = 600\nqr_seconds = 0\ndoom_seconds = 0\nhotspot_seconds = 0\n"
     HOTSPOT_ONLY = "refresh_minutes = 1\nstatus_seconds = 0\nqr_seconds = 0\ndoom_seconds = 0\nhotspot_seconds = 600\n"
 
     def test_battery_animates_on_the_spotify_screen(self):
-        batt = {"percent": 40, "charging": True}
+        batt = {"percent": 40, "state": "charging", "charging": True}
         frames, log = self.run_main(self.HOTSPOT_ONLY, 60, battery=batt, hotspot={"active": False})
         self.assertEqual([kw["battery"] for _, n, kw in frames if n == "hotspot"], [batt, batt])
         self.assertEqual(log.count("display"), 1)          # never a flash per frame
         self.assertGreaterEqual(log.count("partial"), 25)  # a frame every 2s
 
+    def test_a_charger_change_on_the_spotify_screen_redraws_it(self):
+        readings = iter([{"percent": 60, "state": "charging", "charging": True}] * 3
+                        + [{"percent": 60, "state": "battery", "charging": False}] * 50)
+        frames, log = self.run_main(self.HOTSPOT_ONLY, 30, battery=lambda: next(readings),
+                                    hotspot={"active": False})
+        drawn = [(t, kw["battery"]["state"]) for t, n, kw in frames if n == "hotspot"]
+        self.assertEqual(drawn, [(0, "charging"), (8, "battery")])
+        self.assertEqual(log.count("display"), 1)
+
     def test_no_animation_while_pinet_is_up_or_without_a_hat(self):
-        for batt, hs in (({"percent": 40, "charging": True}, {"active": True}), (None, {"active": False})):
+        for batt, hs in (({"percent": 40, "state": "charging", "charging": True}, {"active": True}), (None, {"active": False})):
             _, log = self.run_main(self.HOTSPOT_ONLY, 60, battery=batt, hotspot=hs)
             self.assertLessEqual(log.count("partial"), 1, (batt, hs))
 
+    def test_power_state_change_refreshes_early(self):
+        readings = iter([{"percent": 60, "state": "battery", "charging": False}] * 3
+                        + [{"percent": 60, "state": "charging", "charging": True}] * 50)
+        frames, log = self.run_main(self.STATUS_ONLY, 60, battery=lambda: next(readings))
+        times = [t for t, n, _ in frames if n == "status"]
+        self.assertEqual(times[:2], [0, 8])   # 2s polls: flip seen at 6s, confirmed at 8s
+        self.assertEqual(log.count("display"), 1)  # the early redraw is a partial
+
+    def test_a_one_off_blip_does_not_refresh(self):
+        seq = [{"percent": 60, "state": "battery", "charging": False}] * 50
+        seq[2] = {"percent": 60, "state": "full", "charging": False}
+        readings = iter(seq)
+        frames, _ = self.run_main(self.STATUS_ONLY, 59, battery=lambda: next(readings))
+        self.assertEqual([t for t, n, _ in frames if n == "status"], [0])
+
+    def test_low_battery_countdown_takes_over_and_leaves_again(self):
+        def ups():
+            t = self.dash.time.monotonic() - 1000
+            return max(0, 60 - int(t)) if 20 <= t < 45 else None
+        frames, log = self.run_main(self.DEFAULT, 90, ups=ups,
+                                    kiosk=lambda: ("CAMERA MODE ON", "Ezykam"))
+        names = [n for _, n, _ in frames]
+        first_ups = names.index("ups")
+        self.assertEqual(names[:first_ups], ["kiosk"])          # outranks a kiosk
+        self.assertGreaterEqual(names.count("ups"), 4)          # redrawn as it counts
+        self.assertEqual(names[-1], "kiosk")                    # cancelled -> back
+        self.assertEqual(log.count("display"), 3)               # full refresh in and out only
+
+    def test_every_poll_interval_zero_does_not_crash(self):
+        cfg = self.DEFAULT + "network_poll_seconds = 0\n"
+        frames, _ = self.run_main(cfg, 30)
+        self.assertTrue(frames)
+
     def test_animation_can_be_turned_off(self):
         cfg = self.HOTSPOT_ONLY + "battery_anim_seconds = 0\n"
-        _, log = self.run_main(cfg, 60, battery={"percent": 40, "charging": True}, hotspot={"active": False})
+        _, log = self.run_main(cfg, 60, battery={"percent": 40, "state": "charging", "charging": True}, hotspot={"active": False})
         self.assertLessEqual(log.count("partial"), 1)
 
     # QA-6: all *_seconds = 0 -> ZeroDivisionError (float modulo) in main(); the service crash-loops.
