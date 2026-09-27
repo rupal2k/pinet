@@ -8,5 +8,35 @@ ExecStart=/usr/local/sbin/pinet-ups-guard
 Restart=always
 RestartSec=30
 
+# Sandbox: root, but only able to do its job -- read/write the HAT on I2C,
+# write its countdown flag in /run, wall to terminals, and ask systemd to
+# power off (over the /run/systemd socket). Each of these was tested inside
+# this exact sandbox before it went live.
+NoNewPrivileges=yes
+# wall writes users' ttys (mode 620, group tty): root needs DAC override.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE
+ProtectSystem=strict
+ReadWritePaths=/run
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+DevicePolicy=closed
+DeviceAllow=char-i2c rw
+DeviceAllow=char-pts rw
+DeviceAllow=char-tty rw
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
 [Install]
 WantedBy=multi-user.target
