@@ -91,13 +91,18 @@ LABELS = {"charging": "Charging", "battery": "On battery", "full": "External pow
 
 UNKNOWN_ICON = "pinet-battery-unknown"   # dim outline: no reading (yet)
 PLUG_ICON = "pinet-power-plug"           # external power (state "full")
+LOW_ICON = "pinet-battery-low"           # on battery at <= LOW_PCT: "!" in the pill
+LOW_PCT = 15                             # same threshold as the e-ink's low-battery "!"
 READ_FAILURES_SHOWN = 3   # failed reads in a row before the tray admits it has no reading
 
 
 def icon_name(pct, state):
-    """The plug on external power, the bolt while charging, else the level."""
+    """The plug on external power, the bolt while charging, an alert "!" when
+    low on battery, else the level."""
     if state == "full":
         return PLUG_ICON
+    if state == "battery" and pct <= LOW_PCT:
+        return LOW_ICON
     return f"pinet-battery-{round(pct / 10) * 10}" + ("-charging" if state == "charging" else "")
 
 

@@ -490,11 +490,15 @@ _BOLT_BIG = ("....###", "...###.", "..###..", ".###...", "#######", "...###.", "
              ".###...", "###....", "##.....")
 
 
-def battery(draw, x, y, fill_pct, charging=False, w=34, h=16, color=0, bg=None):
+_BANG_BIG = ("###",) * 6 + ("...",) + ("###",) * 2   # "!" inside a large pill
+
+
+def battery(draw, x, y, fill_pct, charging=False, w=34, h=16, color=0, bg=None, alert=False):
     """Phone-style battery (the One UI look): a rounded pill, a small nub, and
     one solid rounded fill proportional to `fill_pct` instead of cells. While
-    `charging` a bolt sits in the middle, knocked out of the fill and solid
-    over the empty part, so it reads at any level. Bounded by
+    `charging` a bolt sits in the middle (with `alert`, a low-battery "!"),
+    knocked out of the fill and solid over the empty part, so it reads at any
+    level. Bounded by
     (x, y, x+w-1, y+h-1), and cleared to `bg` first so the carousel can
     redraw it in place for each animation frame."""
     x, y = int(x), int(y)
@@ -508,8 +512,11 @@ def battery(draw, x, y, fill_pct, charging=False, w=34, h=16, color=0, bg=None):
     fill_r = left + round((right - left + 1) * max(0, min(100, fill_pct)) / 100) - 1
     if fill_r >= left:
         draw.rounded_rectangle((left, top, fill_r, bottom), radius=1, fill=color)
-    if charging:
-        rows = _BOLT_BIG if bottom - top + 1 >= len(_BOLT_BIG) else _BOLT_SMALL
+    if charging or alert:
+        if alert:
+            rows = _BANG_BIG
+        else:
+            rows = _BOLT_BIG if bottom - top + 1 >= len(_BOLT_BIG) else _BOLT_SMALL
         bx = (left + right + 1 - len(rows[0])) // 2
         by = (top + bottom + 1 - len(rows)) // 2
         for dy, row in enumerate(rows):
@@ -538,13 +545,19 @@ def plug(draw, x, y, color=0):
     _sprite(draw, int(x), int(y), _PLUG, color)
 
 
-def power_glyph(draw, x, y, state, color=0):
+_ALERT = ("..###...",) * 8 + ("........",) * 2 + ("..###...",) * 2
+
+
+def power_glyph(draw, x, y, state, color=0, low=False):
     """The 8x12 glyph in front of a small battery: bolt while charging, plug on
-    external power, nothing on battery. Returns whether it drew one."""
+    external power, "!" when low on battery, else nothing. Returns whether it
+    drew one."""
     if state == "charging":
         bolt(draw, x, y, color)
     elif state == "full":
         plug(draw, x, y, color)
+    elif low:
+        _sprite(draw, int(x), int(y), _ALERT, color)
     else:
         return False
     return True

@@ -323,6 +323,12 @@ CHARGE_SWEEP_FRAMES = 5
 LOW_BATTERY_PCT = 15
 
 
+def battery_is_low(battery):
+    """Low enough to warn about: on battery at LOW_BATTERY_PCT or less (while
+    charging or on external power it's no cause for alarm)."""
+    return battery["state"] == "battery" and battery["percent"] <= LOW_BATTERY_PCT
+
+
 def battery_animates(battery):
     """Whether battery_fill() changes between frames at all -- only then is
     the icon worth redrawing every battery_anim_seconds."""
@@ -704,11 +710,11 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
     date_text = now.strftime("%a %d %b")
     time_text = now.strftime("%-I:%M:%S %p")
     # UPS HAT charge centred between date and time: a small phone-style
-    # battery filled to the level and the percentage, with a bolt in front
-    # while on mains (charging or charged) and none when running on it.
+    # battery filled to the level and the percentage, with a glyph in front:
+    # bolt charging, plug on external power, "!" when low on battery.
     batt_text = f"{battery['percent']}%" if battery else ""
-    on_mains = bool(battery) and battery["state"] != "battery"
-    glyph_w = (icons.POWER_GLYPH_W + 2 if on_mains else 0) + HEADER_BATT_W + 3
+    has_glyph = bool(battery) and (battery["state"] != "battery" or battery_is_low(battery))
+    glyph_w = (icons.POWER_GLYPH_W + 2 if has_glyph else 0) + HEADER_BATT_W + 3
     for size in range(18, 12, -1):
         header_font = ImageFont.truetype(FONT_BOLD_PATH, size)
         date_w = _text_width(draw, date_text, header_font)
@@ -724,8 +730,9 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
         bw = _text_width(draw, batt_text, header_font) + glyph_w
         bx = int((gap_l + gap_r - bw) / 2)
         mid = 3 + header_font.size // 2 + 1
-        if on_mains:
-            icons.power_glyph(draw, bx, mid - icons.POWER_GLYPH_H // 2, battery["state"])
+        if has_glyph:
+            icons.power_glyph(draw, bx, mid - icons.POWER_GLYPH_H // 2, battery["state"],
+                              low=battery_is_low(battery))
             bx += icons.POWER_GLYPH_W + 2
         icons.battery(draw, bx, mid - HEADER_BATT_H // 2, battery["percent"],
                       w=HEADER_BATT_W, h=HEADER_BATT_H)
@@ -888,7 +895,7 @@ def spotify_battery_xy(W):
 
 def draw_spotify_battery(draw, x, y, battery, frame, color=0):
     icons.battery(draw, x, y, battery_fill(battery, frame), charging=battery["state"] == "charging",
-                  w=SPOTIFY_BATT_W, h=SPOTIFY_BATT_H, color=color)
+                  alert=battery_is_low(battery), w=SPOTIFY_BATT_W, h=SPOTIFY_BATT_H, color=color)
 
 
 def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
@@ -1032,7 +1039,13 @@ def render_battery_low_screen(epd, seconds_left, battery=None, dark_mode=False):
         draw.text(((W - draw.textlength(line, font=font)) / 2, y), line, font=font, fill=0)
 
     bw, bh = 56, 26
-    icons.battery(draw, (W - bw) // 2, 6, battery["percent"] if battery else 0, w=bw, h=bh)
+    pct = battery["percent"] if battery else None
+    left_text, left_font = f"{pct}% left" if pct is not None else "", ImageFont.truetype(FONT_BOLD_PATH, 16)
+    left_w = draw.textlength(left_text, font=left_font) + 10 if left_text else 0
+    bx = int((W - bw - left_w) / 2)          # battery and "3% left" centred as one row
+    icons.battery(draw, bx, 6, pct or 0, w=bw, h=bh, alert=True)
+    if left_text:
+        draw.text((bx + bw + 10, 9), left_text, font=left_font, fill=0)
     centered("BATTERY LOW", FONT_BOLD_PATH, 22, 12, 38)
     centered(f"Shutting down in {seconds_left} s", FONT_BOLD_PATH, 17, 10, 66)
     centered("Plug in the charger to cancel", FONT_REGULAR_PATH, 14, 9, 94)
@@ -1141,14 +1154,15 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
     if battery:
         # Charge left out of the pack's capacity, and whether it is charging.
         y = header_h + image_area_h + 2
-        text = f"{battery['percent']}%  ~{battery['mah']}/{battery['capacity_mah']}mAh  " \
-               f"{battery.get('label', '')}"
-        on_mains = battery["state"] != "battery"
-        icon_w = (icons.POWER_GLYPH_W + 2 if on_mains else 0) + HEADER_BATT_W + 4
+        # "63% · 5.3 of 8.4 Ah · Charging": an estimate, so no false precision.
+        text = f"{battery['percent']}% · {battery['mah'] / 1000:.1f} of " \
+               f"{battery['capacity_mah'] / 1000:.1f} Ah · {battery.get('label', '')}"
+        has_glyph = battery["state"] != "battery" or battery_is_low(battery)
+        icon_w = (icons.POWER_GLYPH_W + 2 if has_glyph else 0) + HEADER_BATT_W + 4
         line, font = fit_text(draw, text, FONT_REGULAR_PATH, 13, 8, W - 2 * margin - icon_w)
         x = int((W - icon_w - draw.textlength(line, font=font)) / 2)
-        if on_mains:
-            icons.power_glyph(draw, x, y + 1, battery["state"])
+        if has_glyph:
+            icons.power_glyph(draw, x, y + 1, battery["state"], low=battery_is_low(battery))
             x += icons.POWER_GLYPH_W + 2
         icons.battery(draw, x, y + 2, battery["percent"], w=HEADER_BATT_W, h=HEADER_BATT_H)
         draw.text((x + HEADER_BATT_W + 4, y - 1), line, font=font, fill=0)

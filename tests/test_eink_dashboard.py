@@ -331,6 +331,13 @@ class Battery(TmpDirCase):
             self.assertEqual(self.dash.get_battery(), good)   # 0 V never reaches the average
             self.assertEqual(self.dash._rest_volts, [3.7])
 
+    def test_low_means_on_battery_and_at_or_under_15(self):
+        low = self.dash.battery_is_low
+        self.assertTrue(low({"percent": 15, "state": "battery"}))
+        self.assertFalse(low({"percent": 16, "state": "battery"}))
+        self.assertFalse(low({"percent": 5, "state": "charging"}))   # charging: no alarm
+        self.assertFalse(low({"percent": 5, "state": "full"}))       # external power: no alarm
+
     def test_only_a_moving_icon_is_animated(self):
         a = self.dash.battery_animates
         self.assertTrue(a({"percent": 60, "state": "charging", "charging": True}))

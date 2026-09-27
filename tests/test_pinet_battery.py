@@ -70,7 +70,10 @@ class Battery(unittest.TestCase):
         self.assertTrue(repo_path("desktop", "icons", batt.UNKNOWN_ICON + ".svg").exists())
 
     def test_icon_levels(self):
-        self.assertEqual(batt.icon_name(4, "battery"), "pinet-battery-0")
+        self.assertEqual(batt.icon_name(4, "battery"), batt.LOW_ICON)       # low: the "!" icon
+        self.assertEqual(batt.icon_name(15, "battery"), batt.LOW_ICON)
+        self.assertEqual(batt.icon_name(16, "battery"), "pinet-battery-20")
+        self.assertEqual(batt.icon_name(4, "charging"), "pinet-battery-0-charging")  # charging: no alarm
         self.assertEqual(batt.icon_name(44, "charging"), "pinet-battery-40-charging")
         self.assertEqual(batt.icon_name(97, "battery"), "pinet-battery-100")
         self.assertEqual(batt.icon_name(100, "full"), batt.PLUG_ICON)     # external power
