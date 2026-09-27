@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Battery level of the Waveshare UPS HAT (D) in the taskbar.
+
+The panel's own battery widget only reads /sys/class/power_supply, and the
+HAT is just an INA219 on I2C, so this puts a StatusNotifierItem in the
+panel's tray instead. Its icons are pinet-battery-<0|25|50|75|100>[-charging]
+from ~/.local/share/icons, drawn in the PINET theme's white/grey line style.
+The tooltip has the percentage, voltage and current.
+
+    pinet-battery          run the tray icon (the user service does this)
+    pinet-battery --once   print one reading and exit (the e-ink dashboard uses this)
+
+Knobs (environment) for a HAT that reads differently from the Waveshare demo:
+    UPS_I2C_BUS=1  UPS_ADDR=0x43  UPS_SHUNT_OHMS=0.01
+    UPS_CURRENT_SIGN=-1   HAT (D) reads negative while charging: measured
+                          3.57 V / +0.9 A unplugged, 3.74 V / -2.2 A plugged in
+    UPS_EMPTY_V=3.0  UPS_FULL_V=4.2   per cell; >5 V on the bus means 2 cells
+"""
+import os
+import sys
+
+BUS = int(os.environ.get("UPS_I2C_BUS", "1"))
+ADDRS = [int(os.environ["UPS_ADDR"], 0)] if "UPS_ADDR" in os.environ else [0x43, 0x42, 0x41, 0x40]
+SHUNT_OHMS = float(os.environ.get("UPS_SHUNT_OHMS", "0.01"))
+CURRENT_SIGN = float(os.environ.get("UPS_CURRENT_SIGN", "-1"))
+EMPTY_V = float(os.environ.get("UPS_EMPTY_V", "3.0"))
+FULL_V = float(os.environ.get("UPS_FULL_V", "4.2"))
+CHARGING_A = 0.02          # current into the cells above this counts as charging
+INTERVAL = 5               # seconds between readings
+# ponytail: voltage -> percent is linear and sags under load; smoothing over
+# SMOOTH readings hides the jitter. A coulomb counter would fix the curve.
+SMOOTH = 6
+ICON_DIR = os.path.expanduser(os.environ.get("ICON_DIR", "~/.local/share/icons"))
+
+
+def percent(volts):
+    cells = 2 if volts > 5.0 else 1
+    p = (volts / cells - EMPTY_V) / (FULL_V - EMPTY_V) * 100
+    return max(0, min(100, round(p)))
+
+
+def power_state(amps):
+    """charging, battery (running on it) or full (on mains, nothing flowing)."""
+    if amps > CHARGING_A:
+        return "charging"
+    if amps < -CHARGING_A:
+        return "battery"
+    return "full"
+
+
+LABELS = {"charging": "Charging", "battery": "On battery", "full": "Charged"}
+
+
+def icon_name(pct, state):
+    # The bolt means "on mains": charging, or charged and idle.
+    return f"pinet-battery-{round(pct / 25) * 25}" + ("" if state == "battery" else "-charging")
+
+
+def read(bus, addr):
+    """(bus volts, amps into the cells) straight from the INA219 registers.
+    Needs no calibration write: shunt volts / shunt ohms is the current."""
+    def word(reg):
+        v = bus.read_word_data(addr, reg)
+        return ((v & 0xFF) << 8) | (v >> 8)   # the INA219 is big-endian
+    volts = (word(0x02) >> 3) * 0.004
+    shunt = word(0x01)
+    if shunt & 0x8000:
+        shunt -= 0x10000
+    return volts, CURRENT_SIGN * shunt * 10e-6 / SHUNT_OHMS
+
+
+def find(bus):
+    for addr in ADDRS:
+        try:
+            volts, _ = read(bus, addr)
+        except OSError:
+            continue
+        if volts > 2.5:          # a real cell, not some other chip answering
+            return addr
+    return None
+
+
+SNI_XML = """<node><interface name="org.kde.StatusNotifierItem">
+<property name="Category" type="s" access="read"/>
+<property name="Id" type="s" access="read"/>
+<property name="Title" type="s" access="read"/>
+<property name="Status" type="s" access="read"/>
+<property name="IconName" type="s" access="read"/>
+<property name="IconThemePath" type="s" access="read"/>
+<property name="ToolTip" type="(sa(iiay)ss)" access="read"/>
+<property name="ItemIsMenu" type="b" access="read"/>
+<method name="Activate"><arg type="i" direction="in"/><arg type="i" direction="in"/></method>
+<signal name="NewIcon"/><signal name="NewToolTip"/><signal name="NewTitle"/>
+</interface></node>"""
+
+
+def tray(bus, addr):
+    from gi.repository import Gio, GLib
+
+    state = {"icon": "pinet-battery-100", "tip": "Battery", "volts": []}
+    conn = Gio.bus_get_sync(Gio.BusType.SESSION)
+    name = f"org.kde.StatusNotifierItem-{os.getpid()}-1"
+    path = "/StatusNotifierItem"
+
+    def get_prop(_c, _s, _p, _i, prop):
+        return {
+            "Category": GLib.Variant("s", "Hardware"),
+            "Id": GLib.Variant("s", "pinet-battery"),
+            "Title": GLib.Variant("s", state["tip"].split("\n")[0]),
+            "Status": GLib.Variant("s", "Active"),
+            "IconName": GLib.Variant("s", state["icon"]),
+            "IconThemePath": GLib.Variant("s", ICON_DIR),
+            "ToolTip": GLib.Variant("(sa(iiay)ss)", (state["icon"], [], "Battery", state["tip"])),
+            "ItemIsMenu": GLib.Variant("b", False),
+        }.get(prop)
+
+    def call(_c, _s, _p, _i, _m, _args, invocation):
+        invocation.return_value(None)    # a click does nothing; the tooltip says it all
+
+    iface = Gio.DBusNodeInfo.new_for_xml(SNI_XML).interfaces[0]
+    conn.register_object(path, iface, call, get_prop, None)
+    Gio.bus_own_name_on_connection(conn, name, Gio.BusNameOwnerFlags.NONE, None, None)
+
+    def register(*_):
+        # Again every time the panel (the watcher) comes back after a respawn.
+        conn.call("org.kde.StatusNotifierWatcher", "/StatusNotifierWatcher",
+                  "org.kde.StatusNotifierWatcher", "RegisterStatusNotifierItem",
+                  GLib.Variant("(s)", (name,)), None, Gio.DBusCallFlags.NONE, -1, None, None)
+    Gio.bus_watch_name_on_connection(conn, "org.kde.StatusNotifierWatcher",
+                                     Gio.BusNameWatcherFlags.NONE, register, None)
+
+    def update():
+        try:
+            volts, amps = read(bus, addr)
+        except OSError as e:
+            print(f"pinet-battery: read failed: {e}", file=sys.stderr)
+            return True
+        state["volts"] = (state["volts"] + [volts])[-SMOOTH:]
+        pct = percent(sum(state["volts"]) / len(state["volts"]))
+        ps = power_state(amps)
+        icon = icon_name(pct, ps)
+        tip = f"{pct}%  {LABELS[ps]}\n{volts:.2f} V  {amps * 1000:+.0f} mA"
+        if icon != state["icon"]:
+            state["icon"] = icon
+            conn.emit_signal(None, path, "org.kde.StatusNotifierItem", "NewIcon", None)
+        if tip != state["tip"]:
+            state["tip"] = tip
+            conn.emit_signal(None, path, "org.kde.StatusNotifierItem", "NewToolTip", None)
+            conn.emit_signal(None, path, "org.kde.StatusNotifierItem", "NewTitle", None)
+        return True
+
+    update()
+    GLib.timeout_add_seconds(INTERVAL, update)
+    GLib.MainLoop().run()
+
+
+def main():
+    from smbus2 import SMBus
+    bus = SMBus(BUS)
+    addr = find(bus)
+    if addr is None:
+        sys.exit(f"pinet-battery: no UPS HAT (INA219) at {', '.join(hex(a) for a in ADDRS)} on i2c-{BUS}")
+    if sys.argv[1:] == ["--once"]:
+        # key=value, one line: the e-ink dashboard parses this.
+        volts, amps = read(bus, addr)
+        state = power_state(amps)
+        print(f"addr={addr:#x} volts={volts:.3f} amps={amps:+.3f} percent={percent(volts)} "
+              f"state={state} icon={icon_name(percent(volts), state)}")
+        return
+    tray(bus, addr)
+
+
+if __name__ == "__main__":
+    main()
