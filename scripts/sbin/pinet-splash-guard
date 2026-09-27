@@ -1,0 +1,16 @@
+#!/bin/bash
+# dpkg post-invoke hook (etc/dpkg/dpkg.cfg.d/pinet-splash-guard): puts the
+# PINET boot splash back after a package resets it. rpd-plym-splash's postinst
+# sets Theme=pix and rebuilds the initramfs (seen 2026-09-28). A dpkg hook, not
+# an apt one, so a bare `dpkg --configure -a` is covered too.
+# Must always exit 0: a failing post-invoke makes dpkg report an error.
+THEME=pinet
+[ -d "/usr/share/plymouth/themes/$THEME" ] || exit 0
+current=$(plymouth-set-default-theme 2>/dev/null)
+[ "$current" = "$THEME" ] && exit 0
+logger -t pinet-splash-guard "plymouth theme is '$current'; restoring $THEME"
+# -R rebuilds the initramfs through update-initramfs, the same path a kernel
+# or plymouth upgrade already takes.
+plymouth-set-default-theme -R "$THEME" >/dev/null 2>&1 \
+  || logger -t pinet-splash-guard "restoring $THEME failed; run: sudo plymouth-set-default-theme -R $THEME"
+exit 0

@@ -1,0 +1,2 @@
+# Re-apply the PINET plymouth theme after every dpkg run (see scripts/sbin/pinet-splash-guard).
+post-invoke=/usr/local/sbin/pinet-splash-guard

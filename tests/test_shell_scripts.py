@@ -856,3 +856,42 @@ class NetChanged(unittest.TestCase):
         self.stamp.write_text("1")          # long past the debounce window
         self.fire()
         self.assertEqual(len(self.restarts()), 2)
+
+
+class PinetSplashGuard(HarnessCase):
+    SCRIPT = "scripts/sbin/pinet-splash-guard"
+    REWRITES = {"/usr/share/plymouth/themes": "{tmp}/themes"}
+
+    def stub(self, name, body):
+        self.h._write_exec(self.h.bin / name, "#!/bin/bash\n" + body)
+
+    def setUp(self):
+        super().setUp()
+        (self.h.dir / "themes" / "pinet").mkdir(parents=True)
+        self.stub("logger", 'echo "logger $*" >> "$FAKE_DIR/calls.log"\n')
+
+    def theme(self, current, rc=0):
+        self.stub("plymouth-set-default-theme",
+                  f'[ $# -eq 0 ] && {{ echo {current}; exit 0; }}\n'
+                  f'echo "plymouth-set-default-theme $*" >> "$FAKE_DIR/calls.log"; exit {rc}\n')
+
+    def test_pinet_already_set_does_nothing(self):
+        self.theme("pinet")
+        self.assertEqual(self.h.run().returncode, 0)
+        self.assertEqual(self.h.calls(), [])
+
+    def test_reset_theme_is_restored_with_initramfs_rebuild(self):
+        self.theme("pix")
+        self.assertEqual(self.h.run().returncode, 0)
+        self.assertIn("plymouth-set-default-theme -R pinet", self.h.calls())
+
+    def test_failed_restore_is_logged_but_never_fails_dpkg(self):
+        self.theme("pix", rc=1)
+        self.assertEqual(self.h.run().returncode, 0)
+        self.assertTrue(any("failed" in c for c in self.h.calls()))
+
+    def test_missing_theme_is_a_noop(self):
+        (self.h.dir / "themes" / "pinet").rmdir()
+        self.theme("pix")
+        self.assertEqual(self.h.run().returncode, 0)
+        self.assertEqual(self.h.calls(), [])
