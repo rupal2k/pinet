@@ -1,0 +1,12 @@
+[Unit]
+Description=UPS HAT low-battery shutdown and boot-on-power
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/sbin/pinet-ups-guard
+# No HAT (or I2C off) exits non-zero; keep looking without spinning.
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
