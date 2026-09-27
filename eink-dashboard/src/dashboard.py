@@ -215,6 +215,34 @@ def get_power_status():
     return voltage, under_voltage_now, throttled_now
 
 
+def get_battery():
+    """{"percent": int, "state": "charging"|"battery"|"full", "charging": bool}
+    from the UPS HAT, or None when there is no HAT (or I2C is off). Asks /usr/local/bin/pinet-battery -- the same
+    reader the taskbar icon uses -- so the INA219 maths lives in one place."""
+    try:
+        out = subprocess.run(
+            ["/usr/local/bin/pinet-battery", "--once"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+        kv = dict(part.split("=", 1) for part in out.split() if "=" in part)
+        state = kv["state"]
+        return {"percent": int(kv["percent"]), "state": state, "charging": state == "charging"}
+    except Exception:
+        return None
+
+
+def battery_bars(battery, frame=0):
+    """Cells lit (0-4) for animation frame `frame`: charging fills up from the
+    current level to full and starts again; on battery the top cell blinks."""
+    level = max(0, min(4, round(battery["percent"] / 25)))
+    if battery["charging"]:
+        return level + frame % (5 - level) if level < 4 else 4
+    return level - (frame % 2) if level > 0 else 0
+
+
+BATTERY_LABELS = {"charging": "Charging", "battery": "On battery", "full": "Charged"}
+
+
 def get_disk_usage(path="/"):
     """Free/used/total space (GB) for the root filesystem. The SD card
     fills up gradually (logs, uploads from the PINET file-share board,
@@ -544,7 +572,8 @@ def draw_mini_stat(draw, x, y, w, h, icon_fn, text):
     draw.text((text_x, y + (h - font.size) // 2 - 1), line, font=font, fill=0)
 
 
-def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name, dark_mode=False):
+def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name, dark_mode=False,
+           battery=None):
     # Landscape canvas: panel is physically portrait (epd.width x epd.height),
     # so we draw on a rotated (height x width) image -- this is the standard
     # Waveshare convention and getbuffer() handles the rotation back.
@@ -555,15 +584,27 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
     now = datetime.now()
     date_text = now.strftime("%a %d %b")
     time_text = now.strftime("%-I:%M:%S %p")
+    # UPS HAT charge as a short percentage centred between date and time.
+    # A bolt in front means on mains (charging/charged), a small battery
+    # means running on it.
+    batt_text = f"{battery['percent']}%" if battery else ""
+    glyph_w = icons.POWER_GLYPH_W + 3
     for size in range(18, 12, -1):
         header_font = ImageFont.truetype(FONT_BOLD_PATH, size)
         date_w = _text_width(draw, date_text, header_font)
         time_w = _text_width(draw, time_text, header_font)
-        if date_w + time_w <= W - 8 - 10:
+        batt_w = _text_width(draw, batt_text, header_font) + glyph_w + 16 if batt_text else 0
+        if date_w + batt_w + time_w <= W - 8 - 10:
             break
     draw.text((4, 2), date_text, font=header_font, fill=0)
     time_w = _text_width(draw, time_text, header_font)
     draw.text((W - 4 - time_w, 2), time_text, font=header_font, fill=0)
+    if batt_text:
+        gap_l, gap_r = 4 + date_w, W - 4 - time_w
+        bw = _text_width(draw, batt_text, header_font) + glyph_w
+        bx = int((gap_l + gap_r - bw) / 2)
+        icons.power_glyph(draw, bx, 5 + (header_font.size - icons.POWER_GLYPH_H) // 2, battery["state"])
+        draw.text((bx + glyph_w, 2), batt_text, font=header_font, fill=0)
 
     box_w = (W - 6) // 2
     col1_x = 2
@@ -707,7 +748,16 @@ def render_qr_screen(epd, ssid, password, net, dark_mode=False):
     return image
 
 
-def render_hotspot_screen(epd, hotspot, dark_mode=False):
+def spotify_battery_xy(W):
+    """Top-left of the animated battery on the Spotify screen: right end of
+    the "Portal not active" row, room left for "100%" after it. Fixed (not
+    measured from the current text) so animation frames can redraw just the
+    icon in place."""
+    pct_w = int(FONT_SMALL.getlength("100%"))
+    return W - 10 - pct_w - 4 - icons.BATTERY_W, 25
+
+
+def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
     image = Image.new("1", (epd.height, epd.width), 255)
     draw = ImageDraw.Draw(image)
     W, H = epd.height, epd.width
@@ -784,6 +834,12 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False):
         # now-playing panel.
         icons.offline(draw, 22, 30, size=8)
         draw.text((36, 22), "Portal not active", font=FONT_SMALL, fill=0)
+        if battery:
+            bx, by = spotify_battery_xy(W)
+            icons.battery(draw, bx, by, battery_bars(battery), color=0)
+            draw.text((bx + icons.BATTERY_W + 4, 22), f"{battery['percent']}%", font=FONT_SMALL, fill=0)
+            label = BATTERY_LABELS.get(battery["state"], "")
+            draw.text((W - 10 - draw.textlength(label, font=FONT_SMALL), 4), label, font=FONT_SMALL, fill=0)
         draw.line((10, 42, W - 10, 42), fill=0)
 
         sp = get_spotify_status()
@@ -951,6 +1007,9 @@ def main():
     ]
     cycle_total = sum(phase_durations)
     network_poll_seconds = cfg.getint("network_poll_seconds", fallback=5)
+    # Seconds per frame of the Spotify screen's battery animation (partial
+    # refreshes of just that icon); 0 turns the animation off.
+    battery_anim_seconds = cfg.getfloat("battery_anim_seconds", fallback=2)
     # Whether location comes from IP geolocation (blank config) rather than a
     # fixed configured lat/lon -- only the former needs re-resolving when the
     # network changes, since ip-api.com geolocates the request's own public
@@ -1056,6 +1115,10 @@ def main():
                 last_full_refresh_cycle = None
                 last_kiosk_app = kiosk_app
 
+            # The frame last rendered (before flip_180) when the battery on the
+            # Spotify screen should animate during the wait below, else None.
+            anim_base = None
+            battery = None
             try:
                 if kiosk_app:
                     logger.info("Kiosk mode on (%s / %s)", *kiosk_app)
@@ -1084,7 +1147,7 @@ def main():
                     net = get_network_status()
                     image = render(
                         epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net,
-                        location_name, dark_mode,
+                        location_name, dark_mode, battery=get_battery(),
                     )
                 elif phase == 1:
                     logger.info("Carousel phase=1 (qr)")
@@ -1103,7 +1166,10 @@ def main():
                 else:
                     logger.info("Carousel phase=3 (hotspot)")
                     hotspot = get_hotspot_status()
-                    image = render_hotspot_screen(epd, hotspot, dark_mode)
+                    battery = get_battery()
+                    image = render_hotspot_screen(epd, hotspot, dark_mode, battery=battery)
+                    if battery and not hotspot["active"] and battery_anim_seconds > 0:
+                        anim_base = image
 
                 if flip_180:
                     image = image.rotate(180)
@@ -1147,6 +1213,7 @@ def main():
                 else:
                     logger.info("Frame unchanged, skipping e-ink refresh")
             except Exception:
+                anim_base = None
                 # One bad frame (a render bug, an SPI hiccup, a missing asset)
                 # must not take the whole dashboard down: before this, any
                 # exception reached the `finally:` below, which blanked the
@@ -1169,10 +1236,34 @@ def main():
             last_fingerprint = get_network_fingerprint()
             wait_seconds = max(1, min(refresh_minutes * 60, remaining_in_phase))
             elapsed = 0
+            next_poll = network_poll_seconds
+            frame = 0
             while elapsed < wait_seconds:
-                step = min(network_poll_seconds, wait_seconds - elapsed)
+                step = min(battery_anim_seconds if anim_base else network_poll_seconds,
+                           wait_seconds - elapsed)
                 time.sleep(step)
                 elapsed += step
+                if anim_base:
+                    # Only the battery icon changes: a partial refresh of an
+                    # otherwise identical frame, so no flash. In dark mode the
+                    # frame is already inverted, hence the swapped colours.
+                    frame += 1
+                    try:
+                        anim = anim_base.copy()
+                        bx, by = spotify_battery_xy(anim.width)
+                        icons.battery(ImageDraw.Draw(anim), bx, by, battery_bars(battery, frame),
+                                      color=255 if dark_mode else 0)
+                        if flip_180:
+                            anim = anim.rotate(180)
+                        epd.displayPartial(epd.getbuffer(anim))
+                        last_image_bytes = anim.tobytes()
+                    except Exception:
+                        logger.exception("Battery animation frame failed, stopping it")
+                        anim_base = None
+                        last_full_refresh_cycle = None
+                if elapsed < next_poll and elapsed < wait_seconds:
+                    continue
+                next_poll = elapsed + network_poll_seconds
                 if get_kiosk_mode() != kiosk_app:
                     logger.info("Kiosk mode changed, refreshing early")
                     break

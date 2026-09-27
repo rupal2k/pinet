@@ -485,6 +485,36 @@ def seigaiha(draw, x, y, w, h, scale=None, rings=3, rows=2, color=0):
                 draw.arc(bbox, start=180, end=360, fill=color, width=1)
 
 
+def battery(draw, x, y, bars, color=0, bg=None):
+    """UPS battery, bounded by (x, y, x+BATTERY_W-1, y+BATTERY_H-1): a 2px
+    rounded body, a solid nub on the right and `bars` (0-4) 2px cells with
+    2px gaps inside. The box is cleared to `bg` first (default: the other
+    colour) so the carousel can redraw it in place for each animation frame."""
+    x, y = int(x), int(y)
+    bg = _bg(color) if bg is None else bg
+    draw.rectangle((x, y, x + BATTERY_W - 1, y + BATTERY_H - 1), fill=bg)
+    draw.rounded_rectangle((x, y, x + BATTERY_W - 3, y + BATTERY_H - 1), radius=2, outline=color, width=2)
+    draw.rectangle((x + BATTERY_W - 2, y + 3, x + BATTERY_W - 1, y + BATTERY_H - 4), fill=color)
+    for i in range(max(0, min(4, bars))):
+        cx = x + 4 + 4 * i
+        draw.rectangle((cx, y + 4, cx + 1, y + BATTERY_H - 5), fill=color)
+
+
+BATTERY_W, BATTERY_H = 24, 12
+
+POWER_GLYPH_W, POWER_GLYPH_H = 8, 12
+_BOLT = ("....###.", "...###..", "..###...", ".###....", "#######.", "######..",
+         "...###..", "..###...", ".###....", ".##.....", "##......", "#.......")
+_MINI_BATTERY = ("..####..", "########", "#......#", "#......#", "#.####.#", "#.####.#",
+                 "#.####.#", "#.####.#", "#.####.#", "#......#", "#......#", "########")
+
+
+def power_glyph(draw, x, y, state, color=0):
+    """8x12 sprite in front of the header percentage: a bolt while on mains
+    (charging or charged), an upright battery while running on it."""
+    _sprite(draw, int(x), int(y), _MINI_BATTERY if state == "battery" else _BOLT, color)
+
+
 def spotify(draw, cx, cy, size=9, color=0, bg=255):
     """Spotify mark: a filled disc with three upward-bowing 'sound wave' arcs
     (largest on top), drawn in the negative colour. Pure primitives so it

@@ -230,6 +230,31 @@ class FitText(TmpDirCase):
 # main() on a fake clock / fake EPD
 # ---------------------------------------------------------------------------
 
+class Battery(TmpDirCase):
+    def test_parses_the_reader(self):
+        for state in ("charging", "battery", "full"):
+            out = f"addr=0x43 volts=3.748 amps=+2.230 percent=62 state={state} icon=pinet-battery-50\n"
+            self.dash.subprocess = SimpleNamespace(run=lambda cmd, **kw: SimpleNamespace(stdout=out, returncode=0))
+            self.assertEqual(self.dash.get_battery(),
+                             {"percent": 62, "state": state, "charging": state == "charging"})
+
+    def test_no_hat_is_none(self):
+        self.dash.subprocess = SimpleNamespace(run=lambda cmd, **kw: SimpleNamespace(stdout="", returncode=1))
+        self.assertIsNone(self.dash.get_battery())
+
+    def test_charging_fills_up_then_starts_again(self):
+        b = {"percent": 50, "charging": True}
+        self.assertEqual([self.dash.battery_bars(b, f) for f in range(6)], [2, 3, 4, 2, 3, 4])
+        b = {"percent": 100, "charging": True}
+        self.assertEqual({self.dash.battery_bars(b, f) for f in range(4)}, {4})
+
+    def test_on_battery_the_top_cell_blinks(self):
+        b = {"percent": 75, "charging": False}
+        self.assertEqual([self.dash.battery_bars(b, f) for f in range(4)], [3, 2, 3, 2])
+        b = {"percent": 5, "charging": False}
+        self.assertEqual({self.dash.battery_bars(b, f) for f in range(4)}, {0})
+
+
 class FakeEPD:
     def __init__(self, log):
         self.log = log
@@ -266,12 +291,17 @@ class FakeImage:
     def tobytes(self):
         return str(self.n).encode()  # every frame differs
 
+    width = 250
+
     def rotate(self, deg):
         return self
 
+    def copy(self):
+        return FakeImage()
+
 
 class MainLoop(TmpDirCase):
-    def run_main(self, cfg_text, seconds, power=None, kiosk=None):
+    def run_main(self, cfg_text, seconds, power=None, kiosk=None, battery=None, hotspot=None):
         dash = self.dash
         clock = FakeClock(stop_after=seconds)
         epd_log, frames = [], []
@@ -288,8 +318,12 @@ class MainLoop(TmpDirCase):
         dash.get_wifi_credentials = lambda: ("Home", "pw")
         dash.get_disk_usage = lambda path="/": (1, 2, 3)
         dash.is_wifi_pentest_active = lambda: False
-        dash.get_hotspot_status = lambda: {}
+        dash.get_hotspot_status = lambda: hotspot or {"active": True}
         dash.get_network_fingerprint = lambda: "fp"
+        dash.get_battery = lambda: battery
+        dash.icons.battery = lambda *a, **kw: None
+        dash.spotify_battery_xy = lambda W: (0, 0)
+        dash.ImageDraw.Draw = lambda image: None
 
         def recorder(name):
             def render(*a, **kw):
@@ -349,6 +383,25 @@ class MainLoop(TmpDirCase):
         frames, _ = self.run_main(cfg, 330, power=seq)
         shown = [(kw["under_voltage"], kw["throttled"]) for _, n, kw in frames if n == "doom"]
         self.assertEqual(shown, [(False, False)] * 5 + [(True, True)])
+
+    HOTSPOT_ONLY = "refresh_minutes = 1\nstatus_seconds = 0\nqr_seconds = 0\ndoom_seconds = 0\nhotspot_seconds = 600\n"
+
+    def test_battery_animates_on_the_spotify_screen(self):
+        batt = {"percent": 40, "charging": True}
+        frames, log = self.run_main(self.HOTSPOT_ONLY, 60, battery=batt, hotspot={"active": False})
+        self.assertEqual([kw["battery"] for _, n, kw in frames if n == "hotspot"], [batt, batt])
+        self.assertEqual(log.count("display"), 1)          # never a flash per frame
+        self.assertGreaterEqual(log.count("partial"), 25)  # a frame every 2s
+
+    def test_no_animation_while_pinet_is_up_or_without_a_hat(self):
+        for batt, hs in (({"percent": 40, "charging": True}, {"active": True}), (None, {"active": False})):
+            _, log = self.run_main(self.HOTSPOT_ONLY, 60, battery=batt, hotspot=hs)
+            self.assertLessEqual(log.count("partial"), 1, (batt, hs))
+
+    def test_animation_can_be_turned_off(self):
+        cfg = self.HOTSPOT_ONLY + "battery_anim_seconds = 0\n"
+        _, log = self.run_main(cfg, 60, battery={"percent": 40, "charging": True}, hotspot={"active": False})
+        self.assertLessEqual(log.count("partial"), 1)
 
     # QA-6: all *_seconds = 0 -> ZeroDivisionError (float modulo) in main(); the service crash-loops.
     @unittest.expectedFailure
