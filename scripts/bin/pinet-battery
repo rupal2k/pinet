@@ -10,6 +10,8 @@ The tooltip has the percentage, voltage and current.
 
     pinet-battery          run the tray icon (the user service does this)
     pinet-battery --once   print one reading and exit (for a quick check by hand)
+    pinet-battery --log F  append one CSV line a minute to F, for calibrating
+                           OCV_CURVE from a full discharge (pinet-battery-log)
 
 The e-ink dashboard and pinet-ups-guard import this file as a module (read,
 find, percent, rest_volts, power_state, remaining_mah, LABELS, SMOOTH...), so
@@ -80,16 +82,60 @@ def power_state(amps):
     return "full"
 
 
-LABELS = {"charging": "Charging", "battery": "On battery", "full": "Charged"}
+# "full" = next to no current either way: the Pi runs on external power --
+# its own micro-USB supply with the HAT switched off, or the HAT's charger with
+# the cells full. The INA219 only sees the cells, so it can't tell those two
+# apart; both are "External power", shown with a plug.
+LABELS = {"charging": "Charging", "battery": "On battery", "full": "External power"}
 
 
 UNKNOWN_ICON = "pinet-battery-unknown"   # dim outline: no reading (yet)
+PLUG_ICON = "pinet-power-plug"           # external power (state "full")
 READ_FAILURES_SHOWN = 3   # failed reads in a row before the tray admits it has no reading
 
 
 def icon_name(pct, state):
-    # The bolt means "on mains": charging, or charged and idle.
-    return f"pinet-battery-{round(pct / 10) * 10}" + ("" if state == "battery" else "-charging")
+    """The plug on external power, the bolt while charging, else the level."""
+    if state == "full":
+        return PLUG_ICON
+    return f"pinet-battery-{round(pct / 10) * 10}" + ("-charging" if state == "charging" else "")
+
+
+LOG_SECONDS = 60
+# ponytail: trims to the newest LOG_KEEP lines (~1 week at 1/min), rewriting the
+# file when it passes LOG_KEEP * 1.25; a discharge takes hours, so a week is plenty.
+LOG_KEEP = 10080
+
+
+def log_line(t, volts, amps):
+    rv = rest_volts(volts, amps)
+    return f"{t:%Y-%m-%dT%H:%M:%S},{volts:.3f},{amps:+.3f},{rv:.3f},{percent(rv)},{power_state(amps)}\n"
+
+
+def log_forever(bus, addr, path):
+    """Calibration log: one reading a minute, CSV. Log a full discharge on
+    battery (charger out, from ~100% to the guard's shutdown); the resting
+    voltage against time is what OCV_CURVE should be fitted to."""
+    import datetime
+    import time
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not os.path.exists(path):
+        with open(path, "w") as f:
+            f.write("time,volts,amps,rest_volts,percent,state\n")
+    while True:
+        try:
+            volts, amps = read(bus, addr)
+            if volts >= 2.5:                 # a bad read, not a flat cell
+                with open(path, "a") as f:
+                    f.write(log_line(datetime.datetime.now(), volts, amps))
+                with open(path) as f:
+                    lines = f.readlines()
+                if len(lines) > LOG_KEEP * 1.25:
+                    with open(path, "w") as f:
+                        f.writelines(lines[:1] + lines[-LOG_KEEP:])
+        except OSError as e:
+            print(f"pinet-battery: log read failed: {e}", file=sys.stderr)
+        time.sleep(LOG_SECONDS)
 
 
 def read(bus, addr):
@@ -209,13 +255,16 @@ def main():
     if addr is None:
         sys.exit(f"pinet-battery: no UPS HAT (INA219) at {', '.join(hex(a) for a in ADDRS)} on i2c-{BUS}")
     if sys.argv[1:] == ["--once"]:
-        # key=value, one line: the e-ink dashboard parses this.
+        # key=value, one line
         volts, amps = read(bus, addr)
         state = power_state(amps)
         pct = percent(rest_volts(volts, amps))
         print(f"addr={addr:#x} volts={volts:.3f} amps={amps:+.3f} percent={pct} "
               f"mah={remaining_mah(pct)} capacity_mah={CAPACITY_MAH} "
               f"state={state} icon={icon_name(pct, state)}")
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == "--log":
+        log_forever(bus, addr, sys.argv[2])
         return
     tray(bus, addr)
 

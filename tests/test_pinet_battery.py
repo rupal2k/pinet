@@ -58,6 +58,14 @@ class Battery(unittest.TestCase):
                 name = batt.icon_name(pct, state)
                 self.assertTrue(repo_path("desktop", "icons", name + ".svg").exists(), name)
 
+    def test_calibration_log_line(self):
+        import datetime
+        line = batt.log_line(datetime.datetime(2026, 9, 27, 21, 30), 3.70, -0.6)
+        t, v, a, rv, pct, state = line.strip().split(",")
+        self.assertEqual((t, v, a, state), ("2026-09-27T21:30:00", "3.700", "-0.600", "battery"))
+        self.assertAlmostEqual(float(rv), 3.70 + 0.6 * batt.INTERNAL_OHMS, places=3)
+        self.assertEqual(int(pct), batt.percent(float(rv)))
+
     def test_the_no_reading_icon_ships(self):
         self.assertTrue(repo_path("desktop", "icons", batt.UNKNOWN_ICON + ".svg").exists())
 
@@ -65,7 +73,9 @@ class Battery(unittest.TestCase):
         self.assertEqual(batt.icon_name(4, "battery"), "pinet-battery-0")
         self.assertEqual(batt.icon_name(44, "charging"), "pinet-battery-40-charging")
         self.assertEqual(batt.icon_name(97, "battery"), "pinet-battery-100")
-        self.assertEqual(batt.icon_name(100, "full"), "pinet-battery-100-charging")
+        self.assertEqual(batt.icon_name(100, "full"), batt.PLUG_ICON)     # external power
+        self.assertEqual(batt.icon_name(40, "full"), batt.PLUG_ICON)
+        self.assertEqual(batt.LABELS["full"], "External power")
 
     def test_power_state(self):
         self.assertEqual(batt.power_state(2.2), "charging")

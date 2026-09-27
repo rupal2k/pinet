@@ -525,8 +525,29 @@ _BOLT = ("....###.", "...###..", "..###...", ".###....", "#######.", "######..",
 
 
 def bolt(draw, x, y, color=0):
-    """8x12 bolt: 'on mains', in front of the header's small battery."""
+    """8x12 bolt: charging, in front of the header's small battery."""
     _sprite(draw, int(x), int(y), _BOLT, color)
+
+
+_PLUG = ("..#..#..", "..#..#..", "..#..#..", ".######.", ".######.", ".######.",
+         "..####..", "...##...", "...##...", "...##...", "...##...", "...##...")
+
+
+def plug(draw, x, y, color=0):
+    """8x12 plug: external power, where the bolt goes when charging."""
+    _sprite(draw, int(x), int(y), _PLUG, color)
+
+
+def power_glyph(draw, x, y, state, color=0):
+    """The 8x12 glyph in front of a small battery: bolt while charging, plug on
+    external power, nothing on battery. Returns whether it drew one."""
+    if state == "charging":
+        bolt(draw, x, y, color)
+    elif state == "full":
+        plug(draw, x, y, color)
+    else:
+        return False
+    return True
 
 
 def spotify(draw, cx, cy, size=9, color=0, bg=255):

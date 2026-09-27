@@ -725,7 +725,7 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
         bx = int((gap_l + gap_r - bw) / 2)
         mid = 3 + header_font.size // 2 + 1
         if on_mains:
-            icons.bolt(draw, bx, mid - icons.POWER_GLYPH_H // 2)
+            icons.power_glyph(draw, bx, mid - icons.POWER_GLYPH_H // 2, battery["state"])
             bx += icons.POWER_GLYPH_W + 2
         icons.battery(draw, bx, mid - HEADER_BATT_H // 2, battery["percent"],
                       w=HEADER_BATT_W, h=HEADER_BATT_H)
@@ -887,7 +887,7 @@ def spotify_battery_xy(W):
 
 
 def draw_spotify_battery(draw, x, y, battery, frame, color=0):
-    icons.battery(draw, x, y, battery_fill(battery, frame), charging=battery["state"] != "battery",
+    icons.battery(draw, x, y, battery_fill(battery, frame), charging=battery["state"] == "charging",
                   w=SPOTIFY_BATT_W, h=SPOTIFY_BATT_H, color=color)
 
 
@@ -971,9 +971,14 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
         if battery:
             bx, by = spotify_battery_xy(W)
             draw_spotify_battery(draw, bx, by, battery, 0, color=0)
+            if battery["state"] == "full":      # external power: the plug in front, like the header
+                icons.plug(draw, bx - icons.POWER_GLYPH_W - 3, by + (SPOTIFY_BATT_H - icons.POWER_GLYPH_H) // 2)
             draw.text((bx + SPOTIFY_BATT_W + 4, 22), f"{battery['percent']}%", font=FONT_SMALL, fill=0)
-            label = battery.get("label", "")
-            draw.text((W - 10 - draw.textlength(label, font=FONT_SMALL), 4), label, font=FONT_SMALL, fill=0)
+            # Right of the centred title, shrunk to fit ("External power" is long).
+            title_r = (W + header_w) / 2
+            label, label_font = fit_text(draw, battery.get("label", ""), FONT_REGULAR_PATH, 13, 8,
+                                         W - 10 - int(title_r) - 6)
+            draw.text((W - 10 - draw.textlength(label, font=label_font), 4), label, font=label_font, fill=0)
         draw.line((10, 42, W - 10, 42), fill=0)
 
         sp = get_spotify_status()
@@ -1143,7 +1148,7 @@ def render_image_screen(epd, image_path, dark_mode=False, voltage=None,
         line, font = fit_text(draw, text, FONT_REGULAR_PATH, 13, 8, W - 2 * margin - icon_w)
         x = int((W - icon_w - draw.textlength(line, font=font)) / 2)
         if on_mains:
-            icons.bolt(draw, x, y + 1)
+            icons.power_glyph(draw, x, y + 1, battery["state"])
             x += icons.POWER_GLYPH_W + 2
         icons.battery(draw, x, y + 2, battery["percent"], w=HEADER_BATT_W, h=HEADER_BATT_H)
         draw.text((x + HEADER_BATT_W + 4, y - 1), line, font=font, fill=0)
