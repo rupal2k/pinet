@@ -250,6 +250,23 @@ class FitText(TmpDirCase):
 # main() on a fake clock / fake EPD
 # ---------------------------------------------------------------------------
 
+class RefreshPolicy(TmpDirCase):
+    def test_needs_full_refresh(self):
+        f = self.dash.needs_full_refresh
+        self.assertTrue(f(True, False, False, 0, 40))     # forced
+        self.assertTrue(f(False, True, False, 0, 40))     # light <-> dark
+        self.assertFalse(f(False, False, True, 39, 40))   # screen change, few partials
+        self.assertTrue(f(False, False, True, 40, 40))    # screen change, enough
+        self.assertFalse(f(False, False, False, 100, 40)) # mid-screen...
+        self.assertTrue(f(False, False, False, 120, 40))  # ...until the 3x cap
+
+    def test_seconds_to_boundary(self):
+        b = self.dash.seconds_to_boundary
+        self.assertAlmostEqual(b(960, 1), 60.3)          # on the minute: the next one
+        self.assertAlmostEqual(b(985, 1), 35.3)
+        self.assertAlmostEqual(b(960 + 130, 5), 110.3)   # 1090 s -> the 1200 s mark
+
+
 class TrackText(TmpDirCase):
     def test_tidy_drops_what_music_apps_hide(self):
         t = self.dash.tidy_track_name
@@ -452,19 +469,26 @@ class FakeImage:
 
 
 class MainLoop(TmpDirCase):
-    def run_main(self, cfg_text, seconds, power=None, kiosk=None, battery=None, hotspot=None, ups=None):
+    def run_main(self, cfg_text, seconds, power=None, kiosk=None, battery=None, hotspot=None, ups=None,
+                 quiet=False, dark=None, weather_calls=None):
         dash = self.dash
-        clock = FakeClock(stop_after=seconds)
+        # Start on a minute boundary: the status screen redraws on the minute.
+        clock = FakeClock(start=960.0, stop_after=seconds)
         epd_log, frames = [], []
         dash.time = clock
         dash.load_config = lambda: section(cfg_text)
         dash.get_location = lambda cfg: (51.5, -0.1, "Here")
-        dash.is_dark_mode = lambda cfg: False
+        dash.is_dark_mode = dark or (lambda cfg: False)
+        dash.is_quiet_hours = lambda cfg: quiet
         power_iter = iter(power or [])
         dash.get_power_status = lambda: next(power_iter, (1.2, False, False))
         dash.get_kiosk_mode = kiosk or (lambda: None)
         dash.get_system_stats = lambda: (1, 2, 0.5, 40)
-        dash.get_weather = lambda lat, lon: {"t": 1}
+        def get_weather(lat, lon):
+            if weather_calls is not None:
+                weather_calls.append(clock.elapsed)
+            return {"t": 1}
+        dash.get_weather = get_weather
         dash.get_network_status = lambda: {"online": True}
         dash.get_wifi_credentials = lambda: ("Home", "pw")
         dash.get_disk_usage = lambda path="/": (1, 2, 3)
@@ -510,15 +534,56 @@ class MainLoop(TmpDirCase):
 
     def test_phase_never_overshoots_its_dwell(self):
         frames, _ = self.run_main(self.DEFAULT, 560)
-        self.assertEqual([t for t, n, _ in frames if n == "qr"], [180])
-        self.assertEqual([t for t, n, _ in frames if n == "status"], [0, 60, 120])
+        self.assertEqual([round(t) for t, n, _ in frames if n == "qr"], [180])
+        self.assertEqual([round(t) for t, n, _ in frames if n == "status"], [0, 60, 120])
 
-    def test_one_full_refresh_per_cycle(self):
-        _, log = self.run_main(self.DEFAULT, 570 * 2 + 30)
+    def test_status_redraws_on_the_minute(self):
+        # Clock started 25 s into a minute: the next status redraw waits for
+        # the new minute (35 s), not a full 60 s.
+        dash = self.dash
+        frames, _ = self.run_main(self.DEFAULT, 100)
+        status = [t for t, n, _ in frames if n == "status"]
+        self.assertEqual([round(t % 60) for t in status[1:]], [0] * (len(status) - 1))
+
+    def test_full_refresh_only_after_partials_pile_up(self):
+        cfg = self.DEFAULT + "full_refresh_after_partials = 4\n"
+        _, log = self.run_main(cfg, 570 * 3)
         body = log[:-4]  # drop shutdown: init, clear, sleep, exit
-        self.assertEqual(body.count("display"), 3)  # cycles 0, 1, 2
         self.assertEqual(log[-4:], ["init", "clear", "sleep", "exit"])
-        self.assertGreater(body.count("partial"), 10)
+        # Split the refreshes at each full one: every run between two fulls
+        # has at least the configured number of partials.
+        runs = "".join("F" if x == "display" else "p" if x == "partial" else "" for x in body).split("F")[1:-1]
+        self.assertTrue(runs)
+        self.assertTrue(all(len(r) >= 4 for r in runs), runs)
+
+    def test_fewer_flashes_than_one_per_cycle_when_quiet(self):
+        _, log = self.run_main(self.DEFAULT, 570 * 3)   # default: 40 partials
+        self.assertEqual(log.count("display"), 1)          # the first frame only
+
+    def test_light_dark_switch_is_a_full_refresh(self):
+        calls = {"n": 0}
+
+        def dark(cfg):
+            calls["n"] += 1
+            return calls["n"] > 3
+        _, log = self.run_main(self.DEFAULT, 400, dark=dark)
+        self.assertEqual(log.count("display"), 2)   # first frame + the switch
+
+    def test_weather_is_cached(self):
+        cfg = "refresh_minutes = 1\nstatus_seconds = 1800\nqr_seconds = 0\ndoom_seconds = 0\nhotspot_seconds = 0\n"
+        calls = []
+        self.run_main(cfg, 1500, weather_calls=calls)   # 25 min of status redraws
+        self.assertEqual(len(calls), 3)                  # at 0, ~10 and ~20 min
+
+    def test_night_mode_redraws_every_five_minutes_without_animation(self):
+        cfg = "refresh_minutes = 1\nstatus_seconds = 1800\nqr_seconds = 0\ndoom_seconds = 0\nhotspot_seconds = 0\n"
+        frames, _ = self.run_main(cfg, 1200, quiet=True)
+        status = [t for t, n, _ in frames if n == "status"]
+        # On the wall clock's 5-minute marks (the fake clock starts at 960 s).
+        self.assertEqual([round(t) for t in status], [0, 240, 540, 840, 1140])
+        batt = {"percent": 40, "state": "charging", "charging": True}
+        _, log = self.run_main(self.HOTSPOT_ONLY, 60, battery=batt, hotspot={"active": False}, quiet=True)
+        self.assertLessEqual(log.count("partial"), 1)   # the battery rests at night
 
     def test_kiosk_change_forces_full_refresh(self):
         state = {"n": 0}

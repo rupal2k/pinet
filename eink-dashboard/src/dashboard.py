@@ -91,6 +91,41 @@ def is_dark_mode(cfg):
     return t >= start or t < end
 
 
+def is_quiet_hours(cfg):
+    """True during the configured night window (night_start_hour..
+    night_end_hour, fractional hours allowed, wraps midnight): the panel
+    redraws less often and the battery animation rests. Equal hours = off."""
+    start = cfg.getfloat("night_start_hour", fallback=1)
+    end = cfg.getfloat("night_end_hour", fallback=6)
+    if start == end:
+        return False
+    now = datetime.now()
+    t = now.hour + now.minute / 60
+    return start <= t < end if start < end else (t >= start or t < end)
+
+
+def needs_full_refresh(force, dark_changed, screen_changed, partials, after_partials):
+    """Full (ghost-clearing, flashing) refresh or a partial one?
+
+    Ghosting builds up with the number of partial refreshes, not with time,
+    so the full refresh is spent where it helps: on startup / after an error
+    or a takeover (force), on the light<->dark switch (every pixel flips), and
+    at a screen change once `after_partials` partials have piled up. A long
+    busy screen (animations, a kiosk) still gets one at 3x that, mid-screen."""
+    if force or dark_changed:
+        return True
+    if screen_changed and partials >= after_partials:
+        return True
+    return partials >= 3 * after_partials
+
+
+def seconds_to_boundary(now_epoch, minutes):
+    """Seconds until the next whole `minutes` boundary of the wall clock (a
+    little past it, so the redraw lands on the new minute, not just before)."""
+    period = 60 * minutes
+    return period - (now_epoch % period) + 0.3
+
+
 def reverse_geocode(lat, lon):
     try:
         r = requests.get(
@@ -738,7 +773,9 @@ def render(epd, cpu, ram_pct, ram_used_gb, cpu_temp, weather, net, location_name
 
     now = datetime.now()
     date_text = now.strftime("%a %d %b")
-    time_text = now.strftime("%-I:%M:%S %p")
+    # No seconds: the screen redraws on the minute (see main), so seconds were
+    # always stale and made every frame differ.
+    time_text = now.strftime("%-I:%M %p")
     # UPS HAT charge centred between date and time: a small phone-style
     # battery filled to the level and the percentage, with a glyph in front:
     # bolt charging, plug on external power, "!" when low on battery.
@@ -1256,6 +1293,13 @@ def main():
     # screen; a charger plugged in or pulled redraws the screen (partial
     # refresh) within about two of these.
     battery_poll_seconds = cfg.getfloat("battery_poll_seconds", fallback=2)
+    # Full (flashing) refresh once this many partials have piled up, at the
+    # next screen change; see needs_full_refresh().
+    full_after_partials = max(1, cfg.getint("full_refresh_after_partials", fallback=40))
+    # Open-Meteo updates every 15 min: fetch at most this often (and right
+    # away after a network change).
+    weather_cache_seconds = cfg.getfloat("weather_cache_minutes", fallback=10) * 60
+    night_refresh_minutes = max(1, cfg.getint("night_refresh_minutes", fallback=5))
     # Whether location comes from IP geolocation (blank config) rather than a
     # fixed configured lat/lon -- only the former needs re-resolving when the
     # network changes, since ip-api.com geolocates the request's own public
@@ -1290,11 +1334,14 @@ def main():
     # not flip to "Unavailable" for a cycle -- only Unavailable if weather
     # has never succeeded this run.
     last_weather = None
-    # Which carousel cycle (0, 1, 2, ...) last got a full-quality refresh --
-    # displayPartial() alone lets ghosting accumulate over successive
-    # updates, so one full refresh per full pass through the carousel
-    # resets it. None so the very first frame always gets a full refresh.
-    last_full_refresh_cycle = None
+    weather_at = None   # monotonic time of the last successful weather fetch
+    # Refresh policy state (needs_full_refresh): force a full refresh next
+    # (startup, error, takeover), partials since the last full one, and the
+    # screen / light-dark mode last shown.
+    force_full = True
+    partials = 0
+    last_screen = None
+    last_dark = None
     last_kiosk_app = None
     # Under-voltage/throttle debounce: a one-time spike (a single reading) is
     # ignored; the on-screen warning only appears once the live bit has been
@@ -1362,8 +1409,10 @@ def main():
                 # Entering/leaving kiosk mode (or the low-battery screen) swaps
                 # the whole layout; force a full refresh so the old screen
                 # doesn't ghost under the new.
-                last_full_refresh_cycle = None
+                force_full = True
                 last_kiosk_app = takeover
+            quiet = is_quiet_hours(cfg)
+            screen = takeover or phase
 
             # The frame last rendered (before flip_180) when the battery on the
             # Spotify screen should animate during the wait below, else None.
@@ -1393,13 +1442,17 @@ def main():
                                 "Location resolved on retry: lat=%s lon=%s name=%s",
                                 lat, lon, location_name,
                             )
-                    new_weather = get_weather(lat, lon)
-                    if new_weather:
-                        weather = last_weather = new_weather
+                    if weather_at is not None and time.monotonic() - weather_at < weather_cache_seconds:
+                        weather = last_weather   # fresh enough: no request
                     else:
-                        # Transient failure (503 / blip): reuse the last good
-                        # reading; None only if weather has never succeeded.
-                        weather = last_weather
+                        new_weather = get_weather(lat, lon)
+                        if new_weather:
+                            weather = last_weather = new_weather
+                            weather_at = time.monotonic()
+                        else:
+                            # Transient failure (503 / blip): reuse the last good
+                            # reading; None only if weather has never succeeded.
+                            weather = last_weather
                     net = get_network_status()
                     battery = get_battery()
                     image = render(
@@ -1430,8 +1483,8 @@ def main():
                     image = render_hotspot_screen(epd, hotspot, dark_mode, battery=battery)
                     if hotspot["active"]:
                         battery = None   # the PINET join screen shows no battery
-                    elif battery and battery_anim_seconds > 0 and battery_animates(battery):
-                        anim_base = image
+                    elif battery and battery_anim_seconds > 0 and battery_animates(battery) and not quiet:
+                        anim_base = image   # (night: the battery rests)
 
                 if flip_180:
                     image = image.rotate(180)
@@ -1439,24 +1492,25 @@ def main():
                 image_bytes = image.tobytes()
                 if image_bytes != last_image_bytes:
                     buf = epd.getbuffer(image)
-                    cycle_number = int((time.monotonic() - start_time) // cycle_total)
-                    if cycle_number != last_full_refresh_cycle:
+                    full = needs_full_refresh(force_full, last_dark is not None and dark_mode != last_dark,
+                                              screen != last_screen, partials, full_after_partials)
+                    if full:
                         # Full refresh: this is the one that visibly flashes
                         # black/white (the panel's own ghost-clearing waveform),
                         # and also (re-)establishes the base image
-                        # displayPartial() diffs against below. Deliberately
-                        # limited to once per full carousel cycle instead of
-                        # every refresh.
+                        # displayPartial() diffs against below. Spent only
+                        # where needs_full_refresh() says it helps.
+                        logger.info("Full refresh (%d partials since the last)", partials)
                         epd.init()
                         epd.display(buf)
                         epd.displayPartBaseImage(buf)
-                        last_full_refresh_cycle = cycle_number
+                        force_full, partials = False, 0
                     else:
                         # Partial refresh: updates only the changed pixels
-                        # directly, no flash -- this is what makes a mode
-                        # change (e.g. into dark mode) show up immediately
-                        # instead of flashing white first.
+                        # directly, no flash.
                         epd.displayPartial(buf)
+                        partials += 1
+                    last_screen, last_dark = screen, dark_mode
                     # Deliberately no epd.sleep() anywhere in this loop: it
                     # closes the SPI device and cuts GPIO power outright
                     # (waveshare_epd's module_exit()), and displayPartial()
@@ -1486,7 +1540,7 @@ def main():
                 # displayPartial()'s base image out of step with the panel, so
                 # force the next frame to be a full refresh.
                 logger.exception("Failed to render/display phase %s, keeping last frame", phase)
-                last_full_refresh_cycle = None
+                force_full = True
 
             # Wait for the next scheduled refresh, but poll the network and
             # wake up early if it changes (e.g. cable unplugged, Wi-Fi
@@ -1496,7 +1550,13 @@ def main():
             # a 60s refresh) still hands off on time instead of overshooting
             # into the next phase's dwell window.
             last_fingerprint = get_network_fingerprint()
-            wait_seconds = max(1, min(refresh_minutes * 60, remaining_in_phase))
+            interval = max(refresh_minutes, night_refresh_minutes) if quiet else refresh_minutes
+            wait_seconds = max(1, min(interval * 60, remaining_in_phase))
+            if not takeover and phase == 0:
+                # The status screen shows the clock: redraw right on the next
+                # minute (the next 5 at night) so it's never stale.
+                wait_seconds = max(1, min(wait_seconds,
+                                          seconds_to_boundary(time.time(), interval if quiet else 1)))
             elapsed = 0
             next_poll = network_poll_seconds
             next_frame = battery_anim_seconds
@@ -1557,10 +1617,11 @@ def main():
                         if anim_bytes != last_image_bytes:   # a still icon costs no refresh
                             epd.displayPartial(epd.getbuffer(anim))
                             last_image_bytes = anim_bytes
+                            partials += 1
                     except Exception:
                         logger.exception("Battery animation frame failed, stopping it")
                         anim_base = None
-                        last_full_refresh_cycle = None
+                        force_full = True
                 if elapsed < next_poll:
                     continue
                 next_poll = elapsed + network_poll_seconds
@@ -1573,6 +1634,7 @@ def main():
                         "Network changed %s -> %s, refreshing early",
                         last_fingerprint, current_fingerprint,
                     )
+                    weather_at = None   # new network: fetch the weather again
                     if not has_fixed_location:
                         lat, lon, location_name = get_location(cfg)
                         logger.info(
