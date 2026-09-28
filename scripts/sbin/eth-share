@@ -22,11 +22,13 @@ on battery power or while a low-battery shutdown is pending, and pinet-ups-guard
 stops sharing when its countdown begins. wlan1 in monitor mode (Pentest Mode)
 has no uplink to share, so "start" refuses then too.
 """
+import json
 import os
 import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 
 UPLINK_IFACE = "wlan1"
 ETH_IFACE = "eth0"
@@ -52,6 +54,9 @@ ADFREE_CONF = os.environ.get(
     "ETH_ADFREE_CONF", "/etc/NetworkManager/dnsmasq-shared.d/pinet-adfree.conf")
 PIHOLE_SERVICE = os.environ.get("ETH_PIHOLE_SERVICE", "pihole-FTL")
 PIHOLE_PORT = os.environ.get("ETH_PIHOLE_PORT", "5335")
+# FTL's HTTP API, bound to loopback only (no exposed dashboard) -- read for the
+# blocklist size and the session's blocked count shown in the app's dialogs.
+PIHOLE_API = os.environ.get("ETH_PIHOLE_API", "http://127.0.0.1:8089/api/stats/summary")
 
 
 # ---- pure helpers (unit-tested) -------------------------------------------
@@ -199,6 +204,28 @@ def _reactivate_share():
     _run(["nmcli", "--wait", "15", "con", "up", SHARE_CON], timeout=25)
 
 
+def _pihole_summary(retries=3):
+    """FTL's stats summary as a dict, or None if it isn't answering yet. FTL
+    takes a few seconds after start to serve its API, so retry briefly."""
+    for i in range(retries):
+        try:
+            with urllib.request.urlopen(PIHOLE_API, timeout=4) as r:
+                return json.loads(r.read().decode())
+        except Exception:
+            if i < retries - 1:
+                time.sleep(2)
+    return None
+
+
+def _dig(d, *path):
+    """Safe nested lookup: _dig(summary, 'queries', 'blocked') -> value or None."""
+    for key in path:
+        if not isinstance(d, dict):
+            return None
+        d = d.get(key)
+    return d
+
+
 # ---- commands -------------------------------------------------------------
 
 def cmd_status():
@@ -310,10 +337,20 @@ def cmd_adfree(on):
             sys.stderr.write(f"eth-share: could not enable ad-blocking: {e}\n")
             return 1
         _reactivate_share()
+        domains = _dig(_pihole_summary(), "gravity", "domains_being_blocked")
+        # Machine line the GUI parses for its status dialog.
+        print(f"ADFREE_INFO status=on domains={domains if domains is not None else ''}")
         print("Ad-blocking is ON -- the shared network's DNS now goes through Pi-hole.")
         return 0
+    # Off: read the session's blocked count BEFORE stopping FTL (the API goes
+    # with it), then tear everything down.
+    s = _pihole_summary(retries=1)
+    blocked = _dig(s, "queries", "blocked")
+    total = _dig(s, "queries", "total")
     _adfree_teardown()
     _reactivate_share()
+    print(f"ADFREE_INFO status=off blocked={blocked if blocked is not None else ''} "
+          f"total={total if total is not None else ''}")
     print("Ad-blocking is OFF.")
     return 0
 

@@ -275,13 +275,18 @@ def run_gui():
 
         def _on_adfree(self):
             # One tap, no confirm: it's low-risk and reversible, and the whole
-            # point is a simple "Go Ad-Free" button.
-            on = getattr(self, "_adfree_on", False)
-            self._run(["sudo", "-n", ETH_SHARE, "adfree-off" if on else "adfree-on"])
+            # point is a simple "Go Ad-Free" button. A dialog reports the
+            # result -- Pi-hole status on start, ads blocked this session on stop.
+            starting = not getattr(self, "_adfree_on", False)
+            verb = "adfree-on" if starting else "adfree-off"
+            self._run(["sudo", "-n", ETH_SHARE, verb],
+                      on_done=lambda out: self._adfree_dialog(starting, out))
 
-        def _run(self, argv):
+        def _run(self, argv, on_done=None):
             if self.proc is not None:
                 return
+            self._capture = ""            # this run's output, for on_done
+            self._on_done = on_done
             self.toggle.set_sensitive(False)
             self.adfree_btn.set_sensitive(False)
             self._append(f"\n$ {' '.join(argv)}\n")
@@ -292,6 +297,7 @@ def run_gui():
                 self._append(f"[failed: {exc.message}]\n")
                 self.toggle.set_sensitive(True)
                 self.proc = None
+                self._on_done = None
                 return
             stream = Gio.DataInputStream.new(self.proc.get_stdout_pipe())
             self._read_next(stream)
@@ -307,6 +313,7 @@ def run_gui():
                 return
             if line is None:
                 return
+            self._capture += line + "\n"
             self._append(line + "\n")
             self._read_next(stream)
 
@@ -319,6 +326,44 @@ def run_gui():
             self.proc = None
             self.toggle.set_sensitive(True)
             self._refresh()
+            cb, self._on_done = getattr(self, "_on_done", None), None
+            if cb:
+                cb(self._capture)
+
+        # eth-share prints one "ADFREE_INFO key=value ..." line the dialog reads.
+        def _adfree_dialog(self, starting, out):
+            info = {}
+            for line in out.splitlines():
+                if line.startswith("ADFREE_INFO"):
+                    for tok in line.split()[1:]:
+                        k, _, v = tok.partition("=")
+                        info[k] = v
+            if not info:
+                return          # start refused or no stats -- the pane shows why
+            if starting:
+                title = "Ad-blocking is on"
+                body = ("Pi-hole is now filtering DNS for devices on the shared "
+                        "Ethernet port.\n\nBlocklist: "
+                        f"{self._num(info.get('domains'))} domains.")
+            else:
+                title = "Ad-blocking is off"
+                total = info.get("total")
+                tail = f" out of {self._num(total)} requests" if total else ""
+                body = (f"{self._num(info.get('blocked'))} ads and trackers "
+                        f"blocked this session{tail}.")
+            d = Gtk.MessageDialog(transient_for=self, modal=True,
+                                  message_type=Gtk.MessageType.INFO,
+                                  buttons=Gtk.ButtonsType.OK, text=title)
+            d.format_secondary_text(body)
+            d.run()
+            d.destroy()
+
+        @staticmethod
+        def _num(v):
+            try:
+                return f"{int(v):,}"
+            except (TypeError, ValueError):
+                return "?"
 
         # -- helpers --
         def _append(self, text):

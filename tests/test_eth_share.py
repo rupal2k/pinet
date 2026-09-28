@@ -100,6 +100,17 @@ class AdFree(unittest.TestCase):
         self.assertTrue(mod.adfree_active())
 
 
+class Dig(unittest.TestCase):
+    def test_nested_lookup(self):
+        mod = load_defs("scripts/sbin/eth-share", ["_dig"])
+        summary = {"queries": {"blocked": 42}, "gravity": {"domains_being_blocked": 74761}}
+        self.assertEqual(mod._dig(summary, "queries", "blocked"), 42)
+        self.assertEqual(mod._dig(summary, "gravity", "domains_being_blocked"), 74761)
+        self.assertIsNone(mod._dig(summary, "queries", "missing"))
+        self.assertIsNone(mod._dig(None, "queries", "blocked"))
+        self.assertIsNone(mod._dig({"queries": 5}, "queries", "blocked"))
+
+
 class GuiStatusLines(unittest.TestCase):
     def parse(self, **kw):
         text = "\n".join(f"{k}={v}" for k, v in kw.items())
