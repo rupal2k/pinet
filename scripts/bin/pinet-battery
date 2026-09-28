@@ -34,13 +34,14 @@ BUS = int(os.environ.get("UPS_I2C_BUS", "1"))
 ADDRS = [int(os.environ["UPS_ADDR"], 0)] if "UPS_ADDR" in os.environ else [0x43, 0x42, 0x41, 0x40]
 SHUNT_OHMS = float(os.environ.get("UPS_SHUNT_OHMS", "0.01"))
 CURRENT_SIGN = float(os.environ.get("UPS_CURRENT_SIGN", "-1"))
-# Resting cell voltage -> charge, for 3.6 V-nominal NMC 21700 cells. Li-ion
-# is flat through the middle and steep at both ends, so a straight 3.0-4.2 V
-# line read ~10% high mid-range.
-# ponytail: a generic curve, not these exact cells; log rest_volts over one
-# full discharge and replace the points to calibrate it.
-OCV_CURVE = ((3.00, 0), (3.30, 5), (3.45, 10), (3.55, 20), (3.62, 30), (3.68, 40),
-             (3.74, 50), (3.80, 60), (3.87, 70), (3.95, 80), (4.06, 90), (4.20, 100))
+# Resting cell voltage -> charge, measured on these cells: one full discharge
+# at ~0.66 A (2026-09-27, 6427 mAh from 4.07 V down to 3.35 V) plus the
+# recharge above 4.07 V (~1550 mAh) = ~7950 mAh usable. 0% is 3.35 V rest,
+# where the guard's 3.3 V terminal cut-off lands under the Pi's load. The
+# generic NMC curve this replaced read 10-13 points high mid-range.
+# Recalibrate with --log over a full discharge.
+OCV_CURVE = ((3.35, 0), (3.45, 6), (3.55, 17), (3.62, 25), (3.68, 34), (3.74, 41),
+             (3.80, 49), (3.87, 56), (3.95, 67), (4.06, 78), (4.20, 100))
 CAPACITY_MAH = int(os.environ.get("UPS_CAPACITY_MAH", "8400"))
 INTERNAL_OHMS = float(os.environ.get("UPS_INTERNAL_OHMS", "0.045"))
 CHARGING_A = 0.02          # current into the cells above this counts as charging

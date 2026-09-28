@@ -24,9 +24,9 @@ class FakeBus:
 class Battery(unittest.TestCase):
     def test_one_cell_follows_the_lithium_curve(self):
         self.assertEqual(batt.percent(2.9), 0)
-        self.assertEqual(batt.percent(3.0), 0)
-        self.assertEqual(batt.percent(3.74), 50)
-        self.assertEqual(batt.percent(3.77), 55)     # halfway between two points
+        self.assertEqual(batt.percent(3.35), 0)      # guard cut-off under load
+        self.assertEqual(batt.percent(3.74), 41)
+        self.assertEqual(batt.percent(3.77), 45)     # halfway between two points
         self.assertEqual(batt.percent(4.2), 100)
         self.assertEqual(batt.percent(4.35), 100)
 
@@ -35,16 +35,16 @@ class Battery(unittest.TestCase):
         self.assertEqual(readings, sorted(readings))
 
     def test_two_cells_in_series(self):
-        self.assertEqual(batt.percent(7.48), 50)
+        self.assertEqual(batt.percent(7.48), 41)
         self.assertEqual(batt.percent(8.4), 100)
 
     def test_same_charge_reads_the_same_on_and_off_the_charger(self):
         # Real readings seconds apart as the charger was pulled (13:38) and
         # plugged back in (13:41): uncompensated they read 64% vs 53%.
         for on, off in (((3.764, 2.19), (3.640, -0.51)), ((3.752, 2.133), (3.640, -0.519))):
-            p_on = batt.percent(batt.rest_volts(*on))
-            p_off = batt.percent(batt.rest_volts(*off))
-            self.assertLessEqual(abs(p_on - p_off), 1, (p_on, p_off))
+            v_on, v_off = batt.rest_volts(*on), batt.rest_volts(*off)
+            self.assertLess(abs(v_on - v_off), 0.01, (v_on, v_off))
+            self.assertLessEqual(abs(batt.percent(v_on) - batt.percent(v_off)), 2)
 
     def test_remaining_mah_is_the_share_of_two_4200_cells(self):
         self.assertEqual(batt.CAPACITY_MAH, 8400)
