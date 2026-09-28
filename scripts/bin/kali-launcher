@@ -1,0 +1,511 @@
+#!/usr/bin/env python3
+"""PINET Kali Launcher -- a click-per-tool GUI over the natively-installed
+pentest tools, replacing the plain "Kali Tools" terminal shortcut.
+
+The top of the window is a grid of tool buttons grouped by purpose. Clicking a
+tool opens a small form (guide defaults prefilled), shows the exact command it
+will run, and then either streams its output into the bottom pane (plain-text
+tools) or opens it in a terminal window (curses / interactive tools). Tools
+that need root are run through pkexec, so each escalation is a polkit prompt --
+no passwordless assumptions.
+
+Design notes / ceilings:
+- GTK3 only: this Pi's python3-gi has no GTK4 and no Vte, so the "terminal
+  window in the bottom" is a read-only streaming TextView, not an embedded
+  terminal. Curses tools (airodump-ng, wifite, ...) can't render there, so they
+  open in lxterminal instead -- flagged `stream=False` in the registry.
+- All GTK imports are lazy (inside run_gui) so the pure registry + argv logic
+  below imports and tests without a display or gi installed.
+
+Everything above the "GUI" banner is pure and unit-tested in
+tests/test_kali_launcher.py; keep it free of gi imports.
+"""
+import os
+import shutil
+import subprocess
+
+# ---- interfaces (from the Kali tools guide) --------------------------------
+# wlan0 = PINET hotspot radio (leave alone). wlan1 = the monitor-capable
+# TP-Link (also the home uplink). Defaults point at wlan1 for auditing and the
+# local subnet for scanning.
+UPLINK_IFACE = "wlan1"
+PENTEST_START = "/usr/local/sbin/wifi-pentest-start"
+PENTEST_STOP = "/usr/local/sbin/wifi-pentest-stop"
+PENTEST_FLAG = "/run/pentest-mode"
+KALI_WORK = os.path.expanduser("~/kali-work")
+ACK_FILE = os.path.expanduser("~/.config/kali-launcher/authorized")
+
+AUTHORIZATION_TEXT = (
+    "Only scan, capture, or test networks and devices you OWN or have EXPLICIT "
+    "WRITTEN PERMISSION to test.\n\n"
+    "Deauthing, capturing handshakes, or brute-forcing WPS on networks you do "
+    "not own is illegal in most countries. Use these tools on your own home "
+    "network, a lab you control, or an engagement with a signed scope.\n\n"
+    "Switching wlan1 to monitor mode (Pentest Mode) also DROPS this Pi's "
+    "internet and any SSH session over wlan1. Run it from the physical "
+    "screen or over the PINET hotspot so you keep a way back."
+)
+
+
+def _default_cidr():
+    """Best-effort local /24 for scan defaults, from the uplink's IP.
+    Falls back to the known home subnet. Pure-ish: shells out read-only."""
+    try:
+        out = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", UPLINK_IFACE],
+            capture_output=True, text=True, timeout=3,
+        ).stdout
+        for tok in out.split():
+            if "/" in tok and tok.count(".") == 3:
+                a, b, c, _ = tok.split("/")[0].split(".")
+                return f"{a}.{b}.{c}.0/24"
+    except Exception:
+        pass
+    return "192.168.29.0/24"
+
+
+# ---- tool registry ---------------------------------------------------------
+# Each tool: key, label, group, bin, root(needs pkexec), stream(True=output
+# pane / False=open in a terminal), needs_monitor(warn if wlan1 not monitor),
+# fields [(name, label, hint, default)], and argv(vals) -> list of args after
+# the binary. argv is pure and unit-tested.
+
+def _tool(**k):
+    k.setdefault("root", False)
+    k.setdefault("stream", True)
+    k.setdefault("needs_monitor", False)
+    k.setdefault("fields", [])
+    k.setdefault("argv", lambda v: [])
+    return k
+
+
+def build_tools(cidr=None):
+    cidr = cidr or _default_cidr()
+    return [
+        # -- Network mapping --
+        _tool(key="nmap", label="Nmap", group="Network mapping", bin="nmap",
+              fields=[("flags", "Scan flags", "-sn ping sweep; -sV -p- full", "-sn"),
+                      ("target", "Target", "host, range or CIDR", cidr)],
+              argv=lambda v: v["flags"].split() + [v["target"]]),
+        _tool(key="arp-scan", label="ARP scan", group="Network mapping",
+              bin="arp-scan", root=True,
+              fields=[("iface", "Interface", "L2 scan needs a real iface", UPLINK_IFACE)],
+              argv=lambda v: ["-I", v["iface"], "--localnet"]),
+        _tool(key="netdiscover", label="Netdiscover", group="Network mapping",
+              bin="netdiscover", root=True,
+              fields=[("iface", "Interface", "", UPLINK_IFACE),
+                      ("range", "Range", "blank = auto from iface", cidr)],
+              argv=lambda v: ["-P", "-i", v["iface"]] + (["-r", v["range"]] if v["range"].strip() else [])),
+        _tool(key="masscan", label="Masscan", group="Network mapping",
+              bin="masscan", root=True,
+              fields=[("target", "Target", "CIDR or host", cidr),
+                      ("ports", "Ports", "", "1-1000"),
+                      ("rate", "Rate", "packets/sec -- keep modest on a Pi", "500")],
+              argv=lambda v: [v["target"], "-p", v["ports"], "--rate", v["rate"]]),
+
+        # -- WiFi auditing (root; most need monitor mode; curses -> terminal) --
+        _tool(key="airmon-ng", label="airmon-ng (status)", group="WiFi auditing",
+              bin="airmon-ng", root=True, stream=True,
+              fields=[], argv=lambda v: []),
+        _tool(key="airodump-ng", label="airodump-ng (survey)", group="WiFi auditing",
+              bin="airodump-ng", root=True, stream=False, needs_monitor=True,
+              fields=[("mon", "Monitor iface", "e.g. wlan1 or wlan1mon", UPLINK_IFACE)],
+              argv=lambda v: [v["mon"]]),
+        _tool(key="wifite", label="wifite (auto audit)", group="WiFi auditing",
+              bin="wifite", root=True, stream=False, needs_monitor=True,
+              fields=[("iface", "Interface", "wifite manages monitor mode itself", UPLINK_IFACE)],
+              argv=lambda v: ["-i", v["iface"]]),
+        _tool(key="reaver", label="reaver (WPS)", group="WiFi auditing",
+              bin="reaver", root=True, stream=False, needs_monitor=True,
+              fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
+                      ("bssid", "BSSID", "target AP MAC", ""),
+                      ("channel", "Channel", "", "")],
+              argv=lambda v: ["-i", v["mon"], "-b", v["bssid"]] + (["-c", v["channel"]] if v["channel"].strip() else []) + ["-vv"]),
+        _tool(key="bully", label="bully (WPS)", group="WiFi auditing",
+              bin="bully", root=True, stream=False, needs_monitor=True,
+              fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
+                      ("bssid", "BSSID", "target AP MAC", "")],
+              argv=lambda v: [v["mon"], "-b", v["bssid"]]),
+        _tool(key="mdk4", label="mdk4", group="WiFi auditing",
+              bin="mdk4", root=True, stream=False, needs_monitor=True,
+              fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
+                      ("mode", "Mode", "e.g. b beacon flood (test only)", "b")],
+              argv=lambda v: [v["mon"], v["mode"]]),
+        _tool(key="hcxdumptool", label="hcxdumptool (capture)", group="WiFi auditing",
+              bin="hcxdumptool", root=True, stream=False, needs_monitor=True,
+              fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
+                      ("out", "Output pcapng", "saved under kali-work", os.path.join(KALI_WORK, "capture.pcapng"))],
+              argv=lambda v: ["-i", v["mon"], "-w", v["out"]]),
+        _tool(key="aircrack-ng", label="aircrack-ng (crack)", group="WiFi auditing",
+              bin="aircrack-ng", root=False, stream=False,
+              fields=[("cap", "Capture file", ".cap/.pcapng with a handshake", os.path.join(KALI_WORK, "capture.pcapng")),
+                      ("wordlist", "Wordlist", "", "/usr/share/wordlists/rockyou.txt")],
+              argv=lambda v: [v["cap"], "-w", v["wordlist"]]),
+
+        # -- Supporting --
+        _tool(key="macchanger", label="MAC changer", group="Supporting",
+              bin="macchanger", root=True,
+              fields=[("iface", "Interface", "iface must be DOWN to change", UPLINK_IFACE),
+                      ("flags", "Flags", "-r random, -p permanent, -s show", "-s")],
+              argv=lambda v: [v["flags"], v["iface"]]),
+        _tool(key="iw", label="iw (radio info)", group="Supporting",
+              bin="iw",
+              fields=[("args", "Arguments", "e.g. 'dev', 'wlan1 info', 'list'", "dev")],
+              argv=lambda v: v["args"].split()),
+        _tool(key="tcpdump", label="tcpdump", group="Supporting",
+              bin="tcpdump", root=True,
+              fields=[("iface", "Interface", "", UPLINK_IFACE),
+                      ("count", "Packets", "stop after N", "20"),
+                      ("filter", "Filter", "BPF, e.g. 'port 53'", "")],
+              argv=lambda v: ["-i", v["iface"], "-c", v["count"], "-n"] + (v["filter"].split() if v["filter"].strip() else [])),
+    ]
+
+
+GROUP_ORDER = ["Network mapping", "WiFi auditing", "Supporting"]
+
+
+def resolve_bin(name):
+    """Full path of a tool, searching sbin too (guide tools live in /usr/sbin).
+    Returns None if truly absent."""
+    p = shutil.which(name)
+    if p:
+        return p
+    for d in ("/usr/sbin", "/sbin", "/usr/local/sbin"):
+        cand = os.path.join(d, name)
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def build_argv(tool, values, binpath=None):
+    """Full argv list for a tool + field values, pkexec-prefixed if root.
+    Pure -- the unit-tested core."""
+    binpath = binpath or tool["bin"]
+    argv = [binpath] + [str(a) for a in tool["argv"](values)]
+    if tool.get("root"):
+        argv = ["pkexec"] + argv
+    return argv
+
+
+def monitor_active(iface=UPLINK_IFACE):
+    """True if wlan1 is in monitor mode (pentest mode on). Reads the flag file
+    first (cheap, set by kali-power-shed), then falls back to `iw`."""
+    if os.path.exists(PENTEST_FLAG):
+        return True
+    try:
+        out = subprocess.run(["iw", "dev", iface, "info"],
+                             capture_output=True, text=True, timeout=3).stdout
+        return any(line.split()[1] == "monitor"
+                   for line in out.splitlines()
+                   if line.strip().startswith("type"))
+    except Exception:
+        return False
+
+
+# ============================ GUI ==========================================
+# Everything below imports gi lazily and is exercised by the on-Pi smoke test,
+# not the stdlib unit tests.
+
+def run_gui():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk, Gio, GLib
+
+    cidr = _default_cidr()
+    TOOLS = build_tools(cidr)
+
+    class Launcher(Gtk.Window):
+        def __init__(self):
+            super().__init__(title="PINET Kali Launcher")
+            self.set_default_size(760, 620)
+            self.proc = None  # running Gio.Subprocess for the stream pane
+            self._build()
+            self.connect("destroy", self._on_destroy)
+
+        # -- layout --
+        def _build(self):
+            root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            root.set_margin_top(8); root.set_margin_bottom(8)
+            root.set_margin_start(8); root.set_margin_end(8)
+            self.add(root)
+
+            root.pack_start(self._header(), False, False, 0)
+
+            scroller = Gtk.ScrolledWindow()
+            scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            grid.set_margin_top(4)
+            for group in GROUP_ORDER:
+                grid.pack_start(self._group_box(group), False, False, 0)
+            scroller.add(grid)
+            root.pack_start(scroller, True, True, 0)
+
+            # -- output pane --
+            out_hdr = Gtk.Box(spacing=6)
+            lbl = Gtk.Label(label="Output"); lbl.set_xalign(0)
+            out_hdr.pack_start(lbl, True, True, 0)
+            self.stop_btn = Gtk.Button(label="Stop")
+            self.stop_btn.set_sensitive(False)
+            self.stop_btn.connect("clicked", lambda *_: self._stop())
+            out_hdr.pack_end(self.stop_btn, False, False, 0)
+            clr = Gtk.Button(label="Clear")
+            clr.connect("clicked", lambda *_: self.buf.set_text(""))
+            out_hdr.pack_end(clr, False, False, 0)
+            root.pack_start(out_hdr, False, False, 0)
+
+            term = Gtk.ScrolledWindow()
+            term.set_min_content_height(180)
+            self.view = Gtk.TextView(editable=False, cursor_visible=False,
+                                     monospace=True, wrap_mode=Gtk.WrapMode.CHAR)
+            self.buf = self.view.get_buffer()
+            term.add(self.view)
+            root.pack_start(term, False, False, 0)
+
+        def _header(self):
+            bar = Gtk.Box(spacing=6)
+            self.mode_lbl = Gtk.Label()
+            self.mode_lbl.set_xalign(0)
+            self._refresh_mode()
+            bar.pack_start(self.mode_lbl, True, True, 0)
+
+            pen = Gtk.Button(label="Toggle Pentest Mode")
+            pen.connect("clicked", lambda *_: self._toggle_pentest())
+            bar.pack_end(pen, False, False, 0)
+            term = Gtk.Button(label="Open Terminal")
+            term.connect("clicked", lambda *_: self._open_terminal())
+            bar.pack_end(term, False, False, 0)
+            return bar
+
+        def _group_box(self, group):
+            frame = Gtk.Frame(label=group)
+            flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
+                               max_children_per_line=4, min_children_per_line=2,
+                               row_spacing=6, column_spacing=6, homogeneous=True)
+            flow.set_margin_top(6); flow.set_margin_bottom(6)
+            flow.set_margin_start(6); flow.set_margin_end(6)
+            for tool in [t for t in TOOLS if t["group"] == group]:
+                btn = Gtk.Button(label=tool["label"])
+                present = resolve_bin(tool["bin"]) is not None
+                btn.set_sensitive(present)
+                if not present:
+                    btn.set_tooltip_text(f"{tool['bin']} is not installed")
+                btn.connect("clicked", self._on_tool, tool)
+                flow.add(btn)
+            frame.add(flow)
+            return frame
+
+        # -- actions --
+        def _on_tool(self, _btn, tool):
+            binpath = resolve_bin(tool["bin"])
+            if not binpath:
+                return
+            vals = self._prompt_fields(tool)
+            if vals is None:
+                return
+            if tool.get("needs_monitor") and not monitor_active():
+                if not self._confirm(
+                        "Monitor mode is off",
+                        f"{tool['label']} needs wlan1 in monitor mode. Turn on "
+                        "Pentest Mode first (it drops internet + SSH). Run anyway?"):
+                    return
+            argv = build_argv(tool, vals, binpath)
+            if tool.get("stream"):
+                self._run_stream(argv)
+            else:
+                self._run_terminal(argv)
+
+        def _prompt_fields(self, tool):
+            dlg = Gtk.Dialog(title=tool["label"], transient_for=self, modal=True)
+            dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Run", Gtk.ResponseType.OK)
+            box = dlg.get_content_area()
+            box.set_spacing(6)
+            box.set_margin_top(8); box.set_margin_bottom(8)
+            box.set_margin_start(10); box.set_margin_end(10)
+            root_note = " (asks for the admin password)" if tool.get("root") else ""
+            hdr = Gtk.Label()
+            hdr.set_markup(f"<b>{GLib.markup_escape_text(tool['bin'])}</b>{root_note}")
+            hdr.set_xalign(0)
+            box.pack_start(hdr, False, False, 0)
+
+            entries = {}
+            for name, label, hint, default in tool["fields"]:
+                box.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+                e = Gtk.Entry(text=default)
+                if hint:
+                    e.set_placeholder_text(hint)
+                    e.set_tooltip_text(hint)
+                box.pack_start(e, False, False, 0)
+                entries[name] = e
+
+            preview = Gtk.Label(xalign=0, selectable=True)
+            preview.set_line_wrap(True)
+            preview.get_style_context().add_class("monospace")
+            box.pack_start(Gtk.Label(label="Command:", xalign=0), False, False, 0)
+            box.pack_start(preview, False, False, 0)
+
+            def refresh(*_):
+                v = {n: e.get_text() for n, e in entries.items()}
+                try:
+                    cmd = " ".join(build_argv(tool, v, resolve_bin(tool["bin"])))
+                except Exception as exc:  # a field left in a bad state
+                    cmd = f"(incomplete: {exc})"
+                preview.set_text(cmd)
+            for e in entries.values():
+                e.connect("changed", refresh)
+            refresh()
+
+            dlg.show_all()
+            resp = dlg.run()
+            vals = {n: e.get_text() for n, e in entries.items()} if resp == Gtk.ResponseType.OK else None
+            dlg.destroy()
+            return vals
+
+        def _run_stream(self, argv):
+            self._stop()
+            self._append(f"\n$ {' '.join(argv)}\n")
+            os.makedirs(KALI_WORK, exist_ok=True)
+            try:
+                launcher = Gio.SubprocessLauncher(
+                    flags=Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
+                launcher.set_cwd(KALI_WORK)
+                self.proc = launcher.spawnv(argv)
+            except GLib.Error as exc:
+                self._append(f"[failed to start: {exc.message}]\n")
+                return
+            self.stop_btn.set_sensitive(True)
+            stream = Gio.DataInputStream.new(self.proc.get_stdout_pipe())
+            self._read_next(stream)
+            self.proc.wait_async(None, self._on_exit)
+
+        def _read_next(self, stream):
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self._on_line, stream)
+
+        def _on_line(self, stream, res, _data):
+            try:
+                line, _ = stream.read_line_finish_utf8(res)
+            except GLib.Error:
+                return
+            if line is None:
+                return
+            self._append(line + "\n")
+            self._read_next(stream)
+
+        def _on_exit(self, proc, _res):
+            try:
+                proc.wait_finish(_res)
+                code = proc.get_exit_status()
+                self._append(f"[exited {code}]\n")
+            except GLib.Error:
+                pass
+            self.stop_btn.set_sensitive(False)
+            self.proc = None
+
+        def _stop(self):
+            if self.proc is not None:
+                try:
+                    self.proc.force_exit()
+                except GLib.Error:
+                    pass
+                self.proc = None
+            self.stop_btn.set_sensitive(False)
+
+        def _run_terminal(self, argv):
+            # Curses / interactive tool: open in lxterminal so its full-screen
+            # UI works. Hold the window open after it exits.
+            inner = " ".join(GLib.shell_quote(a) for a in argv)
+            os.makedirs(KALI_WORK, exist_ok=True)
+            bash = f'{inner}; echo; read -n1 -r -p "[finished -- press any key to close]"'
+            term_argv = ["env", "GDK_BACKEND=wayland", "lxterminal",
+                         f"--working-directory={KALI_WORK}",
+                         "-e", "bash", "-lc", bash]
+            self._append(f"\n$ {inner}   (opened in a terminal window)\n")
+            try:
+                Gio.Subprocess.new(term_argv, Gio.SubprocessFlags.NONE)
+            except GLib.Error as exc:
+                self._append(f"[could not open terminal: {exc.message}]\n")
+
+        def _open_terminal(self):
+            os.makedirs(KALI_WORK, exist_ok=True)
+            try:
+                Gio.Subprocess.new(
+                    ["env", "GDK_BACKEND=wayland", "lxterminal",
+                     f"--working-directory={KALI_WORK}"],
+                    Gio.SubprocessFlags.NONE)
+            except GLib.Error as exc:
+                self._append(f"[could not open terminal: {exc.message}]\n")
+
+        def _toggle_pentest(self):
+            on = monitor_active()
+            script = PENTEST_STOP if on else PENTEST_START
+            verb = "STOP" if on else "START"
+            warn = ("This restores wlan1 to managed mode and brings PINET + "
+                    "internet back." if on else
+                    "This switches wlan1 to monitor mode and DROPS this Pi's "
+                    "internet and any SSH session over wlan1. Only do this from "
+                    "the physical screen or the PINET hotspot.")
+            if not self._confirm(f"{verb} Pentest Mode?", warn):
+                return
+            self._append(f"\n$ pkexec {script}\n")
+            try:
+                proc = Gio.Subprocess.new(["pkexec", script],
+                                          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
+            except GLib.Error as exc:
+                self._append(f"[failed: {exc.message}]\n")
+                return
+            stream = Gio.DataInputStream.new(proc.get_stdout_pipe())
+            self._read_next(stream)
+            proc.wait_async(None, lambda p, r: (self._refresh_mode(),))
+
+        def _refresh_mode(self):
+            on = monitor_active()
+            self.mode_lbl.set_markup(
+                "<b>Pentest Mode: <span foreground='#c0392b'>ON</span></b> "
+                "(wlan1 monitor -- internet/SSH down)" if on else
+                "<b>Pentest Mode: <span foreground='#27ae60'>OFF</span></b> "
+                "(wlan1 managed -- normal networking)")
+
+        # -- helpers --
+        def _append(self, text):
+            end = self.buf.get_end_iter()
+            self.buf.insert(end, text)
+            self.view.scroll_to_iter(self.buf.get_end_iter(), 0.0, False, 0, 0)
+
+        def _confirm(self, title, msg):
+            d = Gtk.MessageDialog(transient_for=self, modal=True,
+                                  message_type=Gtk.MessageType.WARNING,
+                                  buttons=Gtk.ButtonsType.OK_CANCEL, text=title)
+            d.format_secondary_text(msg)
+            ok = d.run() == Gtk.ResponseType.OK
+            d.destroy()
+            return ok
+
+        def _on_destroy(self, *_):
+            self._stop()
+            Gtk.main_quit()
+
+    def authorized():
+        if os.path.exists(ACK_FILE):
+            return True
+        d = Gtk.MessageDialog(modal=True, message_type=Gtk.MessageType.WARNING,
+                              buttons=Gtk.ButtonsType.NONE,
+                              text="Authorized use only")
+        d.format_secondary_text(AUTHORIZATION_TEXT)
+        d.add_buttons("Quit", Gtk.ResponseType.CANCEL,
+                      "I have authorization", Gtk.ResponseType.OK)
+        ok = d.run() == Gtk.ResponseType.OK
+        d.destroy()
+        if ok:
+            os.makedirs(os.path.dirname(ACK_FILE), exist_ok=True)
+            with open(ACK_FILE, "w") as fh:
+                fh.write("acknowledged\n")
+        return ok
+
+    if not authorized():
+        return
+    win = Launcher()
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    run_gui()

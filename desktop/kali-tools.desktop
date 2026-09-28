@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=Kali Tools
-Comment=Terminal with the installed pentest tools (nmap, aircrack-ng, wifite, reaver, ...)
-Exec=env GDK_BACKEND=wayland lxterminal --working-directory=/home/rupal/kali-work
+Comment=Click-per-tool launcher for the installed pentest tools (nmap, aircrack-ng, wifite, reaver, ...)
+Exec=env GDK_BACKEND=wayland /usr/local/bin/kali-launcher
 Icon=/home/rupal/.local/share/icons/kali-tools-pirate.svg
 Terminal=false
 Categories=System;Security;
