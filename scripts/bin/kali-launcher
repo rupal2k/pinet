@@ -74,6 +74,7 @@ def _tool(**k):
     k.setdefault("root", False)
     k.setdefault("stream", True)
     k.setdefault("needs_monitor", False)
+    k.setdefault("desc", "")
     k.setdefault("fields", [])
     k.setdefault("argv", lambda v: [])
     return k
@@ -83,77 +84,78 @@ def build_tools(cidr=None):
     cidr = cidr or _default_cidr()
     return [
         # -- Network mapping --
-        _tool(key="nmap", label="Nmap", group="Network mapping", bin="nmap",
+        _tool(key="nmap", label="Nmap", desc="Host & port scanner",
+              group="Network mapping", bin="nmap",
               fields=[("flags", "Scan flags", "-sn ping sweep; -sV -p- full", "-sn"),
                       ("target", "Target", "host, range or CIDR", cidr)],
               argv=lambda v: v["flags"].split() + [v["target"]]),
-        _tool(key="arp-scan", label="ARP scan", group="Network mapping",
-              bin="arp-scan", root=True,
+        _tool(key="arp-scan", label="ARP scan", desc="Find hosts on the LAN",
+              group="Network mapping", bin="arp-scan", root=True,
               fields=[("iface", "Interface", "L2 scan needs a real iface", UPLINK_IFACE)],
               argv=lambda v: ["-I", v["iface"], "--localnet"]),
-        _tool(key="netdiscover", label="Netdiscover", group="Network mapping",
-              bin="netdiscover", root=True,
+        _tool(key="netdiscover", label="Netdiscover", desc="ARP recon sweep",
+              group="Network mapping", bin="netdiscover", root=True,
               fields=[("iface", "Interface", "", UPLINK_IFACE),
                       ("range", "Range", "blank = auto from iface", cidr)],
               argv=lambda v: ["-P", "-i", v["iface"]] + (["-r", v["range"]] if v["range"].strip() else [])),
-        _tool(key="masscan", label="Masscan", group="Network mapping",
-              bin="masscan", root=True,
+        _tool(key="masscan", label="Masscan", desc="Fast port scanner",
+              group="Network mapping", bin="masscan", root=True,
               fields=[("target", "Target", "CIDR or host", cidr),
                       ("ports", "Ports", "", "1-1000"),
                       ("rate", "Rate", "packets/sec -- keep modest on a Pi", "500")],
               argv=lambda v: [v["target"], "-p", v["ports"], "--rate", v["rate"]]),
 
         # -- WiFi auditing (root; most need monitor mode; curses -> terminal) --
-        _tool(key="airmon-ng", label="airmon-ng (status)", group="WiFi auditing",
-              bin="airmon-ng", root=True, stream=True,
+        _tool(key="airmon-ng", label="airmon-ng", desc="Monitor-mode status",
+              group="WiFi auditing", bin="airmon-ng", root=True, stream=True,
               fields=[], argv=lambda v: []),
-        _tool(key="airodump-ng", label="airodump-ng (survey)", group="WiFi auditing",
-              bin="airodump-ng", root=True, stream=False, needs_monitor=True,
+        _tool(key="airodump-ng", label="airodump-ng", desc="Survey nearby APs",
+              group="WiFi auditing", bin="airodump-ng", root=True, stream=False, needs_monitor=True,
               fields=[("mon", "Monitor iface", "e.g. wlan1 or wlan1mon", UPLINK_IFACE)],
               argv=lambda v: [v["mon"]]),
-        _tool(key="wifite", label="wifite (auto audit)", group="WiFi auditing",
-              bin="wifite", root=True, stream=False, needs_monitor=True,
+        _tool(key="wifite", label="wifite", desc="Automated WiFi audit",
+              group="WiFi auditing", bin="wifite", root=True, stream=False, needs_monitor=True,
               fields=[("iface", "Interface", "wifite manages monitor mode itself", UPLINK_IFACE)],
               argv=lambda v: ["-i", v["iface"]]),
-        _tool(key="reaver", label="reaver (WPS)", group="WiFi auditing",
-              bin="reaver", root=True, stream=False, needs_monitor=True,
+        _tool(key="reaver", label="reaver", desc="WPS PIN test",
+              group="WiFi auditing", bin="reaver", root=True, stream=False, needs_monitor=True,
               fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
                       ("bssid", "BSSID", "target AP MAC", ""),
                       ("channel", "Channel", "", "")],
               argv=lambda v: ["-i", v["mon"], "-b", v["bssid"]] + (["-c", v["channel"]] if v["channel"].strip() else []) + ["-vv"]),
-        _tool(key="bully", label="bully (WPS)", group="WiFi auditing",
-              bin="bully", root=True, stream=False, needs_monitor=True,
+        _tool(key="bully", label="bully", desc="WPS PIN test",
+              group="WiFi auditing", bin="bully", root=True, stream=False, needs_monitor=True,
               fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
                       ("bssid", "BSSID", "target AP MAC", "")],
               argv=lambda v: [v["mon"], "-b", v["bssid"]]),
-        _tool(key="mdk4", label="mdk4", group="WiFi auditing",
-              bin="mdk4", root=True, stream=False, needs_monitor=True,
+        _tool(key="mdk4", label="mdk4", desc="WiFi stress test",
+              group="WiFi auditing", bin="mdk4", root=True, stream=False, needs_monitor=True,
               fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
                       ("mode", "Mode", "e.g. b beacon flood (test only)", "b")],
               argv=lambda v: [v["mon"], v["mode"]]),
-        _tool(key="hcxdumptool", label="hcxdumptool (capture)", group="WiFi auditing",
-              bin="hcxdumptool", root=True, stream=False, needs_monitor=True,
+        _tool(key="hcxdumptool", label="hcxdumptool", desc="Capture PMKID / handshakes",
+              group="WiFi auditing", bin="hcxdumptool", root=True, stream=False, needs_monitor=True,
               fields=[("mon", "Monitor iface", "", UPLINK_IFACE),
                       ("out", "Output pcapng", "saved under kali-work", os.path.join(KALI_WORK, "capture.pcapng"))],
               argv=lambda v: ["-i", v["mon"], "-w", v["out"]]),
-        _tool(key="aircrack-ng", label="aircrack-ng (crack)", group="WiFi auditing",
-              bin="aircrack-ng", root=False, stream=False,
+        _tool(key="aircrack-ng", label="aircrack-ng", desc="Crack a capture",
+              group="WiFi auditing", bin="aircrack-ng", root=False, stream=False,
               fields=[("cap", "Capture file", ".cap/.pcapng with a handshake", os.path.join(KALI_WORK, "capture.pcapng")),
                       ("wordlist", "Wordlist", "", "/usr/share/wordlists/rockyou.txt")],
               argv=lambda v: [v["cap"], "-w", v["wordlist"]]),
 
         # -- Supporting --
-        _tool(key="macchanger", label="MAC changer", group="Supporting",
-              bin="macchanger", root=True,
+        _tool(key="macchanger", label="MAC changer", desc="Randomize / show MAC",
+              group="Supporting", bin="macchanger", root=True,
               fields=[("iface", "Interface", "iface must be DOWN to change", UPLINK_IFACE),
                       ("flags", "Flags", "-r random, -p permanent, -s show", "-s")],
               argv=lambda v: [v["flags"], v["iface"]]),
-        _tool(key="iw", label="iw (radio info)", group="Supporting",
-              bin="iw",
+        _tool(key="iw", label="iw", desc="Radio & iface info",
+              group="Supporting", bin="iw",
               fields=[("args", "Arguments", "e.g. 'dev', 'wlan1 info', 'list'", "dev")],
               argv=lambda v: v["args"].split()),
-        _tool(key="tcpdump", label="tcpdump", group="Supporting",
-              bin="tcpdump", root=True,
+        _tool(key="tcpdump", label="tcpdump", desc="Packet capture",
+              group="Supporting", bin="tcpdump", root=True,
               fields=[("iface", "Interface", "", UPLINK_IFACE),
                       ("count", "Packets", "stop after N", "20"),
                       ("filter", "Filter", "BPF, e.g. 'port 53'", "")],
@@ -162,6 +164,13 @@ def build_tools(cidr=None):
 
 
 GROUP_ORDER = ["Network mapping", "WiFi auditing", "Supporting"]
+# accent dot + one-line subtitle per group (restrained: dots differentiate,
+# text stays neutral -- no full recolour).
+GROUP_META = {
+    "Network mapping": ("#38BDF8", "Discover hosts and open ports"),
+    "WiFi auditing": ("#F59E0B", "Survey and test WiFi -- needs monitor mode"),
+    "Supporting": ("#22C55E", "Interfaces, MAC and capture"),
+}
 
 
 def resolve_bin(name):
@@ -209,90 +218,232 @@ def monitor_active(iface=UPLINK_IFACE):
 def run_gui():
     import gi
     gi.require_version("Gtk", "3.0")
-    from gi.repository import Gtk, Gio, GLib
+    from gi.repository import Gtk, Gio, GLib, Gdk
 
     cidr = _default_cidr()
     TOOLS = build_tools(cidr)
 
+    # Palette: "developer tool / IDE -- code dark + run green" (ui-ux-pro-max
+    # colors.csv). Clean & sharp: hairline 1px borders, 4px radius, flat panels
+    # (no gradients / no glow), tight spacing grid, system monospace (offline).
+    CSS = b"""
+    * { outline: none; }
+    .root { background-color: #0F172A; }
+    .titlebar { background-color: #0B1220; border-bottom: 1px solid #1E293B;
+                padding: 10px 14px; }
+    .app-title { color: #F8FAFC; font-weight: 800; font-size: 15px;
+                 letter-spacing: 2px; }
+    .app-sub { color: #64748B; font-size: 10px; letter-spacing: 1px; }
+    .pill { border-radius: 4px; padding: 4px 10px; font-size: 10px;
+            font-weight: 700; letter-spacing: 1px; border: 1px solid transparent; }
+    .pill-off { background-color: #0F1E17; color: #22C55E; border-color: #14532D; }
+    .pill-on  { background-color: #2A1113; color: #F87171; border-color: #7F1D1D; }
+    .ghost { background: none; color: #CBD5E1; border: 1px solid #334155;
+             border-radius: 4px; padding: 6px 12px; font-size: 12px; }
+    .ghost:hover { background-color: #16202E; border-color: #475569; color: #F8FAFC; }
+    .danger { border-color: #7F1D1D; color: #FCA5A5; }
+    .danger:hover { background-color: #2A1113; border-color: #B91C1C; color: #FEE2E2; }
+    .card { background-color: #111A2B; border: 1px solid #1E293B;
+            border-radius: 6px; }
+    .card-title { color: #E2E8F0; font-weight: 700; font-size: 11px;
+                  letter-spacing: 2px; }
+    .card-sub { color: #64748B; font-size: 10px; }
+    .dot { border-radius: 3px; min-width: 8px; min-height: 8px; }
+    .tool { background-color: #0F1830; border: 1px solid #24324A;
+            border-radius: 5px; padding: 0; }
+    .tool:hover { background-color: #142138; border-color: #22C55E; }
+    .tool:disabled { opacity: 0.4; }
+    .tool-name { color: #F1F5F9; font-weight: 600; font-size: 13px; }
+    .tool-desc { color: #7C8AA0; font-size: 10px; }
+    .badge { color: #FBBF24; font-size: 9px; font-weight: 700; letter-spacing: 1px;
+             border: 1px solid #4D3B12; border-radius: 3px; padding: 0 4px; }
+    .pane-bar { background-color: #0B1220; border: 1px solid #1E293B;
+                border-bottom: none; border-radius: 6px 6px 0 0; padding: 6px 10px; }
+    .pane-title { color: #94A3B8; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+    .term { border: 1px solid #1E293B; border-radius: 0 0 6px 6px; }
+    .term text { background-color: #020617; color: #4ADE80;
+                 font-family: monospace; font-size: 11px; }
+    .mini { padding: 3px 10px; font-size: 11px; }
+    dialog, .card entry { }
+    entry { background-color: #0B1220; color: #F8FAFC; border: 1px solid #334155;
+            border-radius: 4px; padding: 6px 8px; }
+    entry:focus { border-color: #22C55E; }
+    .cmd { color: #4ADE80; font-family: monospace; font-size: 11px;
+           background-color: #020617; border: 1px solid #1E293B; border-radius: 4px;
+           padding: 8px; }
+    .field-label { color: #94A3B8; font-size: 11px; }
+    """
+
     class Launcher(Gtk.Window):
         def __init__(self):
             super().__init__(title="PINET Kali Launcher")
-            self.set_default_size(760, 620)
+            self.set_default_size(820, 660)
             self.proc = None  # running Gio.Subprocess for the stream pane
+            self._load_css()
             self._build()
             self.connect("destroy", self._on_destroy)
 
+        def _load_css(self):
+            prov = Gtk.CssProvider()
+            prov.load_from_data(CSS)
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), prov,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        def _cls(self, widget, *names):
+            ctx = widget.get_style_context()
+            for n in names:
+                ctx.add_class(n)
+            return widget
+
         # -- layout --
         def _build(self):
-            root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            root.set_margin_top(8); root.set_margin_bottom(8)
-            root.set_margin_start(8); root.set_margin_end(8)
+            root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            self._cls(root, "root")
             self.add(root)
 
             root.pack_start(self._header(), False, False, 0)
 
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            body.set_margin_top(12); body.set_margin_bottom(10)
+            body.set_margin_start(14); body.set_margin_end(14)
+            root.pack_start(body, True, True, 0)
+
             scroller = Gtk.ScrolledWindow()
             scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
             grid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-            grid.set_margin_top(4)
             for group in GROUP_ORDER:
                 grid.pack_start(self._group_box(group), False, False, 0)
             scroller.add(grid)
-            root.pack_start(scroller, True, True, 0)
+            body.pack_start(scroller, True, True, 0)
 
-            # -- output pane --
-            out_hdr = Gtk.Box(spacing=6)
-            lbl = Gtk.Label(label="Output"); lbl.set_xalign(0)
-            out_hdr.pack_start(lbl, True, True, 0)
-            self.stop_btn = Gtk.Button(label="Stop")
-            self.stop_btn.set_sensitive(False)
-            self.stop_btn.connect("clicked", lambda *_: self._stop())
-            out_hdr.pack_end(self.stop_btn, False, False, 0)
-            clr = Gtk.Button(label="Clear")
-            clr.connect("clicked", lambda *_: self.buf.set_text(""))
-            out_hdr.pack_end(clr, False, False, 0)
-            root.pack_start(out_hdr, False, False, 0)
-
-            term = Gtk.ScrolledWindow()
-            term.set_min_content_height(180)
-            self.view = Gtk.TextView(editable=False, cursor_visible=False,
-                                     monospace=True, wrap_mode=Gtk.WrapMode.CHAR)
-            self.buf = self.view.get_buffer()
-            term.add(self.view)
-            root.pack_start(term, False, False, 0)
+            body.pack_start(self._output_pane(), False, False, 0)
 
         def _header(self):
-            bar = Gtk.Box(spacing=6)
-            self.mode_lbl = Gtk.Label()
-            self.mode_lbl.set_xalign(0)
-            self._refresh_mode()
-            bar.pack_start(self.mode_lbl, True, True, 0)
+            bar = Gtk.Box(spacing=10)
+            self._cls(bar, "titlebar")
 
-            pen = Gtk.Button(label="Toggle Pentest Mode")
-            pen.connect("clicked", lambda *_: self._toggle_pentest())
-            bar.pack_end(pen, False, False, 0)
-            term = Gtk.Button(label="Open Terminal")
+            title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            title_box.set_valign(Gtk.Align.CENTER)
+            t = Gtk.Label(label="KALI LAUNCHER", xalign=0)
+            self._cls(t, "app-title")
+            s = Gtk.Label(label="PENTEST TOOLKIT", xalign=0)
+            self._cls(s, "app-sub")
+            title_box.pack_start(t, False, False, 0)
+            title_box.pack_start(s, False, False, 0)
+            bar.pack_start(title_box, False, False, 0)
+
+            self.mode_pill = Gtk.Label()
+            self.mode_pill.set_valign(Gtk.Align.CENTER)
+            bar.pack_start(self.mode_pill, True, True, 6)
+            self.mode_pill.set_halign(Gtk.Align.START)
+            self._refresh_mode()
+
+            term = self._cls(Gtk.Button(label="Open Terminal"), "ghost")
             term.connect("clicked", lambda *_: self._open_terminal())
             bar.pack_end(term, False, False, 0)
+            pen = self._cls(Gtk.Button(label="Toggle Pentest Mode"), "ghost", "danger")
+            pen.connect("clicked", lambda *_: self._toggle_pentest())
+            bar.pack_end(pen, False, False, 0)
             return bar
 
         def _group_box(self, group):
-            frame = Gtk.Frame(label=group)
+            accent, subtitle = GROUP_META[group]
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            self._cls(card, "card")
+
+            head = Gtk.Box(spacing=8)
+            head.set_margin_top(10); head.set_margin_bottom(4)
+            head.set_margin_start(12); head.set_margin_end(12)
+            dot = self._cls(Gtk.Box(), "dot")
+            dot.set_valign(Gtk.Align.CENTER)
+            self._tint(dot, accent)
+            head.pack_start(dot, False, False, 0)
+            tl = Gtk.Label(label=group.upper(), xalign=0)
+            self._cls(tl, "card-title")
+            head.pack_start(tl, False, False, 0)
+            sub = Gtk.Label(label=subtitle, xalign=0)
+            self._cls(sub, "card-sub")
+            sub.set_valign(Gtk.Align.CENTER)
+            head.pack_start(sub, False, False, 6)
+            card.pack_start(head, False, False, 0)
+
             flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE,
                                max_children_per_line=4, min_children_per_line=2,
-                               row_spacing=6, column_spacing=6, homogeneous=True)
-            flow.set_margin_top(6); flow.set_margin_bottom(6)
-            flow.set_margin_start(6); flow.set_margin_end(6)
+                               row_spacing=8, column_spacing=8, homogeneous=True)
+            flow.set_margin_top(4); flow.set_margin_bottom(11)
+            flow.set_margin_start(12); flow.set_margin_end(12)
             for tool in [t for t in TOOLS if t["group"] == group]:
-                btn = Gtk.Button(label=tool["label"])
-                present = resolve_bin(tool["bin"]) is not None
-                btn.set_sensitive(present)
-                if not present:
-                    btn.set_tooltip_text(f"{tool['bin']} is not installed")
-                btn.connect("clicked", self._on_tool, tool)
-                flow.add(btn)
-            frame.add(flow)
-            return frame
+                flow.add(self._tool_button(tool))
+            card.pack_start(flow, False, False, 0)
+            return card
+
+        def _tool_button(self, tool):
+            btn = self._cls(Gtk.Button(), "tool")
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            inner.set_margin_top(9); inner.set_margin_bottom(9)
+            inner.set_margin_start(11); inner.set_margin_end(11)
+
+            top = Gtk.Box(spacing=6)
+            name = Gtk.Label(label=tool["label"], xalign=0)
+            self._cls(name, "tool-name")
+            top.pack_start(name, True, True, 0)
+            if tool.get("root"):
+                badge = Gtk.Label(label="SUDO")
+                self._cls(badge, "badge")
+                badge.set_valign(Gtk.Align.CENTER)
+                top.pack_end(badge, False, False, 0)
+            inner.pack_start(top, False, False, 0)
+
+            desc = Gtk.Label(label=tool["desc"], xalign=0)
+            self._cls(desc, "tool-desc")
+            inner.pack_start(desc, False, False, 0)
+            btn.add(inner)
+
+            present = resolve_bin(tool["bin"]) is not None
+            btn.set_sensitive(present)
+            btn.set_tooltip_text(
+                f"{tool['bin']} is not installed" if not present
+                else ("opens in a terminal window" if not tool.get("stream")
+                      else "streams into the output pane below"))
+            btn.connect("clicked", self._on_tool, tool)
+            return btn
+
+        def _output_pane(self):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            bar = Gtk.Box(spacing=6)
+            self._cls(bar, "pane-bar")
+            lbl = Gtk.Label(label="OUTPUT", xalign=0)
+            self._cls(lbl, "pane-title")
+            bar.pack_start(lbl, True, True, 0)
+            clr = self._cls(Gtk.Button(label="Clear"), "ghost", "mini")
+            clr.connect("clicked", lambda *_: self.buf.set_text(""))
+            bar.pack_end(clr, False, False, 0)
+            self.stop_btn = self._cls(Gtk.Button(label="Stop"), "ghost", "danger", "mini")
+            self.stop_btn.set_sensitive(False)
+            self.stop_btn.connect("clicked", lambda *_: self._stop())
+            bar.pack_end(self.stop_btn, False, False, 0)
+            box.pack_start(bar, False, False, 0)
+
+            term = Gtk.ScrolledWindow()
+            self._cls(term, "term")
+            term.set_min_content_height(150)
+            self.view = Gtk.TextView(editable=False, cursor_visible=False,
+                                     monospace=True, wrap_mode=Gtk.WrapMode.CHAR)
+            self.view.set_left_margin(10); self.view.set_top_margin(8)
+            self.view.set_right_margin(10); self.view.set_bottom_margin(8)
+            self.buf = self.view.get_buffer()
+            self.buf.set_text("Ready. Pick a tool above.\n")
+            term.add(self.view)
+            box.pack_start(term, False, False, 0)
+            return box
+
+        def _tint(self, widget, hexcolor):
+            prov = Gtk.CssProvider()
+            prov.load_from_data(
+                (".dot{background-color:%s;}" % hexcolor).encode())
+            widget.get_style_context().add_provider(
+                prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
         # -- actions --
         def _on_tool(self, _btn, tool):
@@ -317,19 +468,27 @@ def run_gui():
         def _prompt_fields(self, tool):
             dlg = Gtk.Dialog(title=tool["label"], transient_for=self, modal=True)
             dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Run", Gtk.ResponseType.OK)
+            dlg.set_default_response(Gtk.ResponseType.OK)
+            self._cls(dlg, "root")
             box = dlg.get_content_area()
             box.set_spacing(6)
-            box.set_margin_top(8); box.set_margin_bottom(8)
-            box.set_margin_start(10); box.set_margin_end(10)
-            root_note = " (asks for the admin password)" if tool.get("root") else ""
-            hdr = Gtk.Label()
-            hdr.set_markup(f"<b>{GLib.markup_escape_text(tool['bin'])}</b>{root_note}")
-            hdr.set_xalign(0)
+            box.set_margin_top(12); box.set_margin_bottom(12)
+            box.set_margin_start(14); box.set_margin_end(14)
+
+            hdr = Gtk.Label(xalign=0)
+            root_note = "  ·  runs as root (password prompt)" if tool.get("root") else ""
+            hdr.set_markup(
+                f"<b>{GLib.markup_escape_text(tool['label'])}</b>  "
+                f"<span foreground='#7C8AA0'>{GLib.markup_escape_text(tool['desc'])}"
+                f"{root_note}</span>")
             box.pack_start(hdr, False, False, 0)
+            box.pack_start(Gtk.Separator(), False, False, 4)
 
             entries = {}
             for name, label, hint, default in tool["fields"]:
-                box.pack_start(Gtk.Label(label=label, xalign=0), False, False, 0)
+                lab = Gtk.Label(label=label, xalign=0)
+                self._cls(lab, "field-label")
+                box.pack_start(lab, False, False, 0)
                 e = Gtk.Entry(text=default)
                 if hint:
                     e.set_placeholder_text(hint)
@@ -337,10 +496,13 @@ def run_gui():
                 box.pack_start(e, False, False, 0)
                 entries[name] = e
 
+            cl = Gtk.Label(label="COMMAND", xalign=0)
+            self._cls(cl, "field-label")
+            cl.set_margin_top(4)
+            box.pack_start(cl, False, False, 0)
             preview = Gtk.Label(xalign=0, selectable=True)
             preview.set_line_wrap(True)
-            preview.get_style_context().add_class("monospace")
-            box.pack_start(Gtk.Label(label="Command:", xalign=0), False, False, 0)
+            self._cls(preview, "cmd")
             box.pack_start(preview, False, False, 0)
 
             def refresh(*_):
@@ -458,11 +620,14 @@ def run_gui():
 
         def _refresh_mode(self):
             on = monitor_active()
-            self.mode_lbl.set_markup(
-                "<b>Pentest Mode: <span foreground='#c0392b'>ON</span></b> "
-                "(wlan1 monitor -- internet/SSH down)" if on else
-                "<b>Pentest Mode: <span foreground='#27ae60'>OFF</span></b> "
-                "(wlan1 managed -- normal networking)")
+            ctx = self.mode_pill.get_style_context()
+            for c in ("pill", "pill-on", "pill-off"):
+                ctx.remove_class(c)
+            ctx.add_class("pill")
+            ctx.add_class("pill-on" if on else "pill-off")
+            self.mode_pill.set_text(
+                "PENTEST MODE: ON  ·  wlan1 monitor, internet + SSH down" if on
+                else "PENTEST MODE: OFF  ·  wlan1 managed, normal networking")
 
         # -- helpers --
         def _append(self, text):
