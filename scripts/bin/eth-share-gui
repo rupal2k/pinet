@@ -4,10 +4,11 @@ uplink out of the eth0 Ethernet port, in the same e-ink style as Kali Tools.
 
 The window shows what sharing needs to work -- the Wi-Fi uplink, the Ethernet
 port (cable + connected devices) and the battery -- and one Turn On / Turn Off
-button. Starting or stopping runs `eth-share` through pkexec (a polkit prompt),
-so no passwordless-sudo assumption. The status parsing below is pure and
-unit-tested (tests/test_eth_share.py); the GUI imports gi lazily so those tests
-need no display.
+button. Starting or stopping runs `eth-share` through `sudo -n` (rupal has
+passwordless sudo on this appliance) so there is no password prompt -- the only
+gate is the confirm dialog. The status parsing below is pure and unit-tested
+(tests/test_eth_share.py); the GUI imports gi lazily so those tests need no
+display.
 """
 import os
 import subprocess
@@ -247,7 +248,9 @@ def run_gui():
             on = getattr(self, "_on", False)
             if not self._confirm(STOP_WARNING if on else START_WARNING):
                 return
-            self._run(["pkexec", ETH_SHARE, "stop" if on else "start"])
+            # sudo -n, not pkexec: rupal has passwordless sudo here, so no
+            # password prompt -- the confirm dialog above is the only gate.
+            self._run(["sudo", "-n", ETH_SHARE, "stop" if on else "start"])
 
         def _run(self, argv):
             if self.proc is not None:
