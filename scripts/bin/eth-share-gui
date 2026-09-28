@@ -133,6 +133,12 @@ def run_gui():
             self.toggle.connect("clicked", lambda *_: self._on_toggle())
             body.pack_start(self.toggle, False, False, 0)
 
+            # Ad-blocking (Pi-hole) for the shared network -- only meaningful
+            # while sharing is on, so it's greyed until then.
+            self.adfree_btn = self._cls(Gtk.Button(label="Go Ad-Free"), "ghost")
+            self.adfree_btn.connect("clicked", lambda *_: self._on_adfree())
+            body.pack_start(self.adfree_btn, False, False, 0)
+
             body.pack_start(self._output_pane(), True, True, 0)
 
         def _header(self):
@@ -208,6 +214,21 @@ def run_gui():
             self._set_pill(on)
             self.toggle.set_label("Turn Off Sharing" if on else "Turn On Sharing")
             self._on = on
+            self._update_adfree(st, on)
+
+        def _update_adfree(self, st, sharing_on):
+            adfree = st.get("adfree") == "on"
+            installed = st.get("pihole_installed") == "1"
+            self._adfree_on = adfree
+            self.adfree_btn.set_label("Ad-Free: On — tap to stop" if adfree else "Go Ad-Free")
+            # Only usable while sharing is on and Pi-hole is installed.
+            self.adfree_btn.set_sensitive(sharing_on and installed)
+            if not installed:
+                self.adfree_btn.set_tooltip_text("Pi-hole isn't installed yet")
+            elif not sharing_on:
+                self.adfree_btn.set_tooltip_text("Turn sharing on first")
+            else:
+                self.adfree_btn.set_tooltip_text("Block ads for devices on the shared port")
 
         def _battery_line(self, st):
             # Battery isn't in the status output; read it directly for the card.
@@ -252,10 +273,17 @@ def run_gui():
             # password prompt -- the confirm dialog above is the only gate.
             self._run(["sudo", "-n", ETH_SHARE, "stop" if on else "start"])
 
+        def _on_adfree(self):
+            # One tap, no confirm: it's low-risk and reversible, and the whole
+            # point is a simple "Go Ad-Free" button.
+            on = getattr(self, "_adfree_on", False)
+            self._run(["sudo", "-n", ETH_SHARE, "adfree-off" if on else "adfree-on"])
+
         def _run(self, argv):
             if self.proc is not None:
                 return
             self.toggle.set_sensitive(False)
+            self.adfree_btn.set_sensitive(False)
             self._append(f"\n$ {' '.join(argv)}\n")
             try:
                 self.proc = Gio.Subprocess.new(

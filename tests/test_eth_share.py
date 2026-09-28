@@ -86,6 +86,20 @@ class StartGuard(unittest.TestCase):
             False, True, False, {"state": "battery", "percent": ETH.MIN_BATTERY_PCT}))
 
 
+class AdFree(unittest.TestCase):
+    def test_flag_drives_active(self):
+        import os
+        import tempfile
+        flag = os.path.join(tempfile.mkdtemp(), "adfree")
+        mod = load_defs("scripts/sbin/eth-share",
+                        ["adfree_active", "_exists", "ADFREE_FLAG"],
+                        globals_={"os": os})
+        mod.ADFREE_FLAG = flag
+        self.assertFalse(mod.adfree_active())
+        open(flag, "w").close()
+        self.assertTrue(mod.adfree_active())
+
+
 class GuiStatusLines(unittest.TestCase):
     def parse(self, **kw):
         text = "\n".join(f"{k}={v}" for k, v in kw.items())

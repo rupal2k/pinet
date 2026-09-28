@@ -23,6 +23,7 @@ stops sharing when its countdown begins. wlan1 in monitor mode (Pentest Mode)
 has no uplink to share, so "start" refuses then too.
 """
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -40,6 +41,17 @@ PENTEST_FLAG = os.environ.get("PENTEST_FLAG", "/run/pentest-mode")
 UPS_LOW_FLAG = os.environ.get("UPS_LOW_FLAG", "/run/pinet-ups-low")
 BATTERY_READER = os.environ.get("ETH_SHARE_BATTERY", "/usr/local/bin/pinet-battery")
 MIN_BATTERY_PCT = int(os.environ.get("ETH_SHARE_MIN_PCT", "25"))
+
+# --- ad-blocking (Pi-hole), on demand -------------------------------------
+# Pi-hole's FTL runs on a loopback port (not :53, which NM's shared dnsmasq
+# owns). "Go Ad-Free" makes that shared dnsmasq forward every query to FTL by
+# dropping one conf file and reactivating the connection; off removes it again.
+# FTL is started/stopped with the toggle, so it only runs when asked.
+ADFREE_FLAG = os.environ.get("ETH_ADFREE_FLAG", "/run/eth-share-adfree")
+ADFREE_CONF = os.environ.get(
+    "ETH_ADFREE_CONF", "/etc/NetworkManager/dnsmasq-shared.d/pinet-adfree.conf")
+PIHOLE_SERVICE = os.environ.get("ETH_PIHOLE_SERVICE", "pihole-FTL")
+PIHOLE_PORT = os.environ.get("ETH_PIHOLE_PORT", "5335")
 
 
 # ---- pure helpers (unit-tested) -------------------------------------------
@@ -176,6 +188,17 @@ def share_active():
     return _exists(FLAG)
 
 
+def adfree_active():
+    """True while ad-blocking (Pi-hole) is on for the shared network."""
+    return _exists(ADFREE_FLAG)
+
+
+def _reactivate_share():
+    """Restart the shared dnsmasq so it re-reads dnsmasq-shared.d. Bringing the
+    connection up again is how NetworkManager regenerates and restarts it."""
+    _run(["nmcli", "--wait", "15", "con", "up", SHARE_CON], timeout=25)
+
+
 # ---- commands -------------------------------------------------------------
 
 def cmd_status():
@@ -188,6 +211,8 @@ def cmd_status():
     print(f"uplink_signal={signal}")
     print(f"eth_carrier={'1' if eth_carrier() else '0'}")
     print(f"clients={'' if clients is None else clients}")
+    print(f"adfree={'on' if adfree_active() else 'off'}")
+    print(f"pihole_installed={'1' if shutil.which(PIHOLE_SERVICE) else '0'}")
     print(f"gateway={GATEWAY}")
     print(f"subnet={SUBNET}")
     return 0
@@ -242,8 +267,60 @@ def cmd_start():
     return 0
 
 
+def _adfree_teardown():
+    """Remove the forward drop-in, the flag, and stop FTL. Shared by adfree-off
+    and stop, so turning sharing off never leaves ad-blocking half-configured."""
+    try:
+        os.unlink(ADFREE_CONF)
+    except OSError:
+        pass
+    try:
+        os.unlink(ADFREE_FLAG)
+    except OSError:
+        pass
+    _run(["systemctl", "stop", PIHOLE_SERVICE])
+
+
+def cmd_adfree(on):
+    _require_root()
+    if on:
+        if not share_active():
+            sys.stderr.write("blocked: turn Ethernet sharing on first -- ad-blocking "
+                             "filters the shared network's DNS.\n")
+            return 3
+        if not shutil.which(PIHOLE_SERVICE):
+            sys.stderr.write("blocked: Pi-hole isn't installed. Install it once, then "
+                             "this button turns it on and off.\n")
+            return 4
+        st = _run(["systemctl", "start", PIHOLE_SERVICE], timeout=30)
+        if not st or st.returncode != 0:
+            sys.stderr.write(f"eth-share: could not start {PIHOLE_SERVICE}: "
+                             f"{(st.stderr.strip() if st else 'missing')}\n")
+            return 1
+        # Point the shared dnsmasq at FTL and reactivate it to apply.
+        try:
+            with open(ADFREE_CONF, "w") as f:
+                f.write("# PINET: forward the shared network's DNS to Pi-hole (FTL).\n"
+                        "no-resolv\n"
+                        f"server=127.0.0.1#{PIHOLE_PORT}\n")
+            with open(ADFREE_FLAG, "w") as f:
+                f.write(f"on\n{time.time():.0f}\n")
+            os.chmod(ADFREE_FLAG, 0o644)
+        except OSError as e:
+            sys.stderr.write(f"eth-share: could not enable ad-blocking: {e}\n")
+            return 1
+        _reactivate_share()
+        print("Ad-blocking is ON -- the shared network's DNS now goes through Pi-hole.")
+        return 0
+    _adfree_teardown()
+    _reactivate_share()
+    print("Ad-blocking is OFF.")
+    return 0
+
+
 def cmd_stop():
     _require_root()
+    _adfree_teardown()   # never leave ad-blocking on with sharing off
     down = _run(["nmcli", "con", "down", SHARE_CON])
     try:
         os.unlink(FLAG)
@@ -268,7 +345,11 @@ def main(argv):
         return cmd_start()
     if cmd == "stop":
         return cmd_stop()
-    sys.stderr.write("usage: eth-share status|start|stop\n")
+    if cmd == "adfree-on":
+        return cmd_adfree(True)
+    if cmd == "adfree-off":
+        return cmd_adfree(False)
+    sys.stderr.write("usage: eth-share status|start|stop|adfree-on|adfree-off\n")
     return 2
 
 
