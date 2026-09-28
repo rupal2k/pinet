@@ -34,6 +34,9 @@ PENTEST_STOP = "/usr/local/sbin/wifi-pentest-stop"
 PENTEST_FLAG = "/run/pentest-mode"
 KALI_WORK = os.path.expanduser("~/kali-work")
 ACK_FILE = os.path.expanduser("~/.config/kali-launcher/authorized")
+# PINET wordmark for the header. First hit wins; both are the same file.
+LOGO_PATHS = (os.path.expanduser("~/.local/share/icons/pinet-logo.png"),
+              "/opt/pinet-board/static/pinet-logo.png")
 
 AUTHORIZATION_TEXT = (
     "Only scan, capture, or test networks and devices you OWN or have EXPLICIT "
@@ -164,12 +167,12 @@ def build_tools(cidr=None):
 
 
 GROUP_ORDER = ["Network mapping", "WiFi auditing", "Supporting"]
-# accent dot + one-line subtitle per group (restrained: dots differentiate,
-# text stays neutral -- no full recolour).
+# one-line subtitle per group. A plain black marker dot + the subtitle
+# differentiate groups -- no colour, so the read matches the 1-bit e-ink panel.
 GROUP_META = {
-    "Network mapping": ("#38BDF8", "Discover hosts and open ports"),
-    "WiFi auditing": ("#F59E0B", "Survey and test WiFi -- needs monitor mode"),
-    "Supporting": ("#22C55E", "Interfaces, MAC and capture"),
+    "Network mapping": "Discover hosts and open ports",
+    "WiFi auditing": "Survey and test WiFi -- needs monitor mode",
+    "Supporting": "Interfaces, MAC and capture",
 }
 
 
@@ -218,65 +221,69 @@ def monitor_active(iface=UPLINK_IFACE):
 def run_gui():
     import gi
     gi.require_version("Gtk", "3.0")
-    from gi.repository import Gtk, Gio, GLib, Gdk
+    from gi.repository import Gtk, Gio, GLib, Gdk, GdkPixbuf
 
     cidr = _default_cidr()
     TOOLS = build_tools(cidr)
 
-    # Palette: "developer tool / IDE -- code dark + run green" (ui-ux-pro-max
-    # colors.csv). Clean & sharp: hairline 1px borders, 4px radius, flat panels
-    # (no gradients / no glow), tight spacing grid, system monospace (offline).
+    # E-ink theme, to match the PINET confirm dialogs (scripts/gtk/gtk-4.0/
+    # gtk.css): pure black on white, Roboto, no colour anywhere. State and
+    # emphasis come from weight / a 2px black frame / invert-on-press, never
+    # colour -- so a colour-blind read and the 1-bit panel agree.
     CSS = b"""
     * { outline: none; }
-    .root { background-color: #0F172A; }
-    .titlebar { background-color: #0B1220; border-bottom: 1px solid #1E293B;
+    .root, .root.background { background-color: #ffffff; color: #000000;
+                              font-family: "Roboto", sans-serif; }
+    .titlebar { background-color: #ffffff; border-bottom: 2px solid #000000;
                 padding: 10px 14px; }
-    .app-title { color: #F8FAFC; font-weight: 800; font-size: 15px;
+    .app-title { color: #000000; font-weight: 800; font-size: 15px;
                  letter-spacing: 2px; }
-    .app-sub { color: #64748B; font-size: 10px; letter-spacing: 1px; }
-    .pill { border-radius: 4px; padding: 4px 10px; font-size: 10px;
-            font-weight: 700; letter-spacing: 1px; border: 1px solid transparent; }
-    .pill-off { background-color: #0F1E17; color: #22C55E; border-color: #14532D; }
-    .pill-on  { background-color: #2A1113; color: #F87171; border-color: #7F1D1D; }
-    .ghost { background: none; color: #CBD5E1; border: 1px solid #334155;
-             border-radius: 4px; padding: 6px 12px; font-size: 12px; }
-    .ghost:hover { background-color: #16202E; border-color: #475569; color: #F8FAFC; }
-    .danger { border-color: #7F1D1D; color: #FCA5A5; }
-    .danger:hover { background-color: #2A1113; border-color: #B91C1C; color: #FEE2E2; }
-    .card { background-color: #111A2B; border: 1px solid #1E293B;
-            border-radius: 6px; }
-    .card-title { color: #E2E8F0; font-weight: 700; font-size: 11px;
+    .app-sub { color: #000000; font-size: 10px; letter-spacing: 1px; }
+    /* OFF = outlined; ON = full invert (black fill). Text carries the word too. */
+    .pill { border-radius: 6px; padding: 5px 12px; font-size: 10px;
+            font-weight: 700; letter-spacing: 1px; border: 2px solid #000000; }
+    .pill-off { background-color: #ffffff; color: #000000; }
+    .pill-on  { background-color: #000000; color: #ffffff; }
+    .ghost { background-color: #ffffff; color: #000000; border: 2px solid #000000;
+             border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 700; }
+    .ghost:hover { background-color: #ffffff; border-color: #000000; }
+    .ghost:active, .ghost:checked { background-color: #000000; color: #ffffff; }
+    .danger { }
+    .card { background-color: #ffffff; border: 2px solid #000000;
+            border-radius: 12px; }
+    .card-title { color: #000000; font-weight: 700; font-size: 11px;
                   letter-spacing: 2px; }
-    .card-sub { color: #64748B; font-size: 10px; }
-    .dot { border-radius: 3px; min-width: 8px; min-height: 8px; }
-    .tool { background-color: #0F1830; border: 1px solid #24324A;
-            border-radius: 5px; padding: 0; }
-    .tool:hover { background-color: #142138; border-color: #22C55E; }
-    .tool:disabled { opacity: 0.4; }
-    .tool-name { color: #F1F5F9; font-weight: 600; font-size: 13px; }
-    .tool-desc { color: #7C8AA0; font-size: 10px; }
-    .badge { color: #FBBF24; font-size: 9px; font-weight: 700; letter-spacing: 1px;
-             border: 1px solid #4D3B12; border-radius: 3px; padding: 0 4px; }
-    .pane-bar { background-color: #0B1220; border: 1px solid #1E293B;
-                border-bottom: none; border-radius: 6px 6px 0 0; padding: 6px 10px; }
-    .pane-title { color: #94A3B8; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
-    .term { border: 1px solid #1E293B; border-radius: 0 0 6px 6px; }
-    .term text { background-color: #020617; color: #4ADE80;
+    .card-sub { color: #000000; font-size: 10px; }
+    .dot { border-radius: 2px; min-width: 8px; min-height: 8px;
+           background-color: #000000; }
+    .tool { background-color: #ffffff; color: #000000; border: 2px solid #000000;
+            border-radius: 8px; padding: 0; }
+    .tool:hover { background-color: #ffffff; border-color: #000000; }
+    .tool:active, .tool:checked { background-color: #000000; color: #ffffff; }
+    .tool:disabled { opacity: 0.35; }
+    .tool-name { color: inherit; font-weight: 700; font-size: 13px; }
+    .tool-desc { color: inherit; font-size: 10px; }
+    .badge { color: #000000; font-size: 9px; font-weight: 700; letter-spacing: 1px;
+             border: 2px solid #000000; border-radius: 4px; padding: 0 4px; }
+    .pane-bar { background-color: #ffffff; border: 2px solid #000000;
+                border-bottom: none; border-radius: 12px 12px 0 0; padding: 6px 10px; }
+    .pane-title { color: #000000; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+    .term { border: 2px solid #000000; border-radius: 0 0 12px 12px; }
+    .term text { background-color: #ffffff; color: #000000;
                  font-family: monospace; font-size: 11px; }
-    .mini { padding: 3px 10px; font-size: 11px; }
-    dialog, .card entry { }
-    entry { background-color: #0B1220; color: #F8FAFC; border: 1px solid #334155;
-            border-radius: 4px; padding: 6px 8px; }
-    entry:focus { border-color: #22C55E; }
-    .cmd { color: #4ADE80; font-family: monospace; font-size: 11px;
-           background-color: #020617; border: 1px solid #1E293B; border-radius: 4px;
+    .mini { padding: 3px 12px; font-size: 11px; }
+    entry { background-color: #ffffff; color: #000000; border: 2px solid #000000;
+            border-radius: 6px; padding: 6px 8px; }
+    entry:focus { border-color: #000000; }
+    .cmd { color: #000000; font-family: monospace; font-size: 11px;
+           background-color: #ffffff; border: 2px solid #000000; border-radius: 6px;
            padding: 8px; }
-    .field-label { color: #94A3B8; font-size: 11px; }
+    .field-label { color: #000000; font-size: 11px; font-weight: 700; }
     """
 
     class Launcher(Gtk.Window):
         def __init__(self):
-            super().__init__(title="PINET Kali Launcher")
+            super().__init__(title="PINET Kali Tools")
             self.set_default_size(820, 660)
             self.proc = None  # running Gio.Subprocess for the stream pane
             self._load_css()
@@ -295,6 +302,19 @@ def run_gui():
             for n in names:
                 ctx.add_class(n)
             return widget
+
+        def _logo_image(self, height):
+            """The PINET wordmark, scaled to `height` px keeping aspect.
+            Returns None if the file is missing so the header still builds."""
+            for path in LOGO_PATHS:
+                if os.path.exists(path):
+                    try:
+                        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                            path, -1, height, True)
+                        return Gtk.Image.new_from_pixbuf(pb)
+                    except GLib.Error:
+                        continue
+            return None
 
         # -- layout --
         def _build(self):
@@ -320,12 +340,17 @@ def run_gui():
             body.pack_start(self._output_pane(), False, False, 0)
 
         def _header(self):
-            bar = Gtk.Box(spacing=10)
+            bar = Gtk.Box(spacing=12)
             self._cls(bar, "titlebar")
+
+            logo = self._logo_image(height=42)
+            if logo is not None:
+                logo.set_valign(Gtk.Align.CENTER)
+                bar.pack_start(logo, False, False, 0)
 
             title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             title_box.set_valign(Gtk.Align.CENTER)
-            t = Gtk.Label(label="KALI LAUNCHER", xalign=0)
+            t = Gtk.Label(label="KALI TOOLS", xalign=0)
             self._cls(t, "app-title")
             s = Gtk.Label(label="PENTEST TOOLKIT", xalign=0)
             self._cls(s, "app-sub")
@@ -348,7 +373,7 @@ def run_gui():
             return bar
 
         def _group_box(self, group):
-            accent, subtitle = GROUP_META[group]
+            subtitle = GROUP_META[group]
             card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
             self._cls(card, "card")
 
@@ -357,7 +382,6 @@ def run_gui():
             head.set_margin_start(12); head.set_margin_end(12)
             dot = self._cls(Gtk.Box(), "dot")
             dot.set_valign(Gtk.Align.CENTER)
-            self._tint(dot, accent)
             head.pack_start(dot, False, False, 0)
             tl = Gtk.Label(label=group.upper(), xalign=0)
             self._cls(tl, "card-title")
@@ -438,13 +462,6 @@ def run_gui():
             box.pack_start(term, False, False, 0)
             return box
 
-        def _tint(self, widget, hexcolor):
-            prov = Gtk.CssProvider()
-            prov.load_from_data(
-                (".dot{background-color:%s;}" % hexcolor).encode())
-            widget.get_style_context().add_provider(
-                prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
-
         # -- actions --
         def _on_tool(self, _btn, tool):
             binpath = resolve_bin(tool["bin"])
@@ -479,8 +496,7 @@ def run_gui():
             root_note = "  ·  runs as root (password prompt)" if tool.get("root") else ""
             hdr.set_markup(
                 f"<b>{GLib.markup_escape_text(tool['label'])}</b>  "
-                f"<span foreground='#7C8AA0'>{GLib.markup_escape_text(tool['desc'])}"
-                f"{root_note}</span>")
+                f"{GLib.markup_escape_text(tool['desc'])}{root_note}")
             box.pack_start(hdr, False, False, 0)
             box.pack_start(Gtk.Separator(), False, False, 4)
 
