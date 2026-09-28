@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ethernet Share
+Comment=Share the Wi-Fi connection out of the Ethernet port (opens the app; the icon is green while sharing is on)
+Exec=/usr/local/bin/eth-share-gui
+Icon=/home/rupal/.local/share/icons/eth-share-off.svg
+Terminal=false
+Categories=Network;

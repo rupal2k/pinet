@@ -67,6 +67,14 @@ SPEAKER = ("M12 15 H25 V33 H12 Z M30 20 A8 8 0 0 1 30 28 "
 DRIVER = "M18.5 27.5 A4 4 0 1 1 18.49 27.5 Z"
 STRIKE = "M13 13 L35 35"
 
+# Ethernet share: Wi-Fi arcs at the top feeding down a link into an RJ45 plug.
+# The toggle's state dot sits just below the plug at (24, 40).
+ETH_SHARE_GLYPH = (
+    "M20.5 15 A5 5 0 0 1 27.5 15 "        # inner Wi-Fi arc
+    "M16.6 11.6 A10 10 0 0 1 31.4 11.6 "  # outer Wi-Fi arc
+    "M24 17 V26 "                         # link down to the port
+    "M17 26 H31 V33 H27.5 V36 H20.5 V33 H17 Z")  # RJ45 plug with its tab
+
 
 def toggle(glyph, dot_at, on):
     x, y = dot_at
@@ -82,6 +90,10 @@ ICONS = {
                    toggle(SPEAKER + " " + DRIVER, (18.5, 19.5), True)),
     "spotify-off": ("Spotify player is stopped",
                     toggle(SPEAKER + " " + DRIVER, (18.5, 19.5), False)),
+    "eth-share-on": ("Ethernet sharing is on",
+                     toggle(ETH_SHARE_GLYPH, (24, 40), True)),
+    "eth-share-off": ("Ethernet sharing is off",
+                      toggle(ETH_SHARE_GLYPH, (24, 40), False)),
     "pinet-portal": ("PINET Portal message board",
                      # the PINET hooded figure: curved hood with a swept tip, dark
                      # face opening, glowing slit eyes (as in the wallpaper art)

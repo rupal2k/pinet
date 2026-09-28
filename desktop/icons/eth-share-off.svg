@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>Ethernet sharing is off</title>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#e8e8e8" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#e8e8e8" stroke-width="1.8"/>
+  <path d="M20.5 15 A5 5 0 0 1 27.5 15 M16.6 11.6 A10 10 0 0 1 31.4 11.6 M24 17 V26 M17 26 H31 V33 H27.5 V36 H20.5 V33 H17 Z" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.10"/><path d="M20.5 15 A5 5 0 0 1 27.5 15 M16.6 11.6 A10 10 0 0 1 31.4 11.6 M24 17 V26 M17 26 H31 V33 H27.5 V36 H20.5 V33 H17 Z" stroke="#e8e8e8" stroke-width="2.4" stroke-opacity="0.45"/><circle cx="24" cy="40" r="4.0" fill="#e8e8e8" fill-opacity="0.22"/><circle cx="24" cy="40" r="2.2" fill="#e8e8e8"/><path d="M13 13 L35 35" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.22"/><path d="M13 13 L35 35" stroke="#e8e8e8" stroke-width="2.4" stroke-opacity="1.00"/>
+</svg>

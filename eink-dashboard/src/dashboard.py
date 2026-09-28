@@ -240,6 +240,19 @@ def published_under_voltage():
         return None
 
 
+# Dropped by /usr/local/sbin/eth-share start, removed by stop; /run is tmpfs so
+# a reboot can't leave it stale, and sharing never auto-starts.
+ETH_SHARE_FLAG = Path("/run/eth-share")
+
+
+def eth_share_active():
+    """True while the Pi is sharing its Wi-Fi uplink out of the Ethernet port."""
+    try:
+        return ETH_SHARE_FLAG.exists()
+    except OSError:
+        return False
+
+
 def get_power_status():
     """Core voltage and *current* under-voltage/throttle flags from vcgencmd
     -- this Pi's supply has a history of under-voltage events, so the
@@ -1103,6 +1116,13 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
             line1, f1 = fit_text(draw, "Nothing playing", FONT_REGULAR_PATH, 14, 10, W - 24)
             draw.text((12, 70), line1, font=f1, fill=0)
             draw.text((12, 92), "PINET", font=FONT_SMALL, fill=0)
+
+        # Ethernet-sharing status rides along the bottom of this screen: the Pi
+        # is acting as a Wi-Fi -> Ethernet router when this shows.
+        if eth_share_active():
+            tag = "ETH SHARE: ON"
+            tw = draw.textlength(tag, font=FONT_SMALL)
+            draw.text((W - 10 - tw, H - 12), tag, font=FONT_SMALL, fill=0)
 
     if dark_mode:
         image = ImageOps.invert(image.convert("L")).convert("1")

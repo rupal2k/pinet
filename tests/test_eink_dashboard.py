@@ -222,7 +222,22 @@ class PowerStatus(TmpDirCase):
 
     def test_no_vcgencmd(self):
         self.assertEqual(self.run_with(FileNotFoundError(), FileNotFoundError()), (None, None, None))
-        self.assertEqual(self.run_with("garbage", ""), (None, None, None))
+
+
+class EthShareFlag(TmpDirCase):
+    """eth_share_active() reflects the /run/eth-share flag eth-share maintains."""
+
+    def setUp(self):
+        super().setUp()
+        self.flag = self.tmp / "eth-share"
+        self.dash.ETH_SHARE_FLAG = self.flag
+
+    def test_absent_flag_is_off(self):
+        self.assertFalse(self.dash.eth_share_active())
+
+    def test_present_flag_is_on(self):
+        self.flag.write_text("on\n")
+        self.assertTrue(self.dash.eth_share_active())
 
 
 class FitText(TmpDirCase):

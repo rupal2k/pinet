@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""PINET Ethernet Share -- a one-toggle GUI to route the Pi's wlan1 Wi-Fi
+uplink out of the eth0 Ethernet port, in the same e-ink style as Kali Tools.
+
+The window shows what sharing needs to work -- the Wi-Fi uplink, the Ethernet
+port (cable + connected devices) and the battery -- and one Turn On / Turn Off
+button. Starting or stopping runs `eth-share` through pkexec (a polkit prompt),
+so no passwordless-sudo assumption. The status parsing below is pure and
+unit-tested (tests/test_eth_share.py); the GUI imports gi lazily so those tests
+need no display.
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pinet_eink_theme import CSS, LOGO_PATHS
+
+ETH_SHARE = "/usr/local/sbin/eth-share"
+
+# The one warning that matters: the Pi starts handing out addresses on whatever
+# the port is plugged into, so it must not be the home router's LAN.
+START_WARNING = (
+    "Turn the Pi into a router?\n\n"
+    "It will share the Wi-Fi (wlan1) connection out of the Ethernet port: "
+    "devices you plug in get an address on 10.42.0.x and reach the internet "
+    "through the Pi.\n\n"
+    "Do NOT plug the port into your home router while this is on -- the Pi "
+    "would start handing out addresses on your home network. Plug it into the "
+    "device, switch, or PC you want to give internet to.\n\n"
+    "On a Pi 3B the speed is modest (the port and the Wi-Fi dongle share one "
+    "USB bus) and it draws more power."
+)
+STOP_WARNING = (
+    "Turn off Ethernet sharing?\n\n"
+    "Any device using the Pi for internet will lose it, and the Ethernet port "
+    "goes back to being a normal wired connection."
+)
+
+
+def parse_status(text):
+    """`eth-share status` key=value output -> dict. Pure."""
+    out = {}
+    for line in text.splitlines():
+        key, sep, val = line.strip().partition("=")
+        if sep and key:
+            out[key] = val
+    return out
+
+
+def status_lines(st):
+    """Human rows for the three cards, from a parsed status dict. Pure, so the
+    exact wording is unit-tested without a display.
+    Returns (on, uplink_row, eth_row, clients_row)."""
+    on = st.get("state") == "on"
+    ssid = st.get("uplink_ssid") or ""
+    if st.get("uplink_ok") == "1":
+        sig = st.get("uplink_signal")
+        uplink = f"{ssid or 'connected'}" + (f"  ·  {sig}%" if sig else "")
+    else:
+        uplink = "no Wi-Fi uplink"
+    eth = "cable connected" if st.get("eth_carrier") == "1" else "no cable"
+    clients = st.get("clients", "")
+    if clients == "":
+        clients_row = "sharing off" if not on else "devices: (unknown)"
+    else:
+        n = clients
+        clients_row = f"{n} device{'s' if n != '1' else ''} connected"
+    return on, uplink, eth, clients_row
+
+
+def run_gui():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk, Gio, GLib, Gdk, GdkPixbuf
+
+    class Window(Gtk.Window):
+        def __init__(self):
+            super().__init__(title="PINET Ethernet Share")
+            self.set_default_size(560, 520)
+            self.proc = None
+            self._load_css()
+            self._build()
+            self.connect("destroy", lambda *_: Gtk.main_quit())
+            self._refresh()
+            # Poll status while open so the device count and cable state follow
+            # reality without a click. 4 s is cheap (two nmcli reads).
+            GLib.timeout_add_seconds(4, self._tick)
+
+        def _load_css(self):
+            prov = Gtk.CssProvider()
+            prov.load_from_data(CSS)
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), prov,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        def _cls(self, w, *names):
+            ctx = w.get_style_context()
+            for n in names:
+                ctx.add_class(n)
+            return w
+
+        def _logo(self, height):
+            for path in LOGO_PATHS:
+                if os.path.exists(path):
+                    try:
+                        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, -1, height, True)
+                        return Gtk.Image.new_from_pixbuf(pb)
+                    except GLib.Error:
+                        pass
+            return None
+
+        # -- layout --
+        def _build(self):
+            root = self._cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "root")
+            self.add(root)
+            root.pack_start(self._header(), False, False, 0)
+
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            body.set_margin_top(12); body.set_margin_bottom(12)
+            body.set_margin_start(14); body.set_margin_end(14)
+            root.pack_start(body, True, True, 0)
+
+            self.uplink_card = self._card("WI-FI UPLINK (wlan1)")
+            self.eth_card = self._card("ETHERNET PORT (eth0)")
+            self.power_card = self._card("BATTERY")
+            for c in (self.uplink_card, self.eth_card, self.power_card):
+                body.pack_start(c["box"], False, False, 0)
+
+            self.toggle = self._cls(Gtk.Button(label="Turn On Sharing"), "ghost")
+            self.toggle.set_margin_top(4)
+            self.toggle.connect("clicked", lambda *_: self._on_toggle())
+            body.pack_start(self.toggle, False, False, 0)
+
+            body.pack_start(self._output_pane(), True, True, 0)
+
+        def _header(self):
+            bar = self._cls(Gtk.Box(spacing=12), "titlebar")
+            logo = self._logo(42)
+            if logo is not None:
+                logo.set_valign(Gtk.Align.CENTER)
+                bar.pack_start(logo, False, False, 0)
+            tb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            tb.set_valign(Gtk.Align.CENTER)
+            tb.pack_start(self._cls(Gtk.Label(label="ETHERNET SHARE", xalign=0), "app-title"), False, False, 0)
+            tb.pack_start(self._cls(Gtk.Label(label="WI-FI → ETHERNET ROUTER", xalign=0), "app-sub"), False, False, 0)
+            bar.pack_start(tb, False, False, 0)
+            self.pill = Gtk.Label()
+            self.pill.set_valign(Gtk.Align.CENTER)
+            self.pill.set_halign(Gtk.Align.END)
+            bar.pack_end(self.pill, True, True, 6)
+            return bar
+
+        def _card(self, title):
+            box = self._cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2), "card")
+            head = Gtk.Box(spacing=8)
+            head.set_margin_top(9); head.set_margin_bottom(2)
+            head.set_margin_start(12); head.set_margin_end(12)
+            dot = self._cls(Gtk.Box(), "dot")
+            dot.set_valign(Gtk.Align.CENTER)
+            head.pack_start(dot, False, False, 0)
+            head.pack_start(self._cls(Gtk.Label(label=title, xalign=0), "card-title"), False, False, 0)
+            box.pack_start(head, False, False, 0)
+            value = Gtk.Label(label="…", xalign=0)
+            self._cls(value, "card-sub")
+            value.set_margin_start(28); value.set_margin_bottom(10); value.set_margin_end(12)
+            box.pack_start(value, False, False, 0)
+            return {"box": box, "value": value}
+
+        def _output_pane(self):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            bar = self._cls(Gtk.Box(spacing=6), "pane-bar")
+            bar.pack_start(self._cls(Gtk.Label(label="OUTPUT", xalign=0), "pane-title"), True, True, 0)
+            box.pack_start(bar, False, False, 0)
+            term = self._cls(Gtk.ScrolledWindow(), "term")
+            term.set_min_content_height(110)
+            self.view = Gtk.TextView(editable=False, cursor_visible=False,
+                                     monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR)
+            self.view.set_left_margin(10); self.view.set_top_margin(8)
+            self.view.set_right_margin(10); self.view.set_bottom_margin(8)
+            self.buf = self.view.get_buffer()
+            self.buf.set_text("Ready.\n")
+            term.add(self.view)
+            box.pack_start(term, True, True, 0)
+            return box
+
+        # -- status --
+        def _read_status(self):
+            try:
+                r = subprocess.run([ETH_SHARE, "status"], capture_output=True,
+                                   text=True, timeout=15)
+                return parse_status(r.stdout)
+            except (OSError, subprocess.SubprocessError):
+                return {}
+
+        def _refresh(self):
+            st = self._read_status()
+            on, uplink, eth, clients = status_lines(st)
+            self.uplink_card["value"].set_text(uplink)
+            self.eth_card["value"].set_text(eth)
+            batt = self._battery_line(st)
+            self.power_card["value"].set_text(batt)
+            # The Ethernet card's second fact -- connected devices -- rides in
+            # its value line when sharing is on.
+            if on:
+                self.eth_card["value"].set_text(f"{eth}  ·  {clients}")
+            self._set_pill(on)
+            self.toggle.set_label("Turn Off Sharing" if on else "Turn On Sharing")
+            self._on = on
+
+        def _battery_line(self, st):
+            # Battery isn't in the status output; read it directly for the card.
+            try:
+                r = subprocess.run(["/usr/local/bin/pinet-battery", "--once"],
+                                   capture_output=True, text=True, timeout=8)
+                # pinet-battery prints one space-separated line, so tokenize on
+                # whitespace rather than by line (parse_status is for the
+                # line-based eth-share status, whose SSID value may hold spaces).
+                kv = {}
+                for tok in r.stdout.split():
+                    k, _, v = tok.partition("=")
+                    if v:
+                        kv[k] = v
+                pct = kv.get("percent", "?")
+                state = kv.get("state", "")
+                word = {"battery": "on battery", "full": "on charger",
+                        "charging": "charging"}.get(state, state or "")
+                return f"{pct}%  ·  {word}" if word else f"{pct}%"
+            except (OSError, subprocess.SubprocessError):
+                return "(no battery reader)"
+
+        def _set_pill(self, on):
+            ctx = self.pill.get_style_context()
+            for c in ("pill", "pill-on", "pill-off"):
+                ctx.remove_class(c)
+            ctx.add_class("pill")
+            ctx.add_class("pill-on" if on else "pill-off")
+            self.pill.set_text("SHARING: ON" if on else "SHARING: OFF")
+
+        def _tick(self):
+            if self.proc is None:      # don't fight an in-flight start/stop
+                self._refresh()
+            return True
+
+        # -- actions --
+        def _on_toggle(self):
+            on = getattr(self, "_on", False)
+            if not self._confirm(STOP_WARNING if on else START_WARNING):
+                return
+            self._run(["pkexec", ETH_SHARE, "stop" if on else "start"])
+
+        def _run(self, argv):
+            if self.proc is not None:
+                return
+            self.toggle.set_sensitive(False)
+            self._append(f"\n$ {' '.join(argv)}\n")
+            try:
+                self.proc = Gio.Subprocess.new(
+                    argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
+            except GLib.Error as exc:
+                self._append(f"[failed: {exc.message}]\n")
+                self.toggle.set_sensitive(True)
+                self.proc = None
+                return
+            stream = Gio.DataInputStream.new(self.proc.get_stdout_pipe())
+            self._read_next(stream)
+            self.proc.wait_async(None, self._on_exit)
+
+        def _read_next(self, stream):
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self._on_line, stream)
+
+        def _on_line(self, stream, res, _data):
+            try:
+                line, _ = stream.read_line_finish_utf8(res)
+            except GLib.Error:
+                return
+            if line is None:
+                return
+            self._append(line + "\n")
+            self._read_next(stream)
+
+        def _on_exit(self, proc, _res):
+            try:
+                proc.wait_finish(_res)
+                self._append(f"[exited {proc.get_exit_status()}]\n")
+            except GLib.Error:
+                pass
+            self.proc = None
+            self.toggle.set_sensitive(True)
+            self._refresh()
+
+        # -- helpers --
+        def _append(self, text):
+            self.buf.insert(self.buf.get_end_iter(), text)
+            self.view.scroll_to_iter(self.buf.get_end_iter(), 0.0, False, 0, 0)
+
+        def _confirm(self, msg):
+            title, _, body = msg.partition("\n\n")
+            d = Gtk.MessageDialog(transient_for=self, modal=True,
+                                  message_type=Gtk.MessageType.WARNING,
+                                  buttons=Gtk.ButtonsType.OK_CANCEL, text=title)
+            d.format_secondary_text(body)
+            ok = d.run() == Gtk.ResponseType.OK
+            d.destroy()
+            return ok
+
+    win = Window()
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    run_gui()

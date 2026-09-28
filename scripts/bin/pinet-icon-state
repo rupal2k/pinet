@@ -14,14 +14,21 @@ DESKTOP_DIR="${DESKTOP_DIR:-$HOME/Desktop}"
 ICON_DIR="${ICON_DIR:-$HOME/.local/share/icons}"
 CONFIRM="${PINET_CONFIRM:-/usr/local/bin/pinet-confirm}"
 INTERVAL="${ICON_INTERVAL:-15}"
+# eth-share isn't a set of systemd units, so its icon state comes from the flag
+# that eth-share start/stop maintains, not from pinet-confirm.
+ETH_FLAG="${ETH_SHARE_FLAG:-/run/eth-share}"
 # Not GROUPS: that is a bash built-in array of the user's gids, and
 # assigning to it is quietly ignored.
-SERVICES="${ICON_GROUPS:-pinet spotify}"
+SERVICES="${ICON_GROUPS:-pinet spotify eth-share}"
 
 update_one() {
     local group=$1 file="$DESKTOP_DIR/$1.desktop" state want tmp
     [ -f "$file" ] || return 0
-    state=$("$CONFIRM" state "$group" 2>/dev/null)
+    if [ "$group" = eth-share ]; then
+        [ -e "$ETH_FLAG" ] && state=on || state=off
+    else
+        state=$("$CONFIRM" state "$group" 2>/dev/null)
+    fi
     # "partly" counts as on: something is running and the icon should say so.
     case "$state" in
         on|partly) want="$ICON_DIR/$group-on.svg" ;;

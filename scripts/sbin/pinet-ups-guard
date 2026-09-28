@@ -96,6 +96,21 @@ def tell(msg):
     subprocess.run(["wall", msg], stderr=subprocess.DEVNULL, check=False)
 
 
+ETH_SHARE = os.environ.get("ETH_SHARE_BIN", "/usr/local/sbin/eth-share")
+
+
+def shed_eth_share():
+    """Stop Ethernet sharing if it's on: routing is extra draw the failing
+    battery can't spare. Best effort -- never let it block the shutdown path."""
+    if not os.path.exists(ETH_SHARE):
+        return
+    try:
+        subprocess.run([ETH_SHARE, "stop"], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=25, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def set_countdown(deadline):
     """Tell the e-ink when power-off is due, on the monotonic clock
     (None: countdown over)."""
@@ -151,6 +166,7 @@ def main():
         action = decide(state, volts, amps, reader, time.monotonic())
         if action == "warn":
             set_countdown(state["deadline"])
+            shed_eth_share()   # drop the routing load to buy the countdown time
             tell(f"Battery low ({volts:.2f} V). Shutting down in {GRACE} s -- plug in the charger to stop it.")
         elif action == "cancel":
             set_countdown(None)

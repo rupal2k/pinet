@@ -802,6 +802,26 @@ class IconState(unittest.TestCase):
         self.run_it()
         self.assertEqual(self.icon_of("pinet"), "pinet-off.svg")
 
+    # eth-share isn't a set of systemd units, so its icon follows the
+    # /run/eth-share flag directly, not pinet-confirm.
+    def _make_eth_share(self):
+        (self.desktop / "eth-share.desktop").write_text(
+            self.ENTRY.format(name="Ethernet Share", group="eth-share", icons=self.icons))
+        return self.h.dir / "eth-share.flag"
+
+    def test_eth_share_icon_is_green_while_the_flag_exists(self):
+        flag = self._make_eth_share()
+        flag.write_text("on\n")
+        self.h.run(env={"DESKTOP_DIR": str(self.desktop), "ICON_DIR": str(self.icons),
+                        "ICON_GROUPS": "eth-share", "ETH_SHARE_FLAG": str(flag)})
+        self.assertEqual(self.icon_of("eth-share"), "eth-share-on.svg")
+
+    def test_eth_share_icon_is_ink_without_the_flag(self):
+        flag = self._make_eth_share()   # not created
+        self.h.run(env={"DESKTOP_DIR": str(self.desktop), "ICON_DIR": str(self.icons),
+                        "ICON_GROUPS": "eth-share", "ETH_SHARE_FLAG": str(flag)})
+        self.assertEqual(self.icon_of("eth-share"), "eth-share-off.svg")
+
 
 class NetChanged(unittest.TestCase):
     """The NetworkManager hook re-announces Spotify when the Pi's uplink

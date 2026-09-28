@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""Turn the Pi into a router: share the wlan1 Wi-Fi uplink out of the eth0
+Ethernet port, and put it back to a normal wired client when off.
+
+    eth-share status   # key=value lines for the GUI / e-ink (no root needed)
+    eth-share start     # become a router (root; via pkexec from the GUI)
+    eth-share stop      # back to a normal Ethernet port (root)
+
+How it works: NetworkManager's own "shared" IPv4 method does the whole job --
+it hands out 10.42.0.x addresses on eth0, runs a scratch dnsmasq, enables IP
+forwarding and sets up the NAT masquerade to wlan1. So "start" just brings up a
+dedicated connection profile (autoconnect off, so a reboot returns to the
+normal "Wired connection 1"), and "stop" brings it down again.
+
+Everything the uplink and battery guards decide is pure and unit-tested
+(tests/test_eth_share.py); the command wrappers below just gather the inputs
+and run nmcli.
+
+Power: this Pi's PSU is marginal (it has browned out), and the Ethernet chip +
+Wi-Fi dongle + routing all draw more. So "start" refuses below MIN_BATTERY_PCT
+on battery power or while a low-battery shutdown is pending, and pinet-ups-guard
+stops sharing when its countdown begins. wlan1 in monitor mode (Pentest Mode)
+has no uplink to share, so "start" refuses then too.
+"""
+import os
+import subprocess
+import sys
+import time
+
+UPLINK_IFACE = "wlan1"
+ETH_IFACE = "eth0"
+SHARE_CON = "PINET Ethernet Share"
+WIRED_CON = "Wired connection 1"
+FLAG = os.environ.get("ETH_SHARE_FLAG", "/run/eth-share")
+GATEWAY = "10.42.0.1"          # NetworkManager's fixed address for a shared link
+SUBNET = "10.42.0.0/24"
+LEASES = os.environ.get(
+    "ETH_SHARE_LEASES", f"/var/lib/NetworkManager/dnsmasq-{ETH_IFACE}.leases")
+PENTEST_FLAG = os.environ.get("PENTEST_FLAG", "/run/pentest-mode")
+UPS_LOW_FLAG = os.environ.get("UPS_LOW_FLAG", "/run/pinet-ups-low")
+BATTERY_READER = os.environ.get("ETH_SHARE_BATTERY", "/usr/local/bin/pinet-battery")
+MIN_BATTERY_PCT = int(os.environ.get("ETH_SHARE_MIN_PCT", "25"))
+
+
+# ---- pure helpers (unit-tested) -------------------------------------------
+
+def parse_kv(text):
+    """`key=value` tokens -> dict. Splits on any whitespace, so it reads
+    pinet-battery's single space-separated line (`... percent=85 state=battery
+    ...`) as well as newline-separated output."""
+    out = {}
+    for tok in text.split():
+        key, sep, val = tok.partition("=")
+        if sep and key:
+            out[key] = val
+    return out
+
+
+def count_leases(text):
+    """Number of DHCP leases in an NM dnsmasq lease file. Each active lease is
+    a line `<expiry> <mac> <ip> <host> <clientid>`; blank lines and the
+    occasional `duid ...` header line are ignored."""
+    n = 0
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0].isdigit() and parts[2].count(".") == 3:
+            n += 1
+    return n
+
+
+def start_block_reason(pentest, uplink_ok, ups_low, battery):
+    """Why `start` must refuse, or None if it may proceed. Pure: the safety
+    gate. `battery` is a dict {state, percent} or None (no reader)."""
+    if pentest:
+        return ("Pentest Mode is on -- wlan1 is in monitor mode with no uplink. "
+                "Turn Pentest Mode off first.")
+    if not uplink_ok:
+        return ("No Wi-Fi uplink on wlan1 to share. Connect the Pi to Wi-Fi "
+                "first.")
+    if ups_low:
+        return "Battery is critically low (a shutdown is pending)."
+    if battery and battery.get("state") == "battery":
+        pct = battery.get("percent")
+        if isinstance(pct, int) and pct < MIN_BATTERY_PCT:
+            return (f"Battery is at {pct}% on battery power. Charge to "
+                    f"{MIN_BATTERY_PCT}% or plug in the charger before sharing "
+                    "(routing draws more power).")
+    return None
+
+
+# ---- impure gatherers -----------------------------------------------------
+
+def _run(argv, timeout=12):
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _exists(path):
+    return os.path.exists(path)
+
+
+def uplink_status():
+    """(ok, ssid, signal) for wlan1. ok = connected as a Wi-Fi client with a
+    default route (i.e. something to share)."""
+    ssid, signal, ok = "", "", False
+    r = _run(["nmcli", "-t", "-f", "DEVICE,STATE,CONNECTION", "dev"])
+    if r and r.returncode == 0:
+        for line in r.stdout.splitlines():
+            f = line.split(":")
+            if len(f) >= 3 and f[0] == UPLINK_IFACE and f[1] == "connected":
+                ok = True
+                ssid = f[2]
+    if ok:
+        # default route actually on wlan1? (a connected-but-no-internet radio
+        # still shouldn't be advertised as a working uplink)
+        rt = _run(["ip", "route", "show", "default"])
+        if rt and rt.returncode == 0 and f"dev {UPLINK_IFACE}" not in rt.stdout:
+            ok = False
+    w = _run(["nmcli", "-t", "-f", "IN-USE,SIGNAL,SSID", "dev", "wifi"])
+    if w and w.returncode == 0:
+        for line in w.stdout.splitlines():
+            if line.startswith("*"):
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    signal = parts[1]
+                break
+    return ok, ssid, signal
+
+
+def battery_status():
+    """{state, percent} from pinet-battery --once, or None if unavailable."""
+    r = _run([BATTERY_READER, "--once"])
+    if not r or r.returncode != 0:
+        return None
+    kv = parse_kv(r.stdout)
+    if "state" not in kv:
+        return None
+    pct = kv.get("percent")
+    try:
+        pct = int(pct)
+    except (TypeError, ValueError):
+        pct = None
+    return {"state": kv["state"], "percent": pct}
+
+
+def eth_carrier():
+    """True if a cable is connected to eth0. The carrier file errors while the
+    link is administratively down, which we read as 'no cable'."""
+    try:
+        with open(f"/sys/class/net/{ETH_IFACE}/carrier") as f:
+            return f.read().strip() == "1"
+    except OSError:
+        return False
+
+
+def client_count():
+    """Number of devices leased an address, or None if the lease file can't be
+    read (e.g. status run as a non-root user)."""
+    try:
+        with open(LEASES) as f:
+            return count_leases(f.read())
+    except OSError:
+        return None
+
+
+def share_active():
+    """True if the share profile is the active connection on eth0."""
+    r = _run(["nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"])
+    if r and r.returncode == 0:
+        for line in r.stdout.splitlines():
+            name, _, dev = line.rpartition(":")
+            if name == SHARE_CON:
+                return True
+    return _exists(FLAG)
+
+
+# ---- commands -------------------------------------------------------------
+
+def cmd_status():
+    active = share_active()
+    ok, ssid, signal = uplink_status()
+    clients = client_count()
+    print(f"state={'on' if active else 'off'}")
+    print(f"uplink_ok={'1' if ok else '0'}")
+    print(f"uplink_ssid={ssid}")
+    print(f"uplink_signal={signal}")
+    print(f"eth_carrier={'1' if eth_carrier() else '0'}")
+    print(f"clients={'' if clients is None else clients}")
+    print(f"gateway={GATEWAY}")
+    print(f"subnet={SUBNET}")
+    return 0
+
+
+def _require_root():
+    if os.geteuid() != 0:
+        sys.stderr.write("eth-share: start/stop need root (run via pkexec)\n")
+        sys.exit(1)
+
+
+def _ensure_profile():
+    r = _run(["nmcli", "-t", "-f", "NAME", "con", "show"])
+    have = r and r.returncode == 0 and any(
+        line == SHARE_CON for line in r.stdout.splitlines())
+    if have:
+        return True
+    add = _run(["nmcli", "con", "add", "type", "ethernet", "ifname", ETH_IFACE,
+                "con-name", SHARE_CON, "ipv4.method", "shared",
+                "ipv6.method", "ignore", "connection.autoconnect", "no"])
+    if not add or add.returncode != 0:
+        sys.stderr.write("eth-share: could not create the share profile: "
+                         f"{(add.stderr if add else 'nmcli missing').strip()}\n")
+        return False
+    return True
+
+
+def cmd_start():
+    _require_root()
+    reason = start_block_reason(
+        _exists(PENTEST_FLAG), uplink_status()[0], _exists(UPS_LOW_FLAG),
+        battery_status())
+    if reason:
+        sys.stderr.write(f"blocked: {reason}\n")
+        return 3
+    if not _ensure_profile():
+        return 1
+    up = _run(["nmcli", "--wait", "15", "con", "up", SHARE_CON], timeout=25)
+    if not up or up.returncode != 0:
+        msg = (up.stderr.strip() if up else "nmcli missing")
+        sys.stderr.write(f"eth-share: could not start sharing: {msg}\n"
+                         "Is an Ethernet cable connected to the port?\n")
+        return 1
+    try:
+        with open(FLAG, "w") as f:
+            f.write(f"on\n{time.time():.0f}\n")
+        os.chmod(FLAG, 0o644)
+    except OSError:
+        pass
+    print(f"Ethernet sharing is ON. Devices on the port get {SUBNET} "
+          f"(gateway {GATEWAY}); traffic goes out over {UPLINK_IFACE}.")
+    return 0
+
+
+def cmd_stop():
+    _require_root()
+    down = _run(["nmcli", "con", "down", SHARE_CON])
+    try:
+        os.unlink(FLAG)
+    except OSError:
+        pass
+    # Hand eth0 back to the normal wired client if a cable is present; NM would
+    # do this on autoconnect anyway, so failure here is not fatal.
+    if eth_carrier():
+        _run(["nmcli", "--wait", "10", "con", "up", WIRED_CON], timeout=20)
+    if down and down.returncode not in (0, None) and "not an active" not in (down.stderr or ""):
+        print("Ethernet sharing was already off.")
+    else:
+        print("Ethernet sharing is OFF. The port is a normal wired connection again.")
+    return 0
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else ""
+    if cmd == "status":
+        return cmd_status()
+    if cmd == "start":
+        return cmd_start()
+    if cmd == "stop":
+        return cmd_stop()
+    sys.stderr.write("usage: eth-share status|start|stop\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
