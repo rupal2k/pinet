@@ -19,7 +19,7 @@ committed, in `~/pi-eink-dashboard` (`6bf0037`, `4103ca7`).
 | Panel | Official Pi 7" DSI touchscreen, 800x480, output `DSI-1` |
 | Touch | `edt_ft5x06` (evdev name contains `ft5x06`) |
 | Backlight | `/sys/class/backlight/10-0045` (`bl_power` 0 = on) |
-| Brightness | `BRIGHTNESS=1` in `/etc/default/dsi-screen` (lowest, per user) |
+| Brightness | `BRIGHTNESS=255` in `/etc/default/dsi-screen` (full, per user 2026-10-06) |
 | Session | lightdm autologin → labwc (Wayland), `WAYLAND_DISPLAY=wayland-0` |
 | Camera | Pi camera, mounted portrait; `CAMERA_ROTATION=90` in `/etc/default/dsi-camera` |
 
