@@ -44,6 +44,19 @@ installed by copying files into place; see [Deployment](#deployment).
 | **Kali toolbox** | Native Wi-Fi/network security tools (nmap, aircrack-ng suite, wifite, reaver, bully, mdk4, hcx…) for **authorized** auditing, plus a pentest power mode (`wifi-pentest-start/stop`). |
 | **raspotify** | Spotify Connect endpoint → Bluetooth speaker via PipeWire. |
 
+## Screenshots
+
+Captured on the device's 800×480 touchscreen. Home network details are blurred.
+
+| | |
+|---|---|
+| ![Desktop](docs/images/desktop.png)<br>**Desktop**: one icon per job, transparent taskbar | ![Brightness slider](docs/images/brightness-slider.png)<br>**Brightness slider** in the taskbar (never below 10%) |
+| ![Start PINET dialog](docs/images/pinet-confirm.png)<br>**Confirm dialogs** in front of every service | ![Start Spotify dialog](docs/images/spotify-confirm.png)<br>**Spotify Connect**, one tap to start |
+| ![Portal login](docs/images/portal-login.png)<br>**PINET portal**: offline message board + file drop | ![Lock screen](docs/images/lock-screen.png)<br>**Passcode lock screen** |
+| ![Kali Tools](docs/images/kali-tools.png)<br>**Kali Tools** launcher (for networks you own) | ![Ethernet Share](docs/images/ethernet-share.png)<br>**Ethernet Share**: Wi-Fi → Ethernet router + Pi-hole |
+| ![Graph viewer](docs/images/graph-viewer.png)<br>**Graph viewer**: browse any stored code graph | ![E-ink status](docs/images/eink-status.png)<br>**E-ink status panel** (back of the device) |
+| ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink PINET join card** (placeholder values) | |
+
 ## Repository layout
 
 ```
