@@ -224,7 +224,8 @@ def monitor_active(iface=UPLINK_IFACE):
 def run_gui():
     import gi
     gi.require_version("Gtk", "3.0")
-    from gi.repository import Gtk, Gio, GLib, Gdk, GdkPixbuf
+    gi.require_version("Pango", "1.0")
+    from gi.repository import Gtk, Gio, GLib, Gdk, GdkPixbuf, Pango
 
     cidr = _default_cidr()
     TOOLS = build_tools(cidr)
@@ -232,7 +233,10 @@ def run_gui():
     class Launcher(Gtk.Window):
         def __init__(self):
             super().__init__(title="PINET Kali Tools")
-            self.set_default_size(820, 660)
+            self.set_default_size(800, 448)
+            # The DSI panel is 800x480: fill the work area above the taskbar
+            # instead of asking for a window the screen can't show.
+            self.maximize()
             self.proc = None  # running Gio.Subprocess for the stream pane
             self._load_css()
             self._build()
@@ -308,6 +312,10 @@ def run_gui():
 
             self.mode_pill = Gtk.Label()
             self.mode_pill.set_valign(Gtk.Align.CENTER)
+            # Ellipsized, so its long status can't push the header (and the
+            # window) wider than the 800px panel.
+            self.mode_pill.set_ellipsize(Pango.EllipsizeMode.END)
+            self.mode_pill.set_width_chars(12)
             bar.pack_start(self.mode_pill, True, True, 6)
             self.mode_pill.set_halign(Gtk.Align.START)
             self._refresh_mode()
@@ -399,7 +407,7 @@ def run_gui():
 
             term = Gtk.ScrolledWindow()
             self._cls(term, "term")
-            term.set_min_content_height(150)
+            term.set_min_content_height(100)
             self.view = Gtk.TextView(editable=False, cursor_visible=False,
                                      monospace=True, wrap_mode=Gtk.WrapMode.CHAR)
             self.view.set_left_margin(10); self.view.set_top_margin(8)

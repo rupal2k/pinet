@@ -10,9 +10,12 @@ RemainAfterExit=yes
 ExecStart=/sbin/ip addr flush dev wlan0
 ExecStart=/sbin/ip addr add 10.10.10.1/24 dev wlan0
 ExecStart=/sbin/ip link set wlan0 up
+# Open hotspot: keep SSH/VNC off wlan0 (etc/nftables/pinet-ap.nft).
+ExecStart=/usr/sbin/nft -f /etc/nftables/pinet-ap.nft
 # pinet-stop: don't leave wlan0 powered up holding a stale 10.10.10.1.
 ExecStop=-/sbin/ip addr flush dev wlan0
 ExecStop=-/sbin/ip link set wlan0 down
+ExecStop=-/usr/sbin/nft delete table inet pinet_ap
 
 [Install]
 WantedBy=multi-user.target

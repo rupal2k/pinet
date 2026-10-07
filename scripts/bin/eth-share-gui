@@ -78,7 +78,9 @@ def run_gui():
     class Window(Gtk.Window):
         def __init__(self):
             super().__init__(title="PINET Ethernet Share")
-            self.set_default_size(560, 520)
+            self.set_default_size(800, 448)
+            # The DSI panel is 800x480: fill the work area above the taskbar.
+            self.maximize()
             self.proc = None
             self._load_css()
             self._build()
@@ -122,22 +124,27 @@ def run_gui():
             body.set_margin_start(14); body.set_margin_end(14)
             root.pack_start(body, True, True, 0)
 
+            # Landscape layout for the 800x480 panel: the three status cards
+            # side by side, then both actions on one row, output below.
+            cards = Gtk.Box(spacing=10, homogeneous=True)
             self.uplink_card = self._card("WI-FI UPLINK (wlan1)")
-            self.eth_card = self._card("ETHERNET PORT (eth0)")
+            self.eth_card = self._card("ETHERNET (eth0)")
             self.power_card = self._card("BATTERY")
             for c in (self.uplink_card, self.eth_card, self.power_card):
-                body.pack_start(c["box"], False, False, 0)
+                cards.pack_start(c["box"], True, True, 0)
+            body.pack_start(cards, False, False, 0)
 
+            actions = Gtk.Box(spacing=10, homogeneous=True)
             self.toggle = self._cls(Gtk.Button(label="Turn On Sharing"), "ghost")
-            self.toggle.set_margin_top(4)
             self.toggle.connect("clicked", lambda *_: self._on_toggle())
-            body.pack_start(self.toggle, False, False, 0)
+            actions.pack_start(self.toggle, True, True, 0)
 
             # Ad-blocking (Pi-hole) for the shared network -- only meaningful
             # while sharing is on, so it's greyed until then.
             self.adfree_btn = self._cls(Gtk.Button(label="Go Ad-Free"), "ghost")
             self.adfree_btn.connect("clicked", lambda *_: self._on_adfree())
-            body.pack_start(self.adfree_btn, False, False, 0)
+            actions.pack_start(self.adfree_btn, True, True, 0)
+            body.pack_start(actions, False, False, 0)
 
             body.pack_start(self._output_pane(), True, True, 0)
 
@@ -180,7 +187,7 @@ def run_gui():
             bar.pack_start(self._cls(Gtk.Label(label="OUTPUT", xalign=0), "pane-title"), True, True, 0)
             box.pack_start(bar, False, False, 0)
             term = self._cls(Gtk.ScrolledWindow(), "term")
-            term.set_min_content_height(110)
+            term.set_min_content_height(80)
             self.view = Gtk.TextView(editable=False, cursor_visible=False,
                                      monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR)
             self.view.set_left_margin(10); self.view.set_top_margin(8)

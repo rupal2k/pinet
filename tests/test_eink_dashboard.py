@@ -115,6 +115,11 @@ class Passwords(TmpDirCase):
         self.assertIsNone(self.dash.get_hotspot_passphrase(str(self.tmp / "nope")))
         self.assertIsNone(self.dash.get_hotspot_passphrase(self.conf("ssid=PINET\n")))
 
+    def test_join_qr_payload_open_and_wpa(self):
+        self.assertEqual(self.dash.wifi_join_payload("PINET", None), "WIFI:T:nopass;S:PINET;;")
+        self.assertEqual(self.dash.wifi_join_payload("PINET", "pw12345678"),
+                         "WIFI:T:WPA;S:PINET;P:pw12345678;;")
+
     # QA-4: .strip() alters passphrases with leading/trailing spaces; hostapd uses the value as-is.
     @unittest.expectedFailure
     def test_passphrase_whitespace_preserved(self):

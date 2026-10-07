@@ -532,6 +532,14 @@ def get_hotspot_passphrase(hostapd_conf="/etc/hostapd/hostapd.conf"):
     return None
 
 
+def wifi_join_payload(ssid, password):
+    """WIFI: QR payload for a join code. No passphrase means an open network
+    (PINET has been open since 2026-10-07: the portal has its own login)."""
+    if password:
+        return f"WIFI:T:WPA;S:{ssid};P:{password};;"
+    return f"WIFI:T:nopass;S:{ssid};;"
+
+
 def get_board_password(path="/etc/pinet-board/guest_password_plaintext.txt"):
     """The PINET board's GUEST password, for display next to the Wi-Fi join
     QR on the hotspot screen -- same "physical display only" trust model as
@@ -1001,7 +1009,7 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
         icons.antenna(draw, 22, 30, size=14)
 
         # Reserve the right ~90px for the join QR code (added below).
-        qr_reserved = 90 if hotspot.get("password") else 0
+        qr_reserved = 90 if hotspot.get("ssid") else 0
 
         # Device count -- the screen's hero number. Moved up and slightly
         # smaller than the old 40px so a PINET storage row now fits below the
@@ -1044,8 +1052,8 @@ def render_hotspot_screen(epd, hotspot, dark_mode=False, battery=None):
         # device count but gave a guest no way to actually join without
         # asking someone for the password; matches the same WIFI: QR
         # convention as the home network's render_qr_screen.
-        if hotspot.get("password"):
-            payload = f"WIFI:T:WPA;S:{hotspot['ssid']};P:{hotspot['password']};;"
+        if hotspot.get("ssid"):
+            payload = wifi_join_payload(hotspot["ssid"], hotspot.get("password"))
             qr = qrcode.QRCode(border=1, box_size=2)
             qr.add_data(payload)
             qr.make(fit=True)

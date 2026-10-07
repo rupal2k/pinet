@@ -1,0 +1,14 @@
+#!/usr/sbin/nft -f
+# Loaded by pinet-ap-network.service while the PINET hotspot is up. The
+# hotspot is an open network, so guests on wlan0 may reach only the portal
+# (and DHCP/DNS): SSH and VNC are dropped there. Home Wi-Fi (wlan1) and
+# Ethernet are untouched. The add+delete first makes a re-run (a restart
+# without a clean stop) replace the table instead of duplicating its rule.
+table inet pinet_ap
+delete table inet pinet_ap
+table inet pinet_ap {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		iifname "wlan0" tcp dport { 22, 5900 } drop
+	}
+}
