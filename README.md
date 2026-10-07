@@ -1,5 +1,7 @@
 # PINET Pi
 
+![PINET boot splash](docs/images/boot-splash.png)
+
 📖 **Full build write-up on Hackster.io:** [PINET: Dual-Screen Pi Cyber-Deck](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3)
 
 A single **Raspberry Pi 3B** turned into a self-contained, multi-purpose
