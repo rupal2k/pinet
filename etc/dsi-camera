@@ -1,3 +1,3 @@
 # Pi camera view rotation in the Camera kiosk: 0, 90, 180 or 270 (degrees
 # clockwise). The camera is mounted in portrait; use 270 if 90 is upside down.
-CAMERA_ROTATION=270
+CAMERA_ROTATION=90
