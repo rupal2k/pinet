@@ -83,7 +83,7 @@ class Config(TmpDirCase):
         cfg = self.dash.load_config()
         self.assertEqual(cfg.getfloat("dark_mode_start_hour"), 17.5)
         self.assertEqual(cfg.getfloat("dark_mode_end_hour"), 5.5)
-        self.assertTrue(cfg.getboolean("flip_180"))
+        self.assertFalse(cfg.getboolean("flip_180"))   # panel mounted the other way (2026-10-07)
         self.assertEqual(
             [cfg.getfloat(k) for k in ("status_seconds", "qr_seconds", "doom_seconds", "hotspot_seconds")],
             [180, 30, 180, 180])

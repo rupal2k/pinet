@@ -226,6 +226,38 @@ class DsiBacklight(HarnessCase):
         self.h.run("off")
         self.assertEqual(((bl / "bl_power").read_text(), (bl / "brightness").read_text()), ("1\n", "0\n"))
 
+    def test_set_saves_level_and_clamps(self):
+        bl = self.make_device()
+        (bl / "bl_power").write_text("0\n")   # screen on
+        conf = self.h.dir / "dsi-screen"
+        conf.write_text("# level\nBRIGHTNESS=255\n")
+        r = self.h.run("set", "120")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((bl / "brightness").read_text(), "120\n")
+        self.assertEqual(conf.read_text(), "# level\nBRIGHTNESS=120\n")
+        self.h.run("set", "3")
+        self.assertEqual((bl / "brightness").read_text(), "10\n")
+        self.h.run("set", "99999")
+        self.assertIn("BRIGHTNESS=255\n", conf.read_text())
+
+    def test_set_while_asleep_only_saves(self):
+        bl = self.make_device()                # bl_power=1: asleep
+        conf = self.h.dir / "dsi-screen"
+        conf.write_text("BRIGHTNESS=255\n")
+        self.assertEqual(self.h.run("set", "60").returncode, 0)
+        self.assertEqual(((bl / "brightness").read_text(), conf.read_text()), ("0\n", "BRIGHTNESS=60\n"))
+        self.h.run("on")
+        self.assertEqual((bl / "brightness").read_text(), "60\n")
+
+    def test_set_rejects_non_numbers(self):
+        self.make_device()
+        conf = self.h.dir / "dsi-screen"
+        conf.write_text("BRIGHTNESS=255\n")
+        for bad in ("", "-5", "12; reboot", "abc"):
+            r = self.h.run("set", bad)
+            self.assertEqual(r.returncode, 1, bad)
+        self.assertEqual(conf.read_text(), "BRIGHTNESS=255\n")
+
     def test_usage(self):
         self.make_device()
         r = self.h.run("dim")

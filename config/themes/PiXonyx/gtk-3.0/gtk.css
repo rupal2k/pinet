@@ -1,0 +1,10 @@
+/* ~/.local/share/themes/PiXonyx/gtk-3.0/gtk.css -- the system PiXonyx theme
+ * plus a fully transparent taskbar. Lives here, not in ~/.config/gtk-3.0/gtk.css,
+ * because /usr/bin/labwc-pi deletes that file at every login. */
+@import url("file:///usr/share/themes/PiXonyx/gtk-3.0/gtk.css");
+
+/* wf-panel-pi ignores the alpha in background_color; the theme paints
+ * #PanelToplevel with @bar_bg_color, so it is cleared here. */
+#PanelToplevel {
+    background-color: transparent;
+}

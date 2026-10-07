@@ -1,0 +1,13 @@
+[Unit]
+Description=DSI screen brightness control in the taskbar tray
+After=graphical-session.target
+PartOf=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/pinet-brightness
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
