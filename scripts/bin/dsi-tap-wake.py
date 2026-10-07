@@ -51,10 +51,9 @@ os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
 def find_touchscreen():
     for path in evdev.list_devices():
         dev = evdev.InputDevice(path)
-        # ft5x06 = official Pi 7" panel; goodix = Waveshare 7" DSI LCD (C).
-        if any(n in dev.name.lower() for n in ("ft5x06", "goodix")):
+        if "ft5x06" in dev.name.lower():
             return dev
-    raise RuntimeError("no DSI touchscreen input device found")
+    raise RuntimeError("no ft5x06 touchscreen input device found")
 
 
 def is_asleep():
