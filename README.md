@@ -18,6 +18,18 @@ documentation that make the device what it is. See
 
 ---
 
+## Quick start
+
+On a Raspberry Pi with the Waveshare 2.13" e-Paper HAT, one line installs the
+e-ink dashboard (enables SPI, installs dependencies, sets up the services):
+
+```bash
+git clone https://github.com/rupal2k/pinet.git && cd pinet/eink-dashboard && bash scripts/install.sh
+```
+
+The rest of PINET (hotspot, portal, touchscreen apps, power services) is
+installed by copying files into place; see [Deployment](#deployment).
+
 ## Features
 
 | Subsystem | What it does |
@@ -78,9 +90,12 @@ documentation that make the device what it is. See
 
 ## Secrets
 
-No credentials are committed. The hostapd Wi-Fi passphrase is redacted to a
-placeholder, and the PINET board/guest passwords + Flask secret key live only on
-the device (`/etc/pinet-board/`, `/etc/hostapd/hostapd.conf`) — set your own.
+No credentials are committed. The PINET hotspot is an open network; the portal
+has its own login, serves HTTPS itself, and the hotspot firewall blocks SSH/VNC
+from guests. The board/guest passwords, the Flask secret key, the TLS key and
+the lock-screen passcode live only on the device (`/etc/pinet-board/`,
+`/etc/dsi-lock/passcode`). Set your own; the lock screen's fallback passcode
+in the code is only a default.
 
 ## Deployment
 
