@@ -66,6 +66,29 @@ installed by copying files into place; see [Deployment](#deployment).
 - `wlan0`: onboard Broadcom — dedicated to the `PINET` hotspot
 - 58GB USB drive at `/mnt/pinet-media` (portal uploads, slideshow photos, camera captures)
 - Bluetooth speaker via PipeWire
+- Waveshare UPS HAT (D) with 2× 21700 cells (8400 mAh), INA219 battery gauge on I²C
+- Raspberry Pi camera (Sony IMX219) on the CSI ribbon
+
+### Block diagram
+
+```mermaid
+flowchart LR
+    BAT["2× 21700 cells<br/>8400 mAh"] --> UPS["UPS HAT (D)<br/>INA219 battery gauge"]
+    UPS -->|5 V power| PI
+    UPS -->|"I²C 0x43: battery level"| PI
+
+    PI["<b>Raspberry Pi 3B</b><br/>Debian 13 · labwc · systemd"]
+
+    LCD["7-inch touchscreen<br/>800×480"] <-->|DSI| PI
+    EINK["2.13-inch e-ink HAT<br/>rear status panel"] <-->|SPI| PI
+    CAM["Pi camera<br/>IMX219"] -->|CSI| PI
+
+    PI -->|onboard Wi-Fi| WLAN0["wlan0: PINET hotspot<br/>10.10.10.1, offline"]
+    PI -->|USB| WLAN1["wlan1: TP-Link Archer T2U<br/>home uplink · monitor mode"]
+    PI -->|Ethernet| ETH["eth0: Ethernet Share<br/>+ Pi-hole"]
+    PI -->|USB| DRIVE["USB drive, 58 GB<br/>uploads · photos · captures"]
+    PI -->|Bluetooth| SPK["Bluetooth speaker<br/>Spotify Connect"]
+```
 
 ## How you operate it
 
