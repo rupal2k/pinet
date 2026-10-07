@@ -1,6 +1,6 @@
 #!/bin/bash
 # DSI 7" touchscreen backlight control (official Pi touchscreen, i2c attiny backlight controller).
-# Usage: dsi-backlight.sh on [brightness 1-255]  |  off  |  set <10-255> (saved)
+# Usage: dsi-backlight.sh on [brightness 1-255]  |  off  |  set <26-255> (saved, 10% floor)
 # Default "on" brightness comes from BRIGHTNESS in /etc/default/dsi-screen.
 set -euo pipefail
 
@@ -28,11 +28,11 @@ case "${1:-}" in
         # kept for every later wake. Asleep, the panel stays dark.
         level="${2:-}"
         case "$level" in
-            ''|*[!0-9]*) echo "dsi-backlight.sh: set needs a level 10-255" >&2; exit 1 ;;
+            ''|*[!0-9]*) echo "dsi-backlight.sh: set needs a level 26-255" >&2; exit 1 ;;
         esac
         [ "${#level}" -gt 3 ] && level=255
         level=$((10#$level))
-        [ "$level" -lt 10 ] && level=10     # never fully dark by accident
+        [ "$level" -lt 26 ] && level=26     # 10% floor: never dark by accident
         [ "$level" -gt 255 ] && level=255
         [ "$(cat "${BL}bl_power")" = 0 ] && echo "$level" > "${BL}brightness"
         if grep -q '^BRIGHTNESS=' /etc/default/dsi-screen 2>/dev/null; then
@@ -42,7 +42,7 @@ case "${1:-}" in
         fi
         ;;
     *)
-        echo "usage: dsi-backlight.sh on [brightness] | off | set <10-255>" >&2
+        echo "usage: dsi-backlight.sh on [brightness] | off | set <26-255>" >&2
         exit 1
         ;;
 esac

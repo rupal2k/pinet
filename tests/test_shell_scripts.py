@@ -236,7 +236,7 @@ class DsiBacklight(HarnessCase):
         self.assertEqual((bl / "brightness").read_text(), "120\n")
         self.assertEqual(conf.read_text(), "# level\nBRIGHTNESS=120\n")
         self.h.run("set", "3")
-        self.assertEqual((bl / "brightness").read_text(), "10\n")
+        self.assertEqual((bl / "brightness").read_text(), "26\n")   # 10% floor
         self.h.run("set", "99999")
         self.assertIn("BRIGHTNESS=255\n", conf.read_text())
 

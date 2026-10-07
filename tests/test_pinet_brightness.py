@@ -17,13 +17,14 @@ _loader.exec_module(pb)
 
 class Levels(unittest.TestCase):
     def test_clamp_never_fully_dark(self):
-        self.assertEqual([pb.clamp(v) for v in (0, 5, 10, 128, 255, 900)], [10, 10, 10, 128, 255, 255])
+        self.assertEqual([pb.clamp(v) for v in (0, 5, 26, 128, 255, 900)], [26, 26, 26, 128, 255, 255])
+        self.assertEqual(pb.percent(pb.MIN_LEVEL), 10)
 
     def test_scroll_steps_and_stops_at_the_ends(self):
         self.assertEqual(pb.scrolled(100, 120), 116)
         self.assertEqual(pb.scrolled(100, -1), 84)
         self.assertEqual(pb.scrolled(250, 120), 255)
-        self.assertEqual(pb.scrolled(15, -120), 10)
+        self.assertEqual(pb.scrolled(30, -120), 26)
         self.assertEqual(pb.scrolled(100, 0), 100)
 
     def test_levels_read_live_then_saved(self):

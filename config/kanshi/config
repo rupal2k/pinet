@@ -1,3 +1,0 @@
-profile {
-	output DSI-1 enable mode 800x480 transform 180
-}

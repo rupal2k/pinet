@@ -5,7 +5,7 @@ A StatusNotifierItem (like pinet-battery): tap the sun icon for a slider just
 above the taskbar, or scroll on it. Each new level goes through
 `sudo -n dsi-backlight.sh set N`, which also saves it as BRIGHTNESS in
 /etc/default/dsi-screen, so wake and boot come back at the same level.
-The slider stops at MIN_LEVEL, so it can never turn the screen fully dark.
+The slider stops at MIN_LEVEL (10%), so it can never turn the screen dark.
 
 The module is gi-free at import (the tray imports gi lazily), so the level
 logic is tested without a display.
@@ -15,7 +15,7 @@ import os
 import subprocess
 import sys
 
-MIN_LEVEL, MAX_LEVEL = 10, 255
+MIN_LEVEL, MAX_LEVEL = 26, 255   # 26/255 = 10%: the slider floor
 SCROLL_STEP = 16
 APPLY_DELAY_MS = 120      # coalesce slider drags into one sudo call
 HIDE_AFTER_S = 4          # the popup closes itself after this long untouched
