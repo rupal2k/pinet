@@ -5,7 +5,7 @@ set -u
 # Make the stop stick: pi-power-manager (kiosk close) and kali-power-shed
 # (pentest stop) leave PINET down while this exists; pinet-start clears it.
 touch /run/pinet-stopped
-for u in stunnel@pinet-board.service pinet-board.service dnsmasq.service hostapd.service pinet-ap-network.service; do
+for u in pinet-board.service dnsmasq.service hostapd.service pinet-ap-network.service; do
     systemctl stop "$u" 2>/dev/null && echo "stopped $u" || echo "(not running) $u"
 done
 echo "PINET is down."

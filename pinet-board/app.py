@@ -29,6 +29,7 @@ from flask import (
     Flask, g, redirect, render_template, request,
     send_from_directory, session, url_for,
 )
+from flask.sessions import SecureCookieSessionInterface
 from werkzeug.utils import secure_filename
 
 BASE_DIR = Path("/opt/pinet-board")
@@ -38,6 +39,13 @@ DB_PATH = DATA_DIR / "board.db"
 PASSWORD_CONF = "/etc/pinet-board/board.conf"
 GUEST_CONF = "/etc/pinet-board/guest.conf"  # optional guest tier; absent = no guest login
 SECRET_KEY_PATH = "/etc/pinet-board/secret_key"
+# HTTPS is served by this app itself (it replaced stunnel 2026-10-07), so the
+# login lockout sees each guest's own IP, not stunnel's 127.0.0.1.
+TLS_CERT = "/etc/pinet-board/tls-fullchain.pem"
+TLS_KEY = "/etc/pinet-board/tls.key"
+HTTPS_PORT = 443
+SECURE_ORIGIN = "https://10.10.10.1"   # the cert covers 10.10.10.1 and pinet.local
+LOOPBACK = ("127.0.0.1", "::1")
 
 MAX_CONTENT_LENGTH = 1024 * 1024 * 1024  # 1 GiB per upload
 MIN_FREE_BYTES = 500 * 1024 * 1024  # always keep this much free afterward
@@ -59,6 +67,25 @@ _attempts = {}  # ip -> (count, locked_until_monotonic)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+app.config["HTTPS_ON"] = False   # set in __main__ once the TLS listener is up
+
+
+class _PerSchemeCookieSession(SecureCookieSessionInterface):
+    """Mark the session cookie Secure whenever it is issued over HTTPS, so a
+    guest's browser never sends it over plain HTTP on the open hotspot. The
+    Pi's own kiosk (http://localhost) still gets a working cookie."""
+    def get_cookie_secure(self, app):
+        return request.is_secure
+
+
+app.session_interface = _PerSchemeCookieSession()
+
+
+def needs_https(is_secure, remote_addr, https_on):
+    """Plain HTTP from another device, while HTTPS is available: the PINET
+    hotspot is an open network, so nothing with a password or session may
+    travel over it unencrypted. Loopback (the Pi's own kiosk) is exempt."""
+    return https_on and not is_secure and remote_addr not in LOOPBACK
 
 
 @app.template_filter("timestamp_str")
@@ -243,6 +270,18 @@ def storage_stats():
         "storage_text": f"{free_gb:.1f}GB free of {total_gb:.0f}GB",
         "storage_low": free < LOW_FREE_BYTES,
     }
+
+
+@app.before_request
+def https_only_on_the_air():
+    # Registered first, so it runs before require_login. Plain-HTTP visitors
+    # (including every OS's captive-portal probe) get a small page that sends
+    # them to HTTPS; a bare redirect can dead-end in a phone's sign-in popup,
+    # which may refuse the self-signed PINET certificate.
+    if request.endpoint == "static":
+        return   # the page's own CSS and logo
+    if needs_https(request.is_secure, request.remote_addr, app.config["HTTPS_ON"]):
+        return render_template("secure.html", url=SECURE_ORIGIN + "/login"), 200
 
 
 @app.before_request
@@ -477,5 +516,23 @@ def catch_all(path):
     return redirect(url_for("board" if session.get("authed") else "login"))
 
 
+def start_https():
+    """Serve HTTPS on 443 next to the plain-HTTP listener. Missing or
+    unreadable certs leave HTTPS off, so the board still works (over HTTP)."""
+    import ssl
+    import threading
+    from werkzeug.serving import make_server
+    try:
+        ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        ctx.load_cert_chain(TLS_CERT, TLS_KEY)
+        server = make_server("0.0.0.0", HTTPS_PORT, app, threaded=True, ssl_context=ctx)
+    except (OSError, ssl.SSLError) as exc:
+        print(f"pinet-board: HTTPS off ({exc}); serving HTTP only", flush=True)
+        return
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    app.config["HTTPS_ON"] = True
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=80)
+    start_https()
+    app.run(host="0.0.0.0", port=80, threaded=True)

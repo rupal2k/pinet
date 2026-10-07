@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PINET</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="card login-card">
+      <h1><img class="brand-logo brand-logo-lg" src="/static/pinet-logo.png" alt="PINET"></h1>
+      <p class="sub">This Wi-Fi is open, so the portal only works over an encrypted connection.</p>
+      <a class="btn" href="{{ url }}">Open PINET securely</a>
+      <p class="footnote">Your browser may warn that the certificate isn't trusted. It's PINET's own
+        certificate: choose to continue (often under &ldquo;Advanced&rdquo;). If this opened in a
+        sign-in popup, open {{ url }} in your browser instead.</p>
+    </div>
+  </div>
+</body>
+</html>

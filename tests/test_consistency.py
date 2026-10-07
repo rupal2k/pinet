@@ -25,7 +25,7 @@ THEME_ICONS = {"camera-photo", "image-x-generic", "utilities-terminal", "system-
 # Units provided by Debian / Raspberry Pi OS packages, not by this repo.
 DISTRO_UNITS = {
     "bluetooth.service", "dbus-org.bluez.service", "hostapd.service", "dnsmasq.service",
-    "stunnel@pinet-board.service", "wayvnc.service", "rpi-connect-wayvnc.service",
+    "wayvnc.service", "rpi-connect-wayvnc.service",
     "lightdm.service", "raspotify.service",
 }
 SOURCE_DIRS = ("scripts", "desktop", "systemd", "etc", "pinet-board", "eink-dashboard/scripts",

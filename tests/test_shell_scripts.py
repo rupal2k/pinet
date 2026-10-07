@@ -52,7 +52,7 @@ class HarnessCase(unittest.TestCase):
 class KaliPowerShed(HarnessCase):
     SCRIPT = "scripts/sbin/kali-power-shed"
     REWRITES = {"/run/pentest-mode": "{tmp}/pentest-mode", "/run/pentest-shed.list": "{tmp}/pentest-shed.list"}
-    RUNNING = ("dsi-photo-frame.service", "rpi-connect-wayvnc.service", "stunnel@pinet-board.service",
+    RUNNING = ("dsi-photo-frame.service", "rpi-connect-wayvnc.service",
                "pinet-board.service", "dnsmasq.service", "hostapd.service", "wayvnc.service",
                "bluetooth.service")
 
@@ -322,7 +322,7 @@ class PinetConfirm(unittest.TestCase):
     headless -- which is exactly the part worth asserting."""
 
     UNITS = ["pinet-ap-network.service", "hostapd.service", "dnsmasq.service",
-             "pinet-board.service", "stunnel@pinet-board.service"]
+             "pinet-board.service"]
 
     def setUp(self):
         self.h = ShellHarness("scripts/bin/pinet-confirm")
@@ -406,12 +406,12 @@ class PinetConfirm(unittest.TestCase):
         self.assertIn("usage", r.stderr)
 
     def test_summary_lists_every_service_and_its_state(self):
-        # The dialog after the action is the whole point: it must name all five
+        # The dialog after the action is the whole point: it must name all four
         # services and say which are up, not just echo pinet-start's last line.
+        # (HTTPS is served by the board itself since stunnel went, 2026-10-07.)
         self.h.set_active(*self.UNITS[:3])
         r = self.h.run("stop")
-        for label in ("Hotspot network", "Access point", "DHCP + DNS",
-                      "Message board", "HTTPS"):
+        for label in ("Hotspot network", "Access point", "DHCP + DNS", "Message board"):
             self.assertIn(label, r.stdout)
         self.assertIn("stopped", r.stdout)
 
@@ -433,7 +433,7 @@ class PinetConfirm(unittest.TestCase):
         r = self.h.run("start")
         self.assertEqual(r.returncode, 0)
         self.assertIn("only partly", r.stdout)
-        self.assertIn("3 of 5", r.stdout)
+        self.assertIn("3 of 4", r.stdout)
 
     def test_zenity_is_forced_onto_the_cairo_renderer(self):
         # GTK4 zenity picks the GL renderer by default and the Pi 3B cannot

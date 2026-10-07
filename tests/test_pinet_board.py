@@ -307,3 +307,19 @@ class LiveState(unittest.TestCase):
         self.assertIn('data-now="{{ now }}"', self.html)
         self.assertIn('"now": time.time()', self.src)
         self.assertIn("serverNow", self.js)
+
+
+class NeedsHttps(unittest.TestCase):
+    # The hotspot is open (2026-10-07): plain HTTP from another device must be
+    # sent to HTTPS; the Pi's own kiosk on loopback is exempt.
+    def setUp(self):
+        self.f = load_defs(APP, ["LOOPBACK", "needs_https"], {}).needs_https
+
+    def test_guest_over_http_is_sent_to_https(self):
+        self.assertTrue(self.f(False, "10.10.10.57", True))
+
+    def test_https_loopback_and_https_off_pass(self):
+        self.assertFalse(self.f(True, "10.10.10.57", True))     # already HTTPS
+        self.assertFalse(self.f(False, "127.0.0.1", True))      # the Pi's kiosk
+        self.assertFalse(self.f(False, "::1", True))
+        self.assertFalse(self.f(False, "10.10.10.57", False))   # no certs: HTTP only

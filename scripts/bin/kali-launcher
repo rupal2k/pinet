@@ -321,9 +321,11 @@ def run_gui():
             self._refresh_mode()
 
             term = self._cls(Gtk.Button(label="Open Terminal"), "ghost")
+            term.set_valign(Gtk.Align.CENTER)
             term.connect("clicked", lambda *_: self._open_terminal())
             bar.pack_end(term, False, False, 0)
             pen = self._cls(Gtk.Button(label="Toggle Pentest Mode"), "ghost", "danger")
+            pen.set_valign(Gtk.Align.CENTER)
             pen.connect("clicked", lambda *_: self._toggle_pentest())
             bar.pack_end(pen, False, False, 0)
             return bar
@@ -407,7 +409,7 @@ def run_gui():
 
             term = Gtk.ScrolledWindow()
             self._cls(term, "term")
-            term.set_min_content_height(100)
+            term.set_min_content_height(70)   # leaves the tool list room on 480px
             self.view = Gtk.TextView(editable=False, cursor_visible=False,
                                      monospace=True, wrap_mode=Gtk.WrapMode.CHAR)
             self.view.set_left_margin(10); self.view.set_top_margin(8)

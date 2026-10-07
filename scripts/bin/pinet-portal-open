@@ -1,0 +1,18 @@
+#!/bin/bash
+# Desktop "PINET Portal". The board runs only with the PINET hotspot, so when
+# it is down, offer to start PINET (the usual confirm dialog) instead of
+# opening a "site can't be reached" page. Cancel leaves everything as it was.
+set -u
+up() { systemctl is-active --quiet pinet-board.service; }
+
+if ! up; then
+    /usr/local/bin/pinet-confirm start pinet
+    up || exit 0
+    # The unit is "active" a moment before Flask is listening.
+    for _ in $(seq 1 20); do
+        curl -s -o /dev/null --max-time 1 http://localhost/login && break
+        sleep 0.5
+    done
+fi
+export DSI_CLOSE_CORNER=left DSI_KIOSK_SHED=no
+exec /usr/local/bin/dsi-kiosk.sh pinet-portal "http://localhost/login?kiosk=1"

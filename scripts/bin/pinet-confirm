@@ -27,8 +27,8 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"  # for --user un
 case "$GROUP" in
   pinet)
     UNITS=(system:pinet-ap-network.service system:hostapd.service system:dnsmasq.service
-           system:pinet-board.service system:stunnel@pinet-board.service)
-    NAMES=("Hotspot network" "Access point" "DHCP + DNS" "Message board" "HTTPS")
+           system:pinet-board.service)
+    NAMES=("Hotspot network" "Access point" "DHCP + DNS" "Message board")
     TITLE="PINET"
     ;;
   spotify)
@@ -151,7 +151,7 @@ case "$ACTION" in
     elif [ "$GROUP" = spotify ]; then
       prompt=$'Start Spotify?\n\nThe Pi shows up in the Spotify app as <b>PINET</b>\nand plays to the Bluetooth speaker.'
     else
-      prompt=$'Start PINET?\n\nThis brings up the <b>PINET</b> hotspot, the message board\nand stunnel. It draws more power than idle.'
+      prompt=$'Start PINET?\n\nThis brings up the <b>PINET</b> hotspot, the message board\n(HTTPS included). It draws more power than idle.'
     fi
     have_gui && { ask "Start $TITLE" "$prompt" || exit 0; }
     out=$(run_action start); rc=$?

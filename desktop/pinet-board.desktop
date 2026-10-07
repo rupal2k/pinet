@@ -2,7 +2,7 @@
 Type=Application
 Name=PINET Portal
 Comment=Open the PINET anonymous message board and file drop
-Exec=env DSI_CLOSE_CORNER=left DSI_KIOSK_SHED=no /usr/local/bin/dsi-kiosk.sh pinet-portal "http://localhost/login?kiosk=1"
+Exec=/usr/local/bin/pinet-portal-open
 Icon=/home/rupal/.local/share/icons/pinet-portal.svg
 Terminal=false
 Categories=Network;

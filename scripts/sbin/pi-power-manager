@@ -40,8 +40,7 @@ PENTEST_STATE = Path("/run/pentest-shed.list")
 # Set by pinet-stop, cleared by pinet-start: a deliberate stop sticks, so
 # PINET units shed before it are left down instead of restored.
 PINET_STOPPED = Path("/run/pinet-stopped")
-PINET_UNITS = {"stunnel@pinet-board.service", "pinet-board.service",
-               "dnsmasq.service", "hostapd.service"}
+PINET_UNITS = {"pinet-board.service", "dnsmasq.service", "hostapd.service"}
 # The kernel's live GPIO view (debugfs, root-only, auto-mounted); see
 # pwr_low_pin(). The answer is published to UV_STATUS for the e-ink.
 GPIO_DEBUG = Path("/sys/kernel/debug/gpio")
@@ -55,7 +54,6 @@ SHED_UNITS = [
     ("user", "dsi-photo-sync.timer"),
     ("user", "dsi-idle-sleep.service"),
     ("user", "rpi-connect-wayvnc.service"),
-    ("system", "stunnel@pinet-board.service"),
     ("system", "pinet-board.service"),
     ("system", "dnsmasq.service"),
     ("system", "hostapd.service"),
@@ -70,7 +68,7 @@ MASK_WHILE_SHED = {"bluetooth.service"}
 # keep in sync). The rest (photo-sync, idle-sleep) is restored as usual.
 PENTEST_UNITS = {
     ("user", "dsi-photo-frame.service"), ("user", "rpi-connect-wayvnc.service"),
-    ("system", "stunnel@pinet-board.service"), ("system", "pinet-board.service"),
+    ("system", "pinet-board.service"),
     ("system", "dnsmasq.service"), ("system", "hostapd.service"),
     ("system", "wayvnc.service"), ("system", "bluetooth.service"),
 }

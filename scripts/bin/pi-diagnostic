@@ -107,7 +107,7 @@ section_network(){
     ok "PINET hotspot UP (hostapd active)"
     W0=$(ip -4 -br addr show wlan0 2>/dev/null | awk '{print $3}')
     [ "${W0%%/*}" = "10.10.10.1" ] && ok "wlan0 hotspot IP 10.10.10.1" || bad "wlan0 IP '${W0:-none}', expected 10.10.10.1"
-    for s in dnsmasq pinet-board stunnel@pinet-board; do
+    for s in dnsmasq pinet-board; do
       [ "$(systemctl is-active $s 2>/dev/null)" = active ] && ok "$s active" || bad "$s down while PINET up"
     done
   else
