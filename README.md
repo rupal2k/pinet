@@ -47,7 +47,7 @@ installed by copying files into place; see [Deployment](#deployment).
 
 ## Screenshots
 
-Captured on the device's 800×480 touchscreen. Home network details are blurred.
+Captured on the device's 800×480 touchscreen. Home network details and the captured PC's taskbar are blurred.
 
 | | |
 |---|---|
@@ -56,7 +56,7 @@ Captured on the device's 800×480 touchscreen. Home network details are blurred.
 | ![Portal login](docs/images/portal-login.png)<br>**PINET portal**: offline message board + file drop | ![Lock screen](docs/images/lock-screen.png)<br>**Passcode lock screen** |
 | ![Kali Tools](docs/images/kali-tools.png)<br>**Kali Tools** launcher (for networks you own) | ![Ethernet Share](docs/images/ethernet-share.png)<br>**Ethernet Share**: Wi-Fi → Ethernet router + Pi-hole |
 | ![Graph viewer](docs/images/graph-viewer.png)<br>**Graph viewer**: browse any stored code graph | ![E-ink status](docs/images/eink-status.png)<br>**E-ink status panel** (back of the device) |
-| ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink PINET join card** (placeholder values) | |
+| ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink PINET join card** (placeholder values) | ![HDMI Monitor](docs/images/hdmi-monitor.png)<br>**HDMI Monitor**: a laptop over USB HDMI capture; the ✕ shows only after a corner tap |
 
 ## Repository layout
 
