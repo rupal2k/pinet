@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>HDMI Monitor</title>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#e8e8e8" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#e8e8e8" stroke-width="1.8"/>
+  <path d="M10 12 H38 V30 H10 Z" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.22"/><path d="M10 12 H38 V30 H10 Z" stroke="#e8e8e8" stroke-width="2.4"/>
+  <path d="M20 30 V35 M28 30 V35 M16 35 H32" stroke="#e8e8e8" stroke-width="2.4"/>
+  <path d="M19 17 H29 V20 L27 23 H21 L19 20 Z" fill="#e8e8e8" fill-opacity="0.22"/><path d="M19 17 H29 V20 L27 23 H21 L19 20 Z" stroke="#e8e8e8" stroke-width="1.6"/>
+</svg>

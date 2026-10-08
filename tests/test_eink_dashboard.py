@@ -164,6 +164,14 @@ class Passwords(TmpDirCase):
         self.assertIsNone(self.dash.get_board_password(g))
 
 
+class MonitorFlag(TmpDirCase):
+    def test_flag_presence_is_the_mode(self):
+        self.dash.MONITOR_FLAG = self.tmp / "monitor-mode"
+        self.assertFalse(self.dash.is_monitor_mode())
+        self.dash.MONITOR_FLAG.write_text("")
+        self.assertTrue(self.dash.is_monitor_mode())
+
+
 class KioskFlag(TmpDirCase):
     def mode(self, text=None):
         flag = self.tmp / "kiosk-mode"
@@ -614,6 +622,34 @@ class MainLoop(TmpDirCase):
         frames, log = self.run_main(self.DEFAULT, 100, kiosk=kiosk)
         self.assertIn("kiosk", [n for _, n, _ in frames])
         self.assertEqual(log.count("display"), 2)  # first frame + entering kiosk
+
+    def monitor_run(self, monitor, kiosk=None, seconds=100):
+        banners = []
+        self.dash.is_monitor_mode = monitor
+        self.dash.draw_monitor_banner = lambda image, dark_mode: banners.append(dark_mode)
+        frames, _ = self.run_main(self.DEFAULT, seconds, kiosk=kiosk)
+        return frames, banners
+
+    def test_monitor_banner_on_every_carousel_frame(self):
+        frames, banners = self.monitor_run(lambda: True)
+        self.assertEqual(len(banners), len(frames))
+
+    def test_no_monitor_banner_when_off_or_on_a_kiosk_screen(self):
+        _, banners = self.monitor_run(lambda: False)
+        self.assertEqual(banners, [])
+        frames, banners = self.monitor_run(lambda: True, kiosk=lambda: ("CAMERA MODE ON", "Live view"))
+        self.assertEqual({n for _, n, _ in frames}, {"kiosk"})
+        self.assertEqual(banners, [])
+
+    def test_monitor_switching_on_refreshes_early(self):
+        state = {"n": 0}
+
+        def monitor():
+            state["n"] += 1
+            return state["n"] > 1   # off for the first frame, on at the next poll
+        frames, banners = self.monitor_run(monitor, seconds=30)
+        self.assertEqual([round(t) for t, n, _ in frames], [0, 5])   # not the next minute
+        self.assertEqual(len(banners), 1)
 
     def test_under_voltage_debounced_three_readings(self):
         cfg = "refresh_minutes = 1\nstatus_seconds = 0\nqr_seconds = 0\ndoom_seconds = 600\nhotspot_seconds = 0\n"

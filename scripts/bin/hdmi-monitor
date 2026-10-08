@@ -1,0 +1,169 @@
+#!/bin/bash
+# Desktop "HDMI Monitor": the USB HDMI capture dongle full-screen on the DSI
+# display, video only, with the usual layer-shell close button. While it runs
+# the monitor-mode flag puts a "MONITOR MODE" strip on the e-ink carousel; it
+# sheds nothing (unlike a kiosk), so PINET/Spotify/Bluetooth keep running.
+#
+# HDMI_MONITOR_SIZE / HDMI_MONITOR_FPS pick the capture mode (MJPEG). This Pi
+# has no hardware MJPEG decoder: 1280x720@30 costs ~1.2 cores, @20 ~0.8.
+# The 4:3 modes (800x600...) are anamorphic -- the dongle squashes 16:9 --
+# so stay on a 16:9 size. Frames are scaled to 800 wide before SDL so it
+# gets yuv420p it can upload directly (no per-frame software RGBA pass).
+set -u
+SIZE="${HDMI_MONITOR_SIZE:-1280x720}"
+FPS="${HDMI_MONITOR_FPS:-30}"
+V4L_SYSFS="${HDMI_MONITOR_SYSFS:-/sys/class/video4linux}"
+FLAG="/run/user/$(id -u)/monitor-mode"
+TITLE="HDMI Monitor"
+
+# GTK4 zenity on this Pi: cairo renderer + the e-ink dialog theme (see
+# pinet-confirm for why).
+export GSK_RENDERER=cairo GTK_A11Y=none
+EINK_GTK=/usr/local/share/pinet-eink-gtk
+[ -r "$EINK_GTK/gtk-4.0/gtk.css" ] && export XDG_CONFIG_HOME="$EINK_GTK"
+warn() {
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v zenity >/dev/null; then
+        zenity --error --title="$TITLE" --width=340 --no-wrap --ok-label="OK" --text="$1"
+    else
+        echo "$1" >&2
+    fi
+}
+
+# The capture node of the first USB (UVC) video device: matched by driver,
+# not name, so any dongle model works (UltraSemi "USB2 Video", MacroSilicon
+# "USB3. 0 capture", ...) and the Pi camera (unicam) never does. Each dongle
+# exposes two nodes (capture + metadata); the capture one has index 0.
+# /dev/videoN numbers shift with plug order, so never hardcode them.
+find_device() {
+    local d
+    for d in "$V4L_SYSFS"/video*; do
+        [ "$(basename "$(readlink -f "$d/device/driver")")" = uvcvideo ] || continue
+        [ "$(cat "$d/index" 2>/dev/null)" = 0 ] || continue
+        echo "/dev/${d##*/}"
+        return 0
+    done
+    return 1
+}
+
+if [ "${1:-}" = --device ]; then   # for tests / troubleshooting
+    find_device
+    exit
+fi
+
+DEV=$(find_device) || { warn $'HDMI capture device not found.\nPlug the capture dongle into a USB port and try again.'; exit 1; }
+
+# One monitor at a time: icons open on a single tap, so a double tap starts
+# this twice. The second copy would fail on the busy device and, on exit,
+# delete the flag the first one still owns. ffplay and the close button
+# inherit fd 9, which is fine: cleanup kills both.
+exec 9> "$FLAG.lock"
+flock -n 9 || exit 0
+
+RUN="${FLAG%/*}"
+VFIFO="$RUN/hdmi-monitor.video"
+PFIFO="$RUN/hdmi-monitor.progress"
+grab_pid=""
+player_pid=""
+button_pid=""
+stop_stream() {
+    local p
+    # Capture first, so ffmpeg never writes into a player that is gone
+    # (a burst of "Broken pipe" in the journal).
+    for p in $grab_pid $player_pid; do kill "$p" 2>/dev/null; done
+    # ffmpeg can sit in a dead USB read; give it 2 s, then force it.
+    for _ in 1 2 3 4; do
+        kill -0 $player_pid $grab_pid 2>/dev/null || break
+        /bin/sleep 0.5
+    done
+    for p in $player_pid $grab_pid; do kill -9 "$p" 2>/dev/null; done
+    wait $player_pid $grab_pid 2>/dev/null
+    grab_pid="" player_pid=""
+    exec 4<&- 2>/dev/null
+    rm -f "$VFIFO" "$PFIFO"
+}
+cleanup() {
+    [ -n "$button_pid" ] && kill "$button_pid" 2>/dev/null
+    stop_stream
+    rm -f "$FLAG"
+}
+trap cleanup EXIT
+trap 'exit 0' INT TERM HUP
+
+# Freeze recovery. ffplay never notices a dead stream: when the USB bus drops
+# (this Pi's under-voltage resets it) it shows the last frame forever. So
+# ffmpeg captures (stream copy, ~3% CPU) and ffplay only decodes and shows,
+# fed through a FIFO in nut (keeps the capture timestamps). ffmpeg reports
+# frame=N twice a second on the progress FIFO; if N stops rising for STALL
+# seconds (or never starts within START_GRACE), both are killed and the
+# stream restarted -- on a re-found device, as a reset can renumber it.
+STALL="${HDMI_MONITOR_STALL:-4}"
+START_GRACE=$((STALL * 2))
+
+# Returns 0 when the viewer closed ffplay (q / Esc), 1 when a running stream
+# froze, 2 when no frame ever arrived.
+play_once() {
+    local line frame="" changed=$SECONDS got=0 limit rc
+    rm -f "$VFIFO" "$PFIFO"
+    mkfifo "$VFIFO" "$PFIFO" || return 2
+    # Read-write open: never blocks, and never sees EOF if ffmpeg dies --
+    # a dead ffmpeg just looks like a frozen counter.
+    exec 4<> "$PFIFO"
+    ffmpeg -nostdin -hide_banner -loglevel error \
+        -f v4l2 -input_format mjpeg -video_size "$SIZE" -framerate "$FPS" -i "$DEV" \
+        -c copy -f nut -progress "file:$PFIFO" -y "$VFIFO" 2> >(logger -t hdmi-monitor) &
+    grab_pid=$!
+    # SDL must be told Wayland: on its default it starts, burns CPU and maps
+    # no window under labwc. Errors go to the journal (journalctl -t
+    # hdmi-monitor); launched from the desktop they are otherwise lost.
+    SDL_VIDEODRIVER=wayland ffplay -hide_banner -loglevel error -fs -an -sn \
+        -fflags nobuffer -flags low_delay -framedrop -probesize 32k \
+        -f nut -i "$VFIFO" \
+        -vf "scale=800:-2:flags=fast_bilinear,format=yuv420p" \
+        -window_title "$TITLE" 2> >(logger -t hdmi-monitor) &
+    player_pid=$!
+    while kill -0 "$player_pid" 2>/dev/null; do
+        if read -r -t 1 -u 4 line && [ "${line%%=*}" = frame ] && [ "${line#frame=}" != "$frame" ]; then
+            frame=${line#frame=}
+            changed=$SECONDS
+            [ "$frame" != 0 ] && got=1
+        fi
+        limit=$STALL; [ $got = 1 ] || limit=$START_GRACE
+        [ $((SECONDS - changed)) -ge "$limit" ] && break
+    done
+    if ! kill -0 "$player_pid" 2>/dev/null; then
+        wait "$player_pid"; rc=$?
+        player_pid=""
+        # 0 = q / Esc. Any other exit (a crash) is handled like a freeze.
+        if [ $rc = 0 ]; then stop_stream; return 0; fi
+    fi
+    stop_stream
+    return $((got ? 1 : 2))
+}
+
+: > "$FLAG"
+# Light the screen if it's asleep (launched remotely, or a tap that only
+# woke it). The flag above then keeps dsi-sleep.sh from blanking it again.
+/usr/local/bin/dsi-wake.sh || true
+# The ✕ ends this script (its trap stops the stream), whichever restart of
+# the stream is showing. It stays invisible until its corner is tapped.
+DSI_CLOSE_AUTOHIDE=4 python3 /usr/local/bin/dsi-close-button.py kill $$ &
+button_pid=$!
+
+failures=0
+while :; do
+    play_once
+    case $? in
+        0) exit 0 ;;
+        1) failures=0
+           logger -t hdmi-monitor "stream froze, restarting" ;;
+        *) failures=$((failures + 1))
+           logger -t hdmi-monitor "no picture (attempt $failures), retrying"
+           if [ $failures -ge 3 ]; then
+               warn $'The HDMI capture is not delivering a picture.\nIs another app using the capture device, or is it unplugged?'
+               exit 1
+           fi ;;
+    esac
+    /bin/sleep 1
+    # A USB reset can renumber the device, or it may still be coming back.
+    for _ in $(seq 1 15); do DEV=$(find_device) && break; /bin/sleep 1; done
+done

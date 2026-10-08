@@ -4,7 +4,12 @@
 (via gtk-layer-shell) so it renders above the app's surface and stays
 tappable. Tapping it runs the command given as arguments, then exits.
 
-Usage: [DSI_CLOSE_CORNER=left] dsi-close-button.py <command> [args...]
+With DSI_CLOSE_AUTOHIDE=<seconds> the button is invisible until tapped:
+the first tap in its corner shows it, a second tap closes, and it hides
+again after that many seconds untouched (the HDMI monitor uses this so the
+video is unobstructed). Without it the button is always shown, as before.
+
+Usage: [DSI_CLOSE_CORNER=left] [DSI_CLOSE_AUTOHIDE=4] dsi-close-button.py <command> [args...]
 """
 import os
 import subprocess
@@ -15,7 +20,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
-from gi.repository import Gdk, Gtk, GtkLayerShell
+from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
 
 CSS = b"""
 window {
@@ -35,6 +40,12 @@ button {
 button:active {
     background-color: rgba(200, 40, 40, 0.6);
 }
+/* Auto-hide: fully transparent, but the window still takes the tap. */
+button.hidden, button.hidden:active {
+    background-color: rgba(0, 0, 0, 0);
+    border-color: rgba(0, 0, 0, 0);
+    color: rgba(0, 0, 0, 0);
+}
 """
 
 
@@ -43,8 +54,23 @@ def main():
         print("usage: dsi-close-button.py <command> [args...]", file=sys.stderr)
         sys.exit(1)
     close_command = sys.argv[1:]
+    autohide = float(os.environ.get("DSI_CLOSE_AUTOHIDE") or 0)
+    hide_timer = [0]
 
-    def on_close_clicked(_button):
+    def hide(button):
+        button.get_style_context().add_class("hidden")
+        hide_timer[0] = 0
+        return False
+
+    def on_close_clicked(button):
+        style = button.get_style_context()
+        if style.has_class("hidden"):
+            # First tap only reveals the button; close needs a second one.
+            style.remove_class("hidden")
+            hide_timer[0] = GLib.timeout_add(int(autohide * 1000), hide, button)
+            return
+        if hide_timer[0]:
+            GLib.source_remove(hide_timer[0])
         subprocess.run(close_command, check=False)
         Gtk.main_quit()
 
@@ -79,6 +105,8 @@ def main():
 
     button = Gtk.Button(label="✕")
     button.connect("clicked", on_close_clicked)
+    if autohide > 0:
+        button.get_style_context().add_class("hidden")
     window.add(button)
     window.connect("destroy", Gtk.main_quit)
     window.show_all()

@@ -38,6 +38,9 @@ _logo_missing_warned = False
 # "CAMERA MODE ON"), line 2 the label (e.g. "Ezykam"). Lives in the tmpfs
 # runtime dir so a crash or reboot can't leave it stale.
 KIOSK_FLAG = Path("/run/user") / str(os.getuid()) / "kiosk-mode"
+# Exists while hdmi-monitor shows the HDMI capture on the DSI screen. Unlike a
+# kiosk it sheds nothing: the carousel keeps running with a banner on top.
+MONITOR_FLAG = Path("/run/user") / str(os.getuid()) / "monitor-mode"
 # Written by pinet-ups-guard while the UPS battery is flat and a power-off is
 # counting down: one line, the power-off time on the monotonic clock (shared
 # by both processes, and it never jumps the way this RTC-less Pi's wall clock
@@ -672,7 +675,30 @@ def get_kiosk_mode():
     return "KIOSK MODE ON", (lines[0] if lines else "Kiosk")
 
 
-UPS_COUNTDOWN_STALE = 30   # overdue by this much: the guard is gone, ignore it
+def is_monitor_mode():
+    return MONITOR_FLAG.exists()
+
+
+# Covers the status/QR/Doom headers (ink ends by row 19); on the hotspot
+# screen it clips the tops of the antenna / no-portal icons.
+MONITOR_BANNER_H = 20
+
+
+def draw_monitor_banner(image, dark_mode=False):
+    """Paints a full-width "MONITOR MODE · <time>" strip over the top rows of a
+    carousel frame, in place (the battery animation keeps reusing the same
+    image). It covers the header, so the clock moves into the strip. Inverse
+    of the screen: black strip on a light frame, white on a dark one."""
+    W = image.width
+    strip, text = (0, 255) if not dark_mode else (255, 0)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, W - 1, MONITOR_BANNER_H - 1), fill=strip)
+    label = "MONITOR MODE · " + datetime.now().strftime("%-I:%M %p")
+    line, font = fit_text(draw, label, FONT_BOLD_PATH, 12, 8, W - 8)
+    draw.text(((W - draw.textlength(line, font=font)) / 2, 3), line, font=font, fill=text)
+
+
+UPS_COUNTDOWN_STALE = 30  # overdue by this much: the guard is gone, ignore it
 
 
 def get_ups_countdown():
@@ -1430,6 +1456,7 @@ def main():
             uv_show = uv_streak >= uv_min_readings
             thr_show = thr_streak >= uv_min_readings
             kiosk_app = get_kiosk_mode()
+            monitor = is_monitor_mode()
             # A low-battery countdown outranks everything, kiosks included.
             ups_left = get_ups_countdown()
             takeover = ("ups",) if ups_left is not None else kiosk_app
@@ -1513,6 +1540,9 @@ def main():
                         battery = None   # the PINET join screen shows no battery
                     elif battery and battery_anim_seconds > 0 and battery_animates(battery) and not quiet:
                         anim_base = image   # (night: the battery rests)
+
+                if monitor and not takeover:
+                    draw_monitor_banner(image, dark_mode)
 
                 if flip_180:
                     image = image.rotate(180)
@@ -1655,6 +1685,9 @@ def main():
                 next_poll = elapsed + network_poll_seconds
                 if get_kiosk_mode() != kiosk_app:
                     logger.info("Kiosk mode changed, refreshing early")
+                    break
+                if is_monitor_mode() != monitor:
+                    logger.info("Monitor mode changed, refreshing early")
                     break
                 current_fingerprint = get_network_fingerprint()
                 if current_fingerprint != last_fingerprint:

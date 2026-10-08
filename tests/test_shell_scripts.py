@@ -9,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -947,3 +948,148 @@ class PinetSplashGuard(HarnessCase):
         self.theme("pix")
         self.assertEqual(self.h.run().returncode, 0)
         self.assertEqual(self.h.calls(), [])
+
+
+class HdmiMonitorDevice(unittest.TestCase):
+    """hdmi-monitor finds a UVC capture node by driver, not by name or number."""
+
+    def find(self, nodes):
+        tmp = Path(tempfile.mkdtemp(prefix="pinet-v4l-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for node, (name, index, driver) in nodes.items():
+            (tmp / node / "device").mkdir(parents=True)
+            (tmp / "drivers" / driver).mkdir(parents=True, exist_ok=True)
+            (tmp / node / "device" / "driver").symlink_to(tmp / "drivers" / driver)
+            (tmp / node / "name").write_text(name + "\n")
+            (tmp / node / "index").write_text(f"{index}\n")
+        r = subprocess.run(["/bin/bash", str(REPO / "scripts/bin/hdmi-monitor"), "--device"],
+                           env={"PATH": "/usr/bin:/bin", "HDMI_MONITOR_SYSFS": str(tmp)},
+                           capture_output=True, text=True)
+        return r.returncode, r.stdout.strip()
+
+    def test_capture_node_not_metadata_or_csi(self):
+        rc, dev = self.find({"video0": ("unicam-image", 0, "unicam"),
+                             "video3": ("USB2 Video: USB2 Video", 1, "uvcvideo"),
+                             "video4": ("USB2 Video: USB2 Video", 0, "uvcvideo")})
+        self.assertEqual((rc, dev), (0, "/dev/video4"))
+
+    def test_any_dongle_model(self):
+        rc, dev = self.find({"video0": ("unicam-image", 0, "unicam"),
+                             "video1": ("USB3. 0 capture: USB3. 0 captur", 0, "uvcvideo"),
+                             "video2": ("USB3. 0 capture: USB3. 0 captur", 1, "uvcvideo")})
+        self.assertEqual((rc, dev), (0, "/dev/video1"))
+
+    def test_missing_dongle_fails(self):
+        self.assertEqual(self.find({"video0": ("unicam-image", 0, "unicam")})[0], 1)
+
+
+class HdmiMonitorSingleInstance(unittest.TestCase):
+    """A second tap while the monitor is open must not start a second player
+    or delete the running one's monitor-mode flag."""
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/hdmi-monitor",
+                              rewrites={"/run/user/$(id -u)": "{tmp}"})
+        self.addCleanup(self.h.cleanup)
+        sysfs = self.h.dir / "v4l" / "video1"
+        (sysfs / "device").mkdir(parents=True)
+        (self.h.dir / "drivers" / "uvcvideo").mkdir(parents=True)
+        (sysfs / "device" / "driver").symlink_to(self.h.dir / "drivers" / "uvcvideo")
+        (sysfs / "index").write_text("0\n")
+        stub = '#!/bin/bash\necho "{0} $*" >> "$FAKE_DIR/calls.log"\n{1}\n'
+        # ffplay: "quits" (exit 0, like q/Esc) after FAKE_PLAYER_QUIT seconds,
+        # else plays until killed.
+        ShellHarness._write_exec(self.h.bin / "ffplay", stub.format(
+            "ffplay", '[ -n "${FAKE_PLAYER_QUIT:-}" ] && { /bin/sleep "$FAKE_PLAYER_QUIT"; exit 0; }\n'
+                      'exec /bin/sleep 60'))
+        # ffmpeg: counts frames into its -progress file every 0.2 s. On its
+        # first run it freezes after FAKE_STALL_AFTER frames (a dead USB
+        # stream); FAKE_NO_FRAMES makes every run produce none (device busy).
+        ShellHarness._write_exec(self.h.bin / "ffmpeg", stub.format("ffmpeg", r'''
+for a; do [ "${prev:-}" = -progress ] && P=${a#file:}; prev=$a; done
+n=$(( $(cat "$FAKE_DIR/ffmpeg.runs" 2>/dev/null || echo 0) + 1 )); echo $n > "$FAKE_DIR/ffmpeg.runs"
+[ -n "${FAKE_NO_FRAMES:-}" ] && exit 1
+exec 5> "$P"; i=0
+while :; do
+    if [ $n = 1 ] && [ $i -ge "${FAKE_STALL_AFTER:-1000000}" ]; then exec /bin/sleep 60; fi
+    i=$((i + 1)); echo "frame=$i" >&5; echo "progress=continue" >&5; /bin/sleep 0.2
+done'''))
+        ShellHarness._write_exec(self.h.bin / "python3", stub.format("python3", "exec /bin/sleep 30"))
+        ShellHarness._write_exec(self.h.bin / "zenity", stub.format("zenity", ""))
+        # Like logger(1): logs its arguments, or stdin when there are none.
+        ShellHarness._write_exec(self.h.bin / "logger", '#!/bin/bash\n[ $# -gt 2 ] || cat >/dev/null\n')
+        self.env = {"HDMI_MONITOR_SYSFS": str(self.h.dir / "v4l"), "WAYLAND_DISPLAY": "w",
+                    "HDMI_MONITOR_STALL": "2", "FAKE_PLAYER_QUIT": "3"}
+
+    def start(self, **env):
+        p = subprocess.Popen(["/bin/bash", str(self.h.script)],
+                             env={"PATH": f"{self.h.bin}:/usr/bin:/bin", "FAKE_DIR": str(self.h.dir),
+                                  **self.env, **env})
+        self.addCleanup(p.kill)
+        return p
+
+    def runs(self, name):
+        return sum(c.startswith(name) for c in self.h.calls())
+
+    def test_second_launch_is_a_no_op(self):
+        first = self.start()
+        self.addCleanup(first.kill)
+        flag = self.h.dir / "monitor-mode"
+        for _ in range(50):
+            if flag.exists():
+                break
+            time.sleep(0.05)
+        r = self.h.run(env=self.env)
+        self.assertEqual(r.returncode, 0)
+        self.assertTrue(flag.exists())   # the running monitor still owns it
+        self.assertEqual(sum(c.startswith("ffplay") for c in self.h.calls()), 1)
+        # Wakes the screen on start (it may be asleep, e.g. launched remotely).
+        self.assertEqual(sum(c.startswith("dsi-wake.sh") for c in self.h.calls()), 1)
+        self.assertFalse(any(c.startswith("zenity") for c in self.h.calls()))
+        first.wait(timeout=10)
+        self.assertFalse(flag.exists())
+
+    def test_frozen_stream_restarts(self):
+        p = self.start(FAKE_STALL_AFTER="5", FAKE_PLAYER_QUIT="")
+        for _ in range(100):   # 1 s of frames, a 2 s stall, then a restart
+            if self.runs("ffmpeg") >= 2:
+                break
+            time.sleep(0.1)
+        self.assertEqual((self.runs("ffmpeg"), self.runs("ffplay")), (2, 2))
+        time.sleep(3)   # the new stream keeps flowing: no further restarts
+        self.assertEqual(self.runs("ffmpeg"), 2)
+        p.terminate()   # what the close button does
+        self.assertEqual(p.wait(timeout=10), 0)
+        self.assertFalse((self.h.dir / "monitor-mode").exists())
+        self.assertFalse(any(c.startswith("zenity") for c in self.h.calls()))
+
+    def test_closing_the_player_does_not_restart(self):
+        self.assertEqual(self.start(FAKE_PLAYER_QUIT="1").wait(timeout=15), 0)
+        self.assertEqual(self.runs("ffmpeg"), 1)
+
+    def test_never_starting_gives_up_with_a_message(self):
+        self.assertEqual(self.start(FAKE_NO_FRAMES="1", FAKE_PLAYER_QUIT="").wait(timeout=60), 1)
+        self.assertEqual(self.runs("ffmpeg"), 3)
+        self.assertEqual(self.runs("zenity"), 1)
+
+
+class DsiSleepStaysAwake(unittest.TestCase):
+    """dsi-sleep.sh (swayidle's 90 s timeout) never blanks the HDMI monitor."""
+
+    def setUp(self):
+        self.h = ShellHarness("scripts/bin/dsi-sleep.sh")
+        self.addCleanup(self.h.cleanup)
+        ShellHarness._write_exec(self.h.bin / "sudo", '#!/bin/bash\necho "sudo $*" >> "$FAKE_DIR/calls.log"\n')
+
+    def blanked(self):
+        r = self.h.run(env={"XDG_RUNTIME_DIR": str(self.h.dir)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return any("dsi-backlight.sh off" in c for c in self.h.calls())
+
+    def test_sleeps_when_idle(self):
+        self.assertTrue(self.blanked())
+
+    def test_stays_lit_while_monitor_open(self):
+        (self.h.dir / "monitor-mode").touch()
+        self.assertFalse(self.blanked())
+        self.assertIn("systemctl --user try-restart dsi-idle-sleep.service", self.h.calls())
