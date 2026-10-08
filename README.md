@@ -43,6 +43,7 @@ installed by copying files into place; see [Deployment](#deployment).
 | **DSI touchscreen** | 7" photo frame (fit-to-screen slideshow, double-tap wake) + on-demand kiosks: Ezykam web app, **live Pi camera with Photo/Video capture**, and the PINET portal. A power manager sheds load during kiosks. |
 | **Kali toolbox** | Native Wi-Fi/network security tools (nmap, aircrack-ng suite, wifite, reaver, bully, mdk4, hcx…) for **authorized** auditing, plus a pentest power mode (`wifi-pentest-start/stop`). |
 | **raspotify** | Spotify Connect endpoint → Bluetooth speaker via PipeWire. |
+| **HDMI Monitor** | A USB HDMI capture dongle shown full-screen on the touchscreen, so the Pi doubles as a field monitor for a laptop or camera. The e-ink carousel keeps running with a "MONITOR MODE" strip; the screen never sleeps while it's open; the ✕ stays hidden until its corner is tapped; a frozen stream (USB reset) restarts by itself. |
 
 ## Screenshots
 
@@ -85,6 +86,7 @@ Captured on the device's 800×480 touchscreen. Home network details are blurred.
 - Bluetooth speaker via PipeWire
 - Waveshare UPS HAT (D) with 2× 21700 cells (8400 mAh), INA219 battery gauge on I²C
 - Raspberry Pi camera (Sony IMX219) on the CSI ribbon
+- USB HDMI capture dongle (any UVC one; tested with a MacroSilicon MS2109), MJPEG up to 1080p
 
 ### Block diagram
 
@@ -105,12 +107,20 @@ flowchart LR
     PI -->|Ethernet| ETH["eth0: Ethernet Share<br/>+ Pi-hole"]
     PI -->|USB| DRIVE["USB drive, 58 GB<br/>uploads · photos · captures"]
     PI -->|Bluetooth| SPK["Bluetooth speaker<br/>Spotify Connect"]
+    HDMI["HDMI source<br/>laptop · camera"] -->|HDMI| CAP["USB HDMI capture<br/>UVC, MJPEG"]
+    CAP -->|USB| PI
 ```
 
 ## How you operate it
 
 - **Desktop shortcuts** (touchscreen / VNC): Camera, Ezykam, PINET Portal, Photo
-  Frame, **Start PINET**, **Stop PINET**, **Kali Tools**.
+  Frame, **Start PINET**, **Stop PINET**, **Kali Tools**, **HDMI Monitor**. Icons
+  open on a single tap.
+- **HDMI Monitor:** plug an HDMI source into the capture dongle and tap the icon.
+  To close, tap the top-right corner to show the ✕, then tap it. Logs:
+  `journalctl -t hdmi-monitor`. `HDMI_MONITOR_SIZE` / `HDMI_MONITOR_FPS` pick the
+  capture mode (default 1280x720 at 30 fps, about 1.2 CPU cores: the Pi 3B has no
+  hardware MJPEG decoder; 20 fps costs about 0.8).
 - **At a glance:** the e-ink panel (no interaction).
 - **Remotely:** SSH/SFTP over `wlan1`/Ethernet (blocked from PINET guests by the firewall).
 - **Kali:** open the *Kali Tools* shortcut; see [`docs/kali-tools-guide.txt`](docs/kali-tools-guide.txt).
@@ -120,7 +130,9 @@ flowchart LR
 - **Power is the main constraint.** The 5V supply is marginal — heavy sustained
   load (Chromium-class browsers, big installs, or a loose plug) can brown the
   board out. Kiosks use the lightweight `cog` browser and the power manager sheds
-  load; the real cure is a solid 5V/3A supply + short thick cable.
+  load; the real cure is a solid 5V/3A supply + short thick cable. Under-voltage
+  can also reset the whole USB bus (drive, Wi-Fi dongle, HDMI capture); HDMI
+  Monitor notices the stalled picture and restarts the stream within ~10 s.
 - **PINET is offline by design** and **off by default** — start it with the
   *Start PINET* shortcut.
 - **`wlan1` is dual-purpose** (uplink *and* the only pentest radio); entering
