@@ -48,11 +48,11 @@ class Argv(unittest.TestCase):
                              binpath="nmap")
         self.assertEqual(argv, ["nmap", "-sV", "-p-", "h"])
 
-    def test_root_tool_is_pkexec_wrapped(self):
+    def test_root_tool_is_sudo_wrapped(self):
         argv = kl.build_argv(tool("tcpdump"),
                              {"iface": "wlan1", "count": "20", "filter": ""},
                              binpath="/usr/bin/tcpdump")
-        self.assertEqual(argv[:2], ["pkexec", "/usr/bin/tcpdump"])
+        self.assertEqual(argv[:2], ["sudo", "/usr/bin/tcpdump"])
         self.assertIn("-c", argv)
         self.assertEqual(argv[argv.index("-c") + 1], "20")
 
