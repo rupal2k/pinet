@@ -66,29 +66,3 @@ button,
 notebook > header > tabs > tab {
     border-radius: 7px;
 }
-
-/* ---- On-screen keyboard (squeekboard) -------------------------------------
- * squeekboard draws its keys itself and asks GTK only for background-color
- * and border-radius, on two nodes of its own: sq_view (the pad) and sq_button
- * (a key). User CSS outranks an app's own provider, so these win without
- * patching the package. Colours are the device's: panel #14161a, key #1e2128,
- * the labwc active border #f2c14e as the pressed key.
- */
-sq_view {
-    background-color: #14161a;
-}
-
-sq_button {
-    background-color: #1e2128;
-    color: #eef0f3;
-    border: 1px solid #2c303a;
-    border-radius: 6px;
-    font-weight: 600;
-}
-
-sq_button.button-pressed,
-sq_button:active {
-    background-color: #f2c14e;
-    color: #14161a;
-    border-color: #f2c14e;
-}

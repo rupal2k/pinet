@@ -1,17 +1,24 @@
 #!/bin/sh
-# PINET on-screen keyboard (wvkbd, manual + touch-friendly, dark).
+# PINET on-screen keyboard (wvkbd, manual + touch-friendly, desktop colours).
 # On demand: nothing runs while the keyboard is down. pinet-kbd-button starts
-# wvkbd and its floating pull-down tab together; both exit together.
+# wvkbd and its pull-down tab together; both exit together.
 #   show   - open the keyboard (the taskbar keyboard icon runs this)
 #   hide   - close it
 #   toggle - open if closed, close if open
-up() { pgrep -x wvkbd-mobintl >/dev/null; }
-open_kbd() { setsid pinet-kbd-button </dev/null >/dev/null 2>&1 & }
+# The tab holds a lock (with its pid inside) for its whole life, from before
+# wvkbd exists -- so a second tap while it starts up sees it as already open.
+LOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pinet-kbd.lock"
+up() { [ -e "$LOCK" ] && ! flock -n "$LOCK" true; }
+open_kbd() { setsid systemd-cat -t pinet-kbd pinet-kbd-button </dev/null >/dev/null 2>&1 & }
+close_kbd() {
+    up && kill "$(cat "$LOCK")" 2>/dev/null   # a tab still starting up
+    pkill -x wvkbd-mobintl
+}
 
 case "$1" in
     show)   up || open_kbd ;;
-    hide)   pkill -x wvkbd-mobintl ;;
-    toggle) if up; then pkill -x wvkbd-mobintl; else open_kbd; fi ;;
+    hide)   close_kbd ;;
+    toggle) if up; then close_kbd; else open_kbd; fi ;;
     *) echo "usage: pinet-kbd show|hide|toggle" >&2; exit 2 ;;
 esac
 exit 0

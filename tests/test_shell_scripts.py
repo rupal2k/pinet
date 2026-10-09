@@ -4,6 +4,7 @@ dsi-install-guard, wifi-pentest-stop and dsi-backlight.sh against PATH stubs.
 Each behavioural test runs a copy of the real script whose hard-coded /run,
 /sys and /usr/local paths are rewritten into a temp dir (see ShellHarness).
 """
+import fcntl
 import py_compile
 import shutil
 import signal
@@ -277,7 +278,8 @@ class DsiBacklight(HarnessCase):
 
 class PinetKeyboard(unittest.TestCase):
     """The taskbar icon and the pull-down tab both go through pinet-kbd; it
-    must open exactly one keyboard and close it every time."""
+    must open exactly one keyboard -- even on a second tap while the first is
+    still starting -- and close it every time."""
 
     def setUp(self):
         self.h = ShellHarness("scripts/bin/pinet-kbd")
@@ -286,9 +288,18 @@ class PinetKeyboard(unittest.TestCase):
             self.h._write_exec(self.h.bin / name,
                                f'#!/bin/bash\necho "{name} $*" >> "$FAKE_DIR/calls.log"\n')
 
-    def run_with(self, keyboard_up, *args):
-        self.h._write_exec(self.h.bin / "pgrep", f"#!/bin/bash\nexit {0 if keyboard_up else 1}\n")
-        r = self.h.run(*args)
+    def open_tab(self):
+        """Stand in for a running pinet-kbd-button: hold the lock, pid inside."""
+        tab = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(tab.kill)
+        lock = open(self.h.dir / "pinet-kbd.lock", "a+")
+        self.addCleanup(lock.close)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock.write(str(tab.pid)); lock.flush()
+        return tab
+
+    def run_kbd(self, *args):
+        r = self.h.run(*args, env={"XDG_RUNTIME_DIR": str(self.h.dir)})
         for _ in range(25):  # setsid runs in the background
             if self.h.calls():
                 break
@@ -296,27 +307,38 @@ class PinetKeyboard(unittest.TestCase):
         return r, " ".join(self.h.calls())
 
     def test_show_opens_the_keyboard(self):
-        r, calls = self.run_with(False, "show")
+        r, calls = self.run_kbd("show")
         self.assertEqual(r.returncode, 0)
-        self.assertIn("setsid pinet-kbd-button", calls)
+        self.assertIn("pinet-kbd-button", calls)
 
-    def test_show_twice_opens_one_keyboard(self):
-        r, calls = self.run_with(True, "show")
+    def test_second_tap_while_starting_opens_nothing(self):
+        self.open_tab()
+        r, calls = self.run_kbd("show")
         self.assertEqual((r.returncode, calls), (0, ""))
 
-    def test_hide_closes_it(self):
-        _, calls = self.run_with(True, "hide")
+    def test_hide_closes_a_keyboard_still_starting(self):
+        tab = self.open_tab()
+        _, calls = self.run_kbd("hide")
         self.assertIn("pkill -x wvkbd-mobintl", calls)
+        self.assertIsNotNone(tab.wait(timeout=5))
 
     def test_toggle_both_ways(self):
-        _, calls = self.run_with(True, "toggle")
+        tab = self.open_tab()
+        _, calls = self.run_kbd("toggle")
         self.assertIn("pkill -x wvkbd-mobintl", calls)
+        tab.wait(timeout=5)
         (self.h.dir / "calls.log").write_text("")
-        _, calls = self.run_with(False, "toggle")
-        self.assertIn("setsid pinet-kbd-button", calls)
+        (self.h.dir / "pinet-kbd.lock").unlink()
+        _, calls = self.run_kbd("toggle")
+        self.assertIn("pinet-kbd-button", calls)
+
+    def test_stale_lock_file_is_not_open(self):
+        (self.h.dir / "pinet-kbd.lock").write_text("999999")
+        _, calls = self.run_kbd("show")
+        self.assertIn("pinet-kbd-button", calls)
 
     def test_bad_argument_is_usage_error(self):
-        r, calls = self.run_with(False, "wiggle")
+        r, calls = self.run_kbd("wiggle")
         self.assertEqual((r.returncode, calls), (2, ""))
 
 

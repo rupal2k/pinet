@@ -3,6 +3,6 @@ Type=Application
 Name=Keyboard
 Comment=Show the on-screen keyboard
 Exec=/usr/local/bin/pinet-kbd show
-Icon=input-keyboard
+Icon=/home/rupal/.local/share/icons/pinet-kbd.svg
 Terminal=false
 Categories=Utility;

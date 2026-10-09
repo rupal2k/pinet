@@ -492,6 +492,7 @@ def run_gui():
                 self._cls(lab, "field-label")
                 box.pack_start(lab, False, False, 0)
                 e = Gtk.Entry(text=default)
+                e.set_activates_default(True)  # Enter = Run (keyboard hides the buttons)
                 if hint:
                     e.set_placeholder_text(hint)
                     e.set_tooltip_text(hint)
