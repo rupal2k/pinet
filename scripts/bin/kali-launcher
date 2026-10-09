@@ -40,6 +40,9 @@ PENTEST_START = "/usr/local/sbin/wifi-pentest-start"
 PENTEST_STOP = "/usr/local/sbin/wifi-pentest-stop"
 PENTEST_FLAG = "/run/pentest-mode"
 KALI_WORK = os.path.expanduser("~/kali-work")
+# Window height (px) under which the tool cards hide so the terminal gets the
+# room: ~448 normally on the 800x480 panel, ~265 with the keyboard up.
+COMPACT_BELOW = 350
 ACK_FILE = os.path.expanduser("~/.config/kali-launcher/authorized")
 
 AUTHORIZATION_TEXT = (
@@ -246,6 +249,7 @@ def run_gui():
             self._load_css()
             self._build()
             self.connect("destroy", self._on_destroy)
+            self.connect("configure-event", self._on_configure)
 
         def _load_css(self):
             prov = Gtk.CssProvider()
@@ -293,8 +297,27 @@ def run_gui():
                 grid.pack_start(self._group_box(group), False, False, 0)
             scroller.add(grid)
             body.pack_start(scroller, True, True, 0)
+            self.tools_scroller = scroller
 
-            body.pack_start(self._output_pane(), False, False, 0)
+            self.out_pane = self._output_pane()
+            body.pack_start(self.out_pane, False, False, 0)
+            self.body = body
+
+        def _on_configure(self, _win, event):
+            # The on-screen keyboard reserves the bottom of the screen, so the
+            # maximized window gets short. Then the tool cards step aside and
+            # the terminal takes their space; they come back with the room.
+            compact = event.height < COMPACT_BELOW
+            if compact == (not self.tools_scroller.get_visible()):
+                return False
+            GLib.idle_add(self._set_compact, compact)
+            return False
+
+        def _set_compact(self, compact):
+            self.tools_scroller.set_visible(not compact)
+            self.body.set_child_packing(self.out_pane, compact, compact, 0,
+                                        Gtk.PackType.START)
+            return False
 
         def _header(self):
             bar = Gtk.Box(spacing=12)
@@ -424,7 +447,7 @@ def run_gui():
             self.term.set_color_cursor(fg)
             self.term.connect("child-exited", self._on_child_exited)
             scroller.add(self.term)
-            box.pack_start(scroller, False, False, 0)
+            box.pack_start(scroller, True, True, 0)
             self._feed("Ready. Pick a tool above.\n")
             return box
 
