@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Keyboard
+Comment=Show the on-screen keyboard
+Exec=/usr/local/bin/pinet-kbd show
+Icon=input-keyboard
+Terminal=false
+Categories=Utility;

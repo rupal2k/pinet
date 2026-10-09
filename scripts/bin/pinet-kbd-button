@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Floating 'pull the keyboard down' button for PINET (GTK3 + wlr layer-shell).
+Owns the on-screen keyboard: starts wvkbd as its child, shows a tab on the
+right edge just above it, and exits when the keyboard goes away. Tap = close
+the keyboard. Started by `pinet-kbd show` (the taskbar keyboard icon)."""
+import os
+import signal
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gtk, GtkLayerShell, Gdk, GLib
+
+WVKBD = ["wvkbd-mobintl", "-L", "215", "-R", "9", "--fn", "Sans 17",
+         "--landscape-layers", "landscape,landscapespecial,emoji",
+         "--bg", "1b1b1dff", "--fg", "303134ff", "--fg-sp", "232426ff",
+         "--text", "eceff1ff", "--text-sp", "aeb3b9ff",
+         "--press", "1a73e8ff", "--press-sp", "46494dff"]
+
+CSS = b"""
+window { background: transparent; }
+button {
+  background: rgba(32,33,36,0.85);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px 0 0 12px;
+  margin: 0; padding: 0;
+  font-size: 24px;
+}
+button:active { background: rgba(26,115,232,0.95); }
+"""
+
+win = Gtk.Window()
+win.set_decorated(False)
+GtkLayerShell.init_for_window(win)
+GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+# Right edge, upper-middle: just above the keyboard, clear of window controls.
+GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.TOP, True)
+GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.RIGHT, True)
+GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, 150)
+GtkLayerShell.set_namespace(win, "pinet-kbd-button")
+
+prov = Gtk.CssProvider(); prov.load_from_data(CSS)
+Gtk.StyleContext.add_provider_for_screen(
+    Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+btn = Gtk.Button(label="⌨ ⌄")   # keyboard + down chevron (pull down)
+btn.set_size_request(40, 88)
+pid, *_ = GLib.spawn_async(WVKBD, flags=GLib.SpawnFlags.SEARCH_PATH
+                            | GLib.SpawnFlags.DO_NOT_REAP_CHILD)
+GLib.child_watch_add(pid, lambda *_: Gtk.main_quit())  # keyboard gone -> exit
+btn.connect("clicked", lambda *_: os.kill(pid, signal.SIGTERM))
+win.add(btn)
+win.show_all()
+Gtk.main()

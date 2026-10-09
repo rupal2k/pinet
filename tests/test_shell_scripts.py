@@ -276,44 +276,48 @@ class DsiBacklight(HarnessCase):
 
 
 class PinetKeyboard(unittest.TestCase):
-    """The on-screen keyboard has no hide key; this script is the only way off
-    the screen, so it has to ask for the right thing every time."""
+    """The taskbar icon and the pull-down tab both go through pinet-kbd; it
+    must open exactly one keyboard and close it every time."""
 
     def setUp(self):
-        self.h = ShellHarness("scripts/bin/pinet-keyboard")
+        self.h = ShellHarness("scripts/bin/pinet-kbd")
         self.addCleanup(self.h.cleanup)
+        for name in ("pkill", "setsid"):
+            self.h._write_exec(self.h.bin / name,
+                               f'#!/bin/bash\necho "{name} $*" >> "$FAKE_DIR/calls.log"\n')
 
-    def fake_busctl(self, visible):
-        self.h._write_exec(
-            self.h.bin / "busctl",
-            '#!/bin/bash\n'
-            'if [ "$2" = get-property ]; then echo "b ' + visible + '"; exit 0; fi\n'
-            'echo "$@" >> "$FAKE_DIR/calls.log"\nexit 0\n')
+    def run_with(self, keyboard_up, *args):
+        self.h._write_exec(self.h.bin / "pgrep", f"#!/bin/bash\nexit {0 if keyboard_up else 1}\n")
+        r = self.h.run(*args)
+        for _ in range(25):  # setsid runs in the background
+            if self.h.calls():
+                break
+            time.sleep(0.02)
+        return r, " ".join(self.h.calls())
 
-    def called_with(self):
-        return " ".join(self.h.calls())
-
-    def test_toggle_hides_a_visible_keyboard(self):
-        self.fake_busctl("true")
-        r = self.h.run("toggle")
+    def test_show_opens_the_keyboard(self):
+        r, calls = self.run_with(False, "show")
         self.assertEqual(r.returncode, 0)
-        self.assertIn("SetVisible b false", self.called_with())
+        self.assertIn("setsid pinet-kbd-button", calls)
 
-    def test_toggle_shows_a_hidden_keyboard(self):
-        self.fake_busctl("false")
-        self.h.run("toggle")
-        self.assertIn("SetVisible b true", self.called_with())
+    def test_show_twice_opens_one_keyboard(self):
+        r, calls = self.run_with(True, "show")
+        self.assertEqual((r.returncode, calls), (0, ""))
 
-    def test_hide_always_hides(self):
-        self.fake_busctl("false")
-        self.h.run("hide")
-        self.assertIn("SetVisible b false", self.called_with())
+    def test_hide_closes_it(self):
+        _, calls = self.run_with(True, "hide")
+        self.assertIn("pkill -x wvkbd-mobintl", calls)
+
+    def test_toggle_both_ways(self):
+        _, calls = self.run_with(True, "toggle")
+        self.assertIn("pkill -x wvkbd-mobintl", calls)
+        (self.h.dir / "calls.log").write_text("")
+        _, calls = self.run_with(False, "toggle")
+        self.assertIn("setsid pinet-kbd-button", calls)
 
     def test_bad_argument_is_usage_error(self):
-        self.fake_busctl("true")
-        r = self.h.run("wiggle")
-        self.assertEqual(r.returncode, 2)
-        self.assertEqual(self.h.calls(), [])
+        r, calls = self.run_with(False, "wiggle")
+        self.assertEqual((r.returncode, calls), (2, ""))
 
 
 class PinetConfirm(unittest.TestCase):
