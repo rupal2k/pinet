@@ -8,13 +8,13 @@ A single **Raspberry Pi 3B** turned into a self-contained, multi-purpose
 appliance. It began as an e-ink status dashboard and grew into five coexisting
 subsystems on one board — a status panel, a private offline network + portal, a
 touchscreen photo-frame / kiosk, a Wi-Fi security-testing toolbox, and a
-Bluetooth music endpoint — all coordinated to share the Pi's tight power budget
+Bluetooth media centre (Spotify + live TV) — all coordinated to share the Pi's tight power budget
 without stepping on each other.
 
 > Think of it as a pocket "home server + info appliance": it shows status at a
 > glance, hosts its own guest Wi-Fi and message board with **no internet
 > needed**, doubles as a photo frame and camera, can audit your own Wi-Fi, and
-> streams Spotify to a Bluetooth speaker.
+> streams Spotify and live TV to a Bluetooth speaker.
 
 This repo is the source of truth for all the custom code, configuration, and
 documentation that make the device what it is. See
@@ -42,8 +42,8 @@ installed by copying files into place; see [Deployment](#deployment).
 | **PINET** | Self-hosted, **internet-free** Wi-Fi hotspot (`wlan0`, `10.10.10.1`) + captive-portal message board & ≤1GB file sharing (`pinet-board`), on USB storage. On-demand (not started at boot). |
 | **DSI touchscreen** | 7" photo frame (fit-to-screen slideshow, double-tap wake) + on-demand kiosks: Ezykam web app, **live Pi camera with Photo/Video capture**, and the PINET portal. A power manager sheds load during kiosks. |
 | **Kali toolbox** | Native Wi-Fi/network security tools (nmap, aircrack-ng suite, wifite, reaver, bully, mdk4, hcx…) for **authorized** auditing, plus a pentest power mode (`wifi-pentest-start/stop`). |
-| **raspotify** | Spotify Connect endpoint → Bluetooth speaker via PipeWire. |
-| **HDMI Monitor** | A USB HDMI capture dongle shown full-screen on the touchscreen, so the Pi doubles as a field monitor for a laptop or camera. The e-ink carousel keeps running with a "MONITOR MODE" strip; the screen never sleeps while it's open; the ✕ stays hidden until its corner is tapped; a frozen stream (USB reset) restarts by itself. |
+| **Media Centre** | One desktop icon for **Spotify**, **IPTV** and **HDMI Monitor**. Spotify Connect (raspotify) → Bluetooth speaker via PipeWire, started on demand (not at boot). IPTV plays live Indian channels in English, Bengali and Hindi at 576p from [iptv-org](https://github.com/iptv-org/iptv), filtered by language, category and search; only channels whose stream answers are listed. Sound goes to a Bluetooth speaker (a paired one is reconnected if needed, and switching speakers mid-channel moves the sound); a dropped stream reconnects by itself; corner controls (← / pause / ✕) appear on a tap; the screen stays awake while a channel plays. |
+| **HDMI Monitor** | Opened from Media Centre. A USB HDMI capture dongle shown full-screen on the touchscreen, so the Pi doubles as a field monitor for a laptop or camera. The e-ink carousel keeps running with a "MONITOR MODE" strip; the screen never sleeps while it's open; the ✕ stays hidden until its corner is tapped; a frozen stream (USB reset) restarts by itself. |
 
 ## Screenshots
 
@@ -51,12 +51,14 @@ Captured on the device's 800×480 touchscreen. Home network details and the capt
 
 | | |
 |---|---|
-| ![Desktop](docs/images/desktop.png)<br>**Desktop**: one icon per job, transparent taskbar | ![Brightness slider](docs/images/brightness-slider.png)<br>**Brightness slider** in the taskbar (never below 10%) |
+| ![Desktop](docs/images/desktop.png)<br>**Desktop**: one icon per job; Lock and keyboard in the taskbar | ![Brightness slider](docs/images/brightness-slider.png)<br>**Brightness slider** in the taskbar (never below 10%) |
 | ![Start PINET dialog](docs/images/pinet-confirm.png)<br>**Confirm dialogs** in front of every service | ![Start Spotify dialog](docs/images/spotify-confirm.png)<br>**Spotify Connect**, one tap to start |
 | ![Portal login](docs/images/portal-login.png)<br>**PINET portal**: offline message board + file drop | ![Lock screen](docs/images/lock-screen.png)<br>**Passcode lock screen** |
 | ![Kali Tools](docs/images/kali-tools.png)<br>**Kali Tools** launcher (for networks you own) | ![Ethernet Share](docs/images/ethernet-share.png)<br>**Ethernet Share**: Wi-Fi → Ethernet router + Pi-hole |
 | ![Graph viewer](docs/images/graph-viewer.png)<br>**Graph viewer**: browse any stored code graph | ![E-ink status](docs/images/eink-status.png)<br>**E-ink status panel** (back of the device) |
 | ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink PINET join card** (placeholder values) | ![HDMI Monitor](docs/images/hdmi-monitor.png)<br>**HDMI Monitor**: a laptop over USB HDMI capture; the ✕ shows only after a corner tap |
+| ![Media Centre](docs/images/media-centre.png)<br>**Media Centre**: Spotify, IPTV or HDMI; the Spotify icon turns green while it runs | ![IPTV channel list](docs/images/media-centre-iptv.png)<br>**IPTV**: live Indian channels by language and category |
+| ![IPTV video controls](docs/images/media-centre-video.png)<br>**IPTV playing**: ← back, pause, ✕ close, shown after a tap in the top-left corner (picture blurred) | |
 
 ## Repository layout
 
@@ -67,7 +69,8 @@ Captured on the device's 800×480 touchscreen. Home network details and the capt
 ├── eink-dashboard/            # the e-ink dashboard app (src/, config/, systemd/, scripts/, assets/)
 ├── pinet-board/               # the PINET captive-portal web app (Flask: app.py, templates/, static/)
 ├── scripts/
-│   ├── bin/                   # /usr/local/bin — DSI touchscreen + camera scripts (dsi-*, cam)
+│   ├── bin/                   # /usr/local/bin — DSI touchscreen + camera scripts (dsi-*, cam),
+│   │                          #   GUI apps (media-centre, kali-launcher, eth-share-gui)
 │   └── sbin/                  # /usr/local/sbin — pinet-start/stop, kali-power-shed,
 │                              #   wifi-pentest-start/stop, pi-power-manager, install guard
 ├── systemd/                   # service units + drop-ins (raspotify override, pinet-ap-network, …)
@@ -106,7 +109,7 @@ flowchart LR
     PI -->|USB| WLAN1["wlan1: TP-Link Archer T2U<br/>home uplink · monitor mode"]
     PI -->|Ethernet| ETH["eth0: Ethernet Share<br/>+ Pi-hole"]
     PI -->|USB| DRIVE["USB drive, 58 GB<br/>uploads · photos · captures"]
-    PI -->|Bluetooth| SPK["Bluetooth speaker<br/>Spotify Connect"]
+    PI -->|Bluetooth| SPK["Bluetooth speaker<br/>Spotify · IPTV"]
     HDMI["HDMI source<br/>laptop · camera"] -->|HDMI| CAP["USB HDMI capture<br/>UVC, MJPEG"]
     CAP -->|USB| PI
 ```
@@ -114,9 +117,16 @@ flowchart LR
 ## How you operate it
 
 - **Desktop shortcuts** (touchscreen / VNC): Camera, Ezykam, PINET Portal, Photo
-  Frame, **Start PINET**, **Stop PINET**, **Kali Tools**, **HDMI Monitor**. Icons
-  open on a single tap.
-- **HDMI Monitor:** plug an HDMI source into the capture dongle and tap the icon.
+  Frame, **Start PINET**, **Stop PINET**, **Kali Tools**, **Media Centre**. Icons
+  open on a single tap. **Lock** is in the taskbar, next to the keyboard.
+- **Media Centre → Spotify:** starts or stops Spotify Connect (asks first); play
+  from the Spotify app on your phone.
+- **Media Centre → IPTV:** pick a channel (opening the list takes ~10 s while
+  streams are checked). Turn the Bluetooth speaker on first; if it's connected to
+  a phone, disconnect it there. Tap the top-left corner for ← / pause / ✕. Logs:
+  `journalctl --user -t media-centre`. Some iptv-org streams are slow or go
+  offline; the app reconnects a dropped stream up to 3 times.
+- **Media Centre → HDMI:** plug an HDMI source into the capture dongle and tap HDMI.
   To close, tap the top-right corner to show the ✕, then tap it. Logs:
   `journalctl -t hdmi-monitor`. `HDMI_MONITOR_SIZE` / `HDMI_MONITOR_FPS` pick the
   capture mode (default 1280x720 at 30 fps, about 1.2 CPU cores: the Pi 3B has no
@@ -133,6 +143,9 @@ flowchart LR
   load; the real cure is a solid 5V/3A supply + short thick cable. Under-voltage
   can also reset the whole USB bus (drive, Wi-Fi dongle, HDMI capture); HDMI
   Monitor notices the stalled picture and restarts the stream within ~10 s.
+- **Bluetooth audio on a Pi 3B:** the built-in radio occasionally corrupts
+  frames (`hci0: Frame reassembly failed` in `dmesg`), heard as short dropouts.
+  A USB Bluetooth dongle avoids it.
 - **PINET is offline by design** and **off by default** — start it with the
   *Start PINET* shortcut.
 - **`wlan1` is dual-purpose** (uplink *and* the only pentest radio); entering

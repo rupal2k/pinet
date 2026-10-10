@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>IPTV</title>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#e8e8e8" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#e8e8e8" stroke-width="1.8"/>
+  <path d="M18 9 L24 15 L30 9" stroke="#e8e8e8" stroke-width="2.4"/>
+  <path d="M9 15 H39 V35 H9 Z" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.22"/><path d="M9 15 H39 V35 H9 Z" stroke="#e8e8e8" stroke-width="2.4"/>
+  <path d="M21 20 L29 25 L21 30 Z" fill="#e8e8e8" fill-opacity="0.22"/><path d="M21 20 L29 25 L21 30 Z" stroke="#e8e8e8" stroke-width="1.6"/>
+  <path d="M17 39 H31" stroke="#e8e8e8" stroke-width="2.4"/>
+</svg>

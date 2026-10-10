@@ -1,0 +1,723 @@
+#!/usr/bin/env python3
+"""PINET Media Centre -- one desktop icon, three services: Spotify Connect,
+live TV from the iptv-org playlists (github.com/iptv-org/iptv), or the HDMI
+capture monitor.
+
+The first screen asks which one. Spotify hands straight to `pinet-confirm
+toggle spotify` (its own confirm dialog, as the old Spotify icon did); its
+card shows the same green/off icon as the desktop. HDMI Monitor runs
+hdmi-monitor, which used to have its own desktop icon.
+IPTV opens a channel browser: Indian channels in English, Bengali and Hindi
+at 576p (no HD),
+and of those only the ones whose stream answers when the list opens, with
+language and category filters and a search box; tapping a channel plays it full-screen in VLC with the usual
+corner controls (Back / Play-Pause / Close, hidden until the top-left corner
+is tapped). While a channel plays, the media-playing flag keeps dsi-sleep.sh
+from blanking the screen and raising the lock.
+
+Audio goes to a Bluetooth speaker. The Pi does not reconnect one after a
+reboot, so if none is connected the paired speakers are tried (the last one
+used first) before spotify-audio-route makes it the output. With no speaker
+in reach it plays on the built-in output and says so.
+
+The playlist is cached for a day in ~/.cache/media-centre/. Many iptv-org
+streams are offline or geo-blocked at any moment -- VLC just fails on those.
+The playlist parsing below is pure and unit-tested (tests/test_media_centre.py);
+the GUI imports gi lazily so those tests need no display.
+"""
+import fcntl
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pinet_eink_theme import CSS, LOGO_PATHS
+
+# Indian channels in these languages at 576p (no HD), only those that answer.
+COUNTRY_URL = "https://iptv-org.github.io/iptv/countries/in.m3u"
+LANGUAGES = {"English": "eng", "Bengali": "ben", "Hindi": "hin"}
+LANGUAGE_URL = "https://iptv-org.github.io/iptv/languages/{}.m3u"
+ALL_LANGS = "All languages"
+QUALITY = "(576p)"
+CACHE_DIR = os.path.expanduser("~/.cache/media-centre")
+PROBE_TIMEOUT = 6
+CACHE_MAX_AGE = 24 * 3600
+CONFIRM = "/usr/local/bin/pinet-confirm"
+AUDIO_ROUTE = "/usr/local/bin/spotify-audio-route"
+HDMI_MONITOR = "/usr/local/bin/hdmi-monitor"
+ICON_DIR = os.path.expanduser("~/.local/share/icons")
+PLAYING_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "media-playing")
+RC_SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "media-centre-vlc.sock")
+ALL = "All categories"
+LAST_SPEAKER = os.path.join(CACHE_DIR, "last-speaker")
+AUDIO_SINK_UUID = "0000110b"   # Bluetooth A2DP Audio Sink: a speaker/headphones
+CONNECT_TIMEOUT = 8
+# The only per-stream options iptv-org uses. Anything else in a remote
+# playlist (e.g. :sout=... which writes files) is dropped, not passed to VLC.
+SAFE_VLC_OPTS = ("http-referrer=", "http-user-agent=")
+AUTOHIDE_MS = 4000
+# Live HLS from slow servers stalls with VLC's default ~1 s buffer; 3 s rides
+# out most hiccups for ~2 s more wait at the start.
+NETWORK_CACHING_MS = 3000
+# A stream that drops (VLC quits) is reopened this many times before giving up.
+MAX_RETRIES = 3   # the corner controls hide again after this long untouched
+
+EXTRA_CSS = b"""
+.choice { background-color: #ffffff; color: #000000; border: 2px solid #000000;
+          border-radius: 12px; padding: 18px; }
+.choice:active { background-color: #000000; color: #ffffff; }
+.choice-name { color: inherit; font-weight: 800; font-size: 22px; letter-spacing: 2px; }
+.choice-desc { color: inherit; font-size: 11px; }
+treeview.view { background-color: #ffffff; color: #000000; font-size: 15px; }
+combobox button { background-image: none; background-color: #ffffff; color: #000000;
+                  border: 2px solid #000000; border-radius: 6px; padding: 6px 10px; }
+combobox button:active { background-color: #000000; color: #ffffff; }
+.status { color: #000000; font-size: 12px; }
+treeview.view:selected { background-color: #000000; color: #ffffff; }
+.list { border: 2px solid #000000; border-radius: 8px; }
+/* Corner controls over the full-screen video, like the DSI close button. */
+.osd { background-color: rgba(0, 0, 0, 0); }
+.osd button { background-color: rgba(40, 40, 40, 0.55); color: rgba(255, 255, 255, 0.95);
+              border: 2px solid rgba(255, 255, 255, 0.5); border-radius: 999px;
+              font-size: 20px; font-weight: bold; min-width: 56px; min-height: 56px;
+              padding: 0; }
+.osd button:active { background-color: rgba(200, 40, 40, 0.6); }
+/* Hidden: fully transparent, but its corner still takes the tap. */
+.osd button.hidden, .osd button.hidden:active, .osd button.hidden:hover { background-color: rgba(0, 0, 0, 0);
+              border-color: rgba(0, 0, 0, 0); color: rgba(0, 0, 0, 0); }
+"""
+
+
+def _attr(line, key):
+    """Value of key="..." in an #EXTINF line, or ''."""
+    tag = f'{key}="'
+    i = line.find(tag)
+    if i < 0:
+        return ""
+    i += len(tag)
+    j = line.find('"', i)
+    return line[i:j] if j >= 0 else ""
+
+
+def parse_m3u(text):
+    """iptv-org M3U -> list of channel dicts (name, url, groups, opts). Pure.
+
+    #EXTINF:-1 tvg-id="X" group-title="News;General",Channel Name (720p)
+    #EXTVLCOPT:http-referrer=https://...      (optional, per stream)
+    https://.../stream.m3u8
+    """
+    out, cur = [], None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("#EXTINF"):
+            # The display name follows the comma that ends the attributes;
+            # attribute values may hold commas, so skip past the last quote.
+            q = line.rfind('"')
+            comma = line.find(",", q + 1 if q >= 0 else 0)
+            name = line[comma + 1:].strip() if comma >= 0 else ""
+            groups = [g.strip() for g in _attr(line, "group-title").split(";") if g.strip()]
+            cur = {"name": name or "(unnamed)", "groups": groups or ["Undefined"], "opts": []}
+        elif line.startswith("#EXTVLCOPT:") and cur is not None:
+            opt = line[len("#EXTVLCOPT:"):]
+            if opt.startswith(SAFE_VLC_OPTS):
+                cur["opts"].append(opt)
+        elif line and not line.startswith("#") and cur is not None:
+            cur["url"] = line
+            out.append(cur)
+            cur = None
+    return out
+
+
+def categories(channels):
+    """Sorted unique category names, ALL first. Pure."""
+    return [ALL] + sorted({g for c in channels for g in c["groups"]})
+
+
+def matches(ch, category, query, language=None):
+    """Does a channel pass the language + category + search filter? Pure."""
+    if category not in (None, ALL) and category not in ch["groups"]:
+        return False
+    if language not in (None, ALL_LANGS) and language not in ch.get("langs", ()):
+        return False
+    return not query or query.lower() in ch["name"].lower()
+
+
+def pick_channels(country, language_urls):
+    """Country channels in any of the languages ({name: {urls}}), at QUALITY,
+    without HD in the name; each gets "langs", the languages it is in. Pure."""
+    out = []
+    for c in country:
+        if (QUALITY not in c["name"] or " HD" in c["name"]
+                or "[Geo-blocked]" in c["name"]):
+            continue
+        langs = [name for name, urls in language_urls.items() if c["url"] in urls]
+        if langs:
+            out.append(dict(c, langs=langs))
+    return out
+
+
+def is_live(ch):
+    """Does the stream answer right now? A playable HLS playlist starts with
+    #EXTM3U; a direct stream answers 200 with media. Sends the channel's own
+    referrer/user agent, as VLC will."""
+    headers = {"User-Agent": "VLC/3.0"}
+    for o in ch["opts"]:
+        key, _, val = o.partition("=")
+        headers["Referer" if key == "http-referrer" else "User-Agent"] = val
+    try:
+        req = urllib.request.Request(ch["url"], headers=headers)
+        with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT) as r:
+            head = r.read(2048)
+            ctype = r.headers.get("Content-Type", "")
+        return b"#EXTM3U" in head or ctype.startswith(("video/", "application/octet"))
+    except (OSError, ValueError):
+        return False
+
+
+def live_channels(channels):
+    """The channels whose streams answer, probed in parallel."""
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(16) as pool:
+        alive = list(pool.map(is_live, channels))
+    return [c for c, ok in zip(channels, alive) if ok]
+
+
+def vlc_argv(ch, sock=RC_SOCK):
+    """cvlc command for one channel; EXTVLCOPT lines become :input options.
+    The rc interface on a unix socket is what Play/Pause talks to. Pure."""
+    return (["cvlc", "--fullscreen", "--play-and-exit", "--no-video-title-show",
+             f"--network-caching={NETWORK_CACHING_MS}",
+             "--extraintf", "oldrc", "--rc-unix", sock, "--rc-fake-tty",
+             ch["url"]] + [":" + o for o in ch["opts"]])
+
+
+def paired_macs(bluetoothctl_devices):
+    """MACs from `bluetoothctl devices Paired` ("Device <MAC> <name>"). Pure."""
+    return [ln.split()[1] for ln in bluetoothctl_devices.splitlines()
+            if ln.startswith("Device ") and len(ln.split()) >= 2]
+
+
+def speaker_order(macs, last):
+    """Try the speaker used last time first, the rest in paired order. Pure."""
+    return ([last] if last in macs else []) + [m for m in macs if m != last]
+
+
+def speaker_sinks(wpctl_status):
+    """{id: name} of the audio sinks in `wpctl status` other than the Pi's own
+    output -- on this Pi those are the Bluetooth speakers. Pure."""
+    out, in_sinks = {}, False
+    for line in wpctl_status.splitlines():
+        if line.strip() in ("Video", "Settings"):
+            break
+        if "Sinks:" in line:
+            in_sinks = True
+        elif in_sinks and ("Sources:" in line or "Filters:" in line or "Streams:" in line):
+            in_sinks = False
+        elif in_sinks:
+            body = line.replace("*", " ").split("[vol:")[0].strip(" │├└─")
+            num, _, name = body.partition(". ")
+            num = num.strip()
+            if num.isdigit() and not name.strip().startswith("Built-in"):
+                out[num] = name.strip()
+    return out
+
+
+def new_speaker(before, now):
+    """Name of a speaker that has connected since `before`, or None. Pure."""
+    fresh = [sid for sid in now if sid not in before]
+    return now[fresh[-1]] if fresh else None
+
+
+def vlc_stream_ids(wpctl_status):
+    """PipeWire node ids of VLC's audio streams in `wpctl status`. Pure."""
+    ids, in_streams = [], False
+    for line in wpctl_status.splitlines():
+        if line.strip() in ("Video", "Settings"):
+            break   # audio comes first; the Video section lists VLC again
+        if "Streams:" in line:
+            in_streams = True
+        elif in_streams and "VLC media player" in line:
+            num = line.split(".")[0].split()[-1]
+            if num.isdigit():
+                ids.append(num)
+    return ids
+
+
+def vlc_command(cmd, sock=RC_SOCK):
+    """Send one rc command (e.g. "pause") to the running VLC."""
+    import socket
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(2)
+            s.connect(sock)
+            s.sendall(cmd.encode() + b"\n")
+    except OSError:
+        pass
+
+
+def _bt(*args, timeout=10):
+    try:
+        return subprocess.run(["bluetoothctl", *args], capture_output=True, text=True,
+                              timeout=timeout, check=False).stdout
+    except subprocess.TimeoutExpired:
+        return ""
+
+
+def ensure_speaker():
+    """Route audio to a Bluetooth speaker, connecting a paired one if needed.
+    Returns the speaker's name, or None (sound stays on the built-in output).
+    Blocking: up to CONNECT_TIMEOUT per speaker tried."""
+    def route():
+        r = subprocess.run([AUDIO_ROUTE], capture_output=True, text=True,
+                           timeout=20, check=False)
+        return r.stdout.split(" at ")[0].strip() if r.returncode == 0 else None
+    name = route()
+    if name:
+        return name
+    try:
+        last = open(LAST_SPEAKER).read().strip()
+    except OSError:
+        last = ""
+    for mac in speaker_order(paired_macs(_bt("devices", "Paired")), last):
+        if AUDIO_SINK_UUID not in _bt("info", mac):
+            continue   # a phone or keyboard, not a speaker
+        if "Connection successful" not in _bt("connect", mac, timeout=CONNECT_TIMEOUT):
+            continue
+        for _ in range(10):   # the PipeWire sink turns up a moment later
+            time.sleep(1)
+            name = route()
+            if name:
+                os.makedirs(os.path.dirname(LAST_SPEAKER), exist_ok=True)
+                with open(LAST_SPEAKER, "w") as f:
+                    f.write(mac + "\n")
+                return name
+    return None
+
+
+def load_playlist(url):
+    """Cached playlist text; refetch when missing or older than a day.
+    A failed fetch falls back to a stale cache rather than nothing."""
+    cache = os.path.join(CACHE_DIR, url.rsplit("/", 2)[-2] + "-" + url.rsplit("/", 1)[-1])
+    fresh = os.path.exists(cache) and time.time() - os.path.getmtime(cache) < CACHE_MAX_AGE
+    if not fresh:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "pinet-media-centre"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = r.read()
+            os.makedirs(CACHE_DIR, exist_ok=True)
+            with open(cache + ".tmp", "wb") as f:
+                f.write(data)
+            os.replace(cache + ".tmp", cache)
+        except OSError:
+            if not os.path.exists(cache):
+                raise
+    with open(cache, encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+
+def load_channels():
+    """The list the browser shows: picked, then only the live ones."""
+    language_urls = {name: {c["url"] for c in parse_m3u(load_playlist(LANGUAGE_URL.format(code)))}
+                     for name, code in LANGUAGES.items()}
+    return live_channels(pick_channels(parse_m3u(load_playlist(COUNTRY_URL)), language_urls))
+
+
+def run_gui():
+    import threading
+    import gi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk, GLib, Gdk, GdkPixbuf
+
+    class Window(Gtk.Window):
+        def __init__(self):
+            super().__init__(title="PINET Media Centre")
+            self.set_default_size(800, 448)
+            self.maximize()
+            self.channels = []
+            self.player = None
+            self.starting = False
+            self.speaker_note = ""
+            self.user_stopped = False
+            self.retries = 0
+            self.play_gen = 0
+            self.speaker = None
+            prov = Gtk.CssProvider()
+            prov.load_from_data(CSS + EXTRA_CSS)
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT)
+            root = self._cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "root")
+            root.pack_start(self._header(), False, False, 0)
+            root.pack_start(self.stack, True, True, 0)
+            self.add(root)
+            self.stack.add_named(self._chooser(), "choose")
+            self.stack.add_named(self._browser(), "iptv")
+            self._build_osd()
+            self.connect("destroy", self._quit)
+
+        def _cls(self, w, *names):
+            for n in names:
+                w.get_style_context().add_class(n)
+            return w
+
+        def _label(self, text, cls, xalign=0.5):
+            lab = self._cls(Gtk.Label(label=text, xalign=xalign), cls)
+            lab.set_justify(Gtk.Justification.CENTER if xalign == 0.5 else Gtk.Justification.LEFT)
+            return lab
+
+        def _header(self):
+            bar = self._cls(Gtk.Box(spacing=10), "titlebar")
+            for path in LOGO_PATHS:
+                if os.path.exists(path):
+                    try:
+                        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, -1, 22, True)
+                        bar.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
+                        break
+                    except GLib.Error:
+                        pass
+            bar.pack_start(self._label("MEDIA CENTRE", "app-title", 0), False, False, 0)
+            self.back = self._cls(Gtk.Button(label="Back"), "ghost")
+            self.back.connect("clicked", lambda *_: self.stack.set_visible_child_name("choose"))
+            self.back.set_no_show_all(True)
+            close = self._cls(Gtk.Button(label="Close"), "ghost")
+            close.connect("clicked", lambda *_: self.destroy())
+            bar.pack_end(close, False, False, 0)
+            bar.pack_end(self.back, False, False, 0)
+            return bar
+
+        def _icon(self, image, name):
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    os.path.join(ICON_DIR, name), 72, 72, True)
+                image.set_from_pixbuf(pb)
+            except GLib.Error:
+                pass
+            return image
+
+        def _choice(self, name, desc, cb, icon):
+            btn = self._cls(Gtk.Button(), "choice")
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            box.set_valign(Gtk.Align.CENTER)
+            image = self._icon(Gtk.Image(), icon)
+            box.pack_start(image, False, False, 0)
+            btn.image = image
+            box.pack_start(self._label(name, "choice-name"), False, False, 0)
+            box.pack_start(self._label(desc, "choice-desc"), False, False, 0)
+            btn.add(box)
+            btn.connect("clicked", cb)
+            return btn
+
+        def _chooser(self):
+            row = Gtk.Box(spacing=16, homogeneous=True)
+            for side in ("top", "bottom", "start", "end"):
+                getattr(row, f"set_margin_{side}")(24)
+            self.spotify_card = self._choice(
+                "SPOTIFY", "Start or stop\nSpotify Connect.", self._spotify, "spotify-off.svg")
+            row.pack_start(self.spotify_card, True, True, 0)
+            row.pack_start(self._choice(
+                "IPTV", "Live TV channels.\nSound on the speaker.", self._iptv, "iptv.svg"),
+                True, True, 0)
+            row.pack_start(self._choice(
+                "HDMI", "Show the HDMI\ncapture input.", self._hdmi, "hdmi-monitor.svg"),
+                True, True, 0)
+            # Same green/off icon as the desktop, kept current while open.
+            self._spotify_icon()
+            GLib.timeout_add_seconds(5, self._spotify_icon)
+            return row
+
+        def _spotify_icon(self):
+            if self.stack.get_visible_child_name() not in (None, "choose"):
+                return True   # nobody is looking at the card
+            def ask():
+                try:
+                    st = subprocess.run([CONFIRM, "state", "spotify"], capture_output=True,
+                                        text=True, timeout=10).stdout.strip()
+                except (OSError, subprocess.SubprocessError):
+                    return
+                if st in ("on", "partly", "off"):
+                    name = "spotify-off.svg" if st == "off" else "spotify-on.svg"
+                    GLib.idle_add(self._icon, self.spotify_card.image, name)
+            threading.Thread(target=ask, daemon=True).start()
+            return True
+
+        def _hdmi(self, *_):
+            subprocess.Popen([HDMI_MONITOR], start_new_session=True)
+            self.destroy()
+
+        def _browser(self):
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            for side in ("top", "bottom", "start", "end"):
+                getattr(box, f"set_margin_{side}")(10)
+            bar = Gtk.Box(spacing=8)
+            self.lang = Gtk.ComboBoxText()
+            for name in [ALL_LANGS, *LANGUAGES]:
+                self.lang.append_text(name)
+            self.lang.set_active(0)
+            self.lang.connect("changed", lambda *_: self.filter.refilter())
+            bar.pack_start(self.lang, False, False, 0)
+            self.cat = Gtk.ComboBoxText()
+            self.cat.connect("changed", lambda *_: self.filter.refilter())
+            self.search = Gtk.SearchEntry(placeholder_text="Search channels")
+            self.search.connect("search-changed", lambda *_: self.filter.refilter())
+            bar.pack_start(self.cat, False, False, 0)
+            bar.pack_start(self.search, True, True, 0)
+            box.pack_start(bar, False, False, 0)
+
+            # Index into self.channels + name; a TreeView copes with ~10k rows
+            # on a Pi 3 where a ListBox of widgets would not.
+            self.store = Gtk.ListStore(int, str)
+            self.filter = self.store.filter_new()
+            self.filter.set_visible_func(self._visible)
+            self.view = view = Gtk.TreeView(model=self.filter, headers_visible=False,
+                                activate_on_single_click=True)
+            cell = Gtk.CellRendererText()
+            cell.set_padding(12, 13)   # even ~44 px rows for a finger
+            view.append_column(Gtk.TreeViewColumn("Channel", cell, text=1))
+            view.set_grid_lines(Gtk.TreeViewGridLines.HORIZONTAL)
+            view.connect("row-activated", self._play_row)
+            scroll = self._cls(Gtk.ScrolledWindow(), "list")
+            scroll.add(view)
+            box.pack_start(scroll, True, True, 0)
+            self.status = self._label("", "status", 0)
+            box.pack_start(self.status, False, False, 0)
+            return box
+
+        # -- actions --
+        def _spotify(self, *_):
+            subprocess.Popen([CONFIRM, "toggle", "spotify"], start_new_session=True)
+            self.destroy()
+
+        def _iptv(self, *_):
+            self.stack.set_visible_child_name("iptv")
+            self.back.show()
+            if not self.channels:
+                self.status.set_text("Checking which channels are on air...")
+                threading.Thread(target=self._load, daemon=True).start()
+
+        def _load(self):
+            try:
+                chans = load_channels()
+                GLib.idle_add(self._loaded, chans, None)
+            except OSError as e:
+                GLib.idle_add(self._loaded, [], str(e))
+
+        def _loaded(self, chans, err):
+            if err:
+                self.status.set_text(f"Could not load the channel list: {err}")
+                return
+            self.channels = chans
+            # Detached while filling: with the filter attached every append
+            # re-runs it, which took ~5 s for 11k rows on the Pi 3.
+            self.view.set_model(None)
+            for i, c in enumerate(chans):
+                # Every channel is QUALITY, so the suffix is noise in the list.
+                self.store.append([i, c["name"].replace(" " + QUALITY, "")])
+            self.view.set_model(self.filter)
+            for name in categories(chans):
+                self.cat.append_text(name)
+            self.cat.set_active(0)
+            self.status.set_text(f"{len(chans)} Indian channels on air (576p)."
+                                 " Tap one to play.")
+
+        def _visible(self, model, it, _data):
+            if not self.channels:
+                return True
+            return matches(self.channels[model[it][0]], self.cat.get_active_text(),
+                           self.search.get_text().strip(), self.lang.get_active_text())
+
+        def _play_row(self, view, path, _col):
+            if self.starting:
+                return   # a second tap while the speaker is being connected
+            ch = self.channels[self.filter[path][0]]
+            self._stop_player()
+            self.retries = 0
+            self.play_gen += 1
+            self.starting = True
+            self.status.set_text("Connecting to a speaker...")
+            def work():
+                speaker = ensure_speaker()
+                GLib.idle_add(self._start_vlc, ch, speaker)
+            threading.Thread(target=work, daemon=True).start()
+
+        def _start_vlc(self, ch, speaker):
+            self.starting = False
+            self.speaker_note = "" if speaker else (
+                " No Bluetooth speaker found (is it on, and not connected to a phone?),"
+                " so sound was on the Pi.")
+            self.status.set_text(f"Playing {ch['name']} on {speaker or 'the Pi'}")
+            self.user_stopped = False
+            # VLC's errors go to our stderr, which is the journal (see main).
+            self.player = subprocess.Popen(vlc_argv(ch), stdout=subprocess.DEVNULL)
+            self.speaker = speaker
+            self.paused = False
+            self.osd_pause.set_label("❚❚")
+            open(PLAYING_FLAG, "w").close()
+            self.osd.show_all()
+            self._osd_show_controls(False)
+            GLib.child_watch_add(GLib.PRIORITY_DEFAULT, self.player.pid, self._ended, ch)
+            self.speakers = None
+            GLib.timeout_add_seconds(3, self._follow_speaker, self.player)
+            # WirePlumber restores mute per media role ("Movie" for VLC), so
+            # one mute while a video played used to silence every channel.
+            for delay in (3, 8):
+                GLib.timeout_add_seconds(delay, self._unmute)
+
+        def _follow_speaker(self, player):
+            """While a channel plays, a speaker that connects becomes the
+            output; VLC's stream follows the default output by itself."""
+            if self.player is not player:
+                return False   # that channel ended; its watch ends too
+            def check():
+                try:
+                    out = subprocess.run(["wpctl", "status"], capture_output=True,
+                                         text=True, timeout=5, check=False).stdout
+                except (OSError, subprocess.SubprocessError):
+                    return
+                now = speaker_sinks(out)
+                name = new_speaker(self.speakers, now) if self.speakers is not None else None
+                self.speakers = now
+                if name:
+                    subprocess.run([AUDIO_ROUTE], env=dict(os.environ, BT_SPEAKER=name),
+                                   capture_output=True, timeout=20, check=False)
+                    GLib.idle_add(self.status.set_text, f"Now playing on {name}")
+            threading.Thread(target=check, daemon=True).start()
+            return True
+
+        def _unmute(self):
+            out = subprocess.run(["wpctl", "status"], capture_output=True, text=True,
+                                 timeout=5, check=False).stdout
+            for sid in vlc_stream_ids(out):
+                subprocess.run(["wpctl", "set-mute", sid, "0"], check=False)
+            return False
+
+        def _ended(self, pid, status, ch):
+            if self.player and self.player.pid == pid:
+                code = os.waitstatus_to_exitcode(status)
+                self.player.returncode = code
+                self.player = None
+                self.osd.hide()
+                self._clear_flag()
+                if not self.user_stopped and self.retries < MAX_RETRIES:
+                    # Not ← or ✕: the stream dropped. Reopen it rather than
+                    # dumping the viewer back on the list.
+                    self.retries += 1
+                    print(f"media-centre: {ch['name']} ended (code {code}), "
+                          f"reconnecting {self.retries}/{MAX_RETRIES}", file=sys.stderr, flush=True)
+                    self.status.set_text(f"{ch['name']} dropped, reconnecting "
+                                         f"({self.retries}/{MAX_RETRIES})...")
+                    gen = self.play_gen
+                    def retry():
+                        # Not if ← / ✕ / another channel came in meanwhile.
+                        if gen == self.play_gen and not self.user_stopped:
+                            self._start_vlc(ch, self.speaker)
+                        return False
+                    GLib.timeout_add_seconds(2, retry)
+                    return
+                if not self.user_stopped:
+                    print(f"media-centre: {ch['name']} gave up after {MAX_RETRIES} reconnects",
+                          file=sys.stderr, flush=True)
+                self.status.set_text(f"Stopped {ch['name']}. Offline channels close straight away."
+                                     + self.speaker_note)
+
+        def _back_to_list(self, *_):
+            self._stop_player()
+            self.osd.hide()   # also when ← lands during a reconnect wait
+            self.status.set_text("Stopped. Tap a channel to play.")
+
+        def _stop_player(self):
+            self.user_stopped = True
+            if self.player:
+                self.player.terminate()
+                self.osd.hide()
+                self._clear_flag()
+
+        def _clear_flag(self):
+            try:
+                os.remove(PLAYING_FLAG)
+            except FileNotFoundError:
+                pass
+
+        # -- corner controls over the video --
+        def _build_osd(self):
+            """Layer-shell bar in the top-left corner, above the full-screen
+            VLC: Back (to the channel list), Play/Pause and Close (leave Media
+            Centre). Invisible until its corner is tapped, hidden again
+            AUTOHIDE_MS after the last tap."""
+            gi.require_version("GtkLayerShell", "0.1")
+            from gi.repository import GtkLayerShell
+            win = self._cls(Gtk.Window(), "osd")
+            win.set_decorated(False)
+            win.set_app_paintable(True)
+            visual = win.get_screen().get_rgba_visual()
+            if visual is not None:
+                win.set_visual(visual)
+            GtkLayerShell.init_for_window(win)
+            GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+            for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.LEFT):
+                GtkLayerShell.set_anchor(win, edge, True)
+                GtkLayerShell.set_margin(win, edge, 10)
+            GtkLayerShell.set_exclusive_zone(win, -1)
+            GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.NONE)
+            row = Gtk.Box(spacing=10)
+            self.osd_reveal = self._cls(Gtk.Button(label="‹"), "hidden")
+            self.osd_reveal.connect("clicked", lambda *_: self._osd_show_controls(True))
+            self.osd_back = Gtk.Button(label="←")
+            self.osd_back.connect("clicked", self._back_to_list)
+            self.osd_pause = Gtk.Button(label="❚❚")
+            self.osd_pause.connect("clicked", self._toggle_pause)
+            self.osd_close = Gtk.Button(label="✕")
+            self.osd_close.connect("clicked", lambda *_: self.destroy())
+            for b in (self.osd_reveal, self.osd_back, self.osd_pause, self.osd_close):
+                row.pack_start(b, False, False, 0)
+            win.add(row)
+            self.osd = win
+            self.osd_timer = 0
+
+        def _osd_show_controls(self, show):
+            if self.osd_timer:
+                GLib.source_remove(self.osd_timer)
+                self.osd_timer = 0
+            self.osd_reveal.set_visible(not show)
+            for b in (self.osd_back, self.osd_pause, self.osd_close):
+                b.set_visible(show)
+            if show:
+                self.osd_timer = GLib.timeout_add(AUTOHIDE_MS, self._osd_autohide)
+
+        def _osd_autohide(self):
+            self.osd_timer = 0
+            self._osd_show_controls(False)
+            return False
+
+        def _toggle_pause(self, *_):
+            vlc_command("pause")
+            self.paused = not self.paused
+            self.osd_pause.set_label("▶" if self.paused else "❚❚")
+            self._osd_show_controls(True)   # a tap keeps the bar up
+
+        def _quit(self, *_):
+            self._stop_player()
+            Gtk.main_quit()
+
+    Window().show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    # One Media Centre at a time: a double tap on the desktop icon would
+    # otherwise start two, sharing the VLC control socket and playing flag.
+    _lock = open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "media-centre.lock"), "w")
+    try:
+        fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(0)
+    # Launched from the desktop there is no terminal: send our errors (and
+    # VLC's, which inherits stderr) to the journal. journalctl --user -t media-centre
+    if not sys.stderr.isatty():
+        try:
+            log = subprocess.Popen(["systemd-cat", "-t", "media-centre"], stdin=subprocess.PIPE)
+            os.dup2(log.stdin.fileno(), 2)
+        except OSError:
+            pass
+    run_gui()

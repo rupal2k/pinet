@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Spotify
-Comment=Start or stop the Spotify Connect player (asks first; the icon is green while it runs)
-Exec=/usr/local/bin/pinet-confirm toggle spotify
+Name=Media Centre
+Comment=Spotify or live TV (IPTV); the icon is green while Spotify runs
+Exec=env GDK_BACKEND=wayland /usr/local/bin/media-centre
 Icon=/home/rupal/.local/share/icons/spotify-off.svg
 Terminal=false
 Categories=AudioVideo;

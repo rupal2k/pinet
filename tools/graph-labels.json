@@ -68,5 +68,18 @@
  "render_qr_screen()": "e-ink · QR & offline test",
  "render_image_screen()": "e-ink · Screens & main loop",
  "pi-eink-dashboard.service": "e-ink · Service & install",
- "render()": "e-ink · Text layout & tiles"
+ "render()": "e-ink · Text layout & tiles",
+ "scripts_bin_media_centre_run_gui": "Media · Centre UI & video controls",
+ "scripts_bin_media_centre": "Media · Channel list & live probe",
+ "scripts_bin_media_centre_ensure_speaker_route": "Media · Bluetooth speaker routing",
+ "tests_test_media_centre": "Tests · Media Centre",
+ "tests_test_media_centre_controltest": "Tests · Media Centre controls",
+ "tests_test_media_centre_picktest": "Tests · Media Centre channel pick",
+ "tests_test_media_centre_parsetest": "Tests · Media Centre playlist",
+ "scripts_bin_media_centre_categories": "Media · Categories",
+ "scripts_bin_media_centre_matches": "Media · Channel filter",
+ "scripts_bin_media_centre_vlc_stream_ids": "Media · VLC audio streams",
+ "scripts_bin_media_centre_load_channels": "Media · Playlists & language pick",
+ "scripts_bin_media_centre_run_gui_init": "Media · Centre window",
+ "scripts_bin_media_centre_new_speaker": "Media · Speaker follow"
 }

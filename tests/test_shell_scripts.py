@@ -1119,3 +1119,13 @@ class DsiSleepStaysAwake(unittest.TestCase):
         (self.h.dir / "monitor-mode").touch()
         self.assertFalse(self.blanked())
         self.assertIn("systemctl --user try-restart dsi-idle-sleep.service", self.h.calls())
+
+    def test_stays_lit_while_a_channel_plays(self):
+        (self.h.dir / "media-playing").touch()
+        ShellHarness._write_exec(self.h.bin / "pgrep", "#!/bin/bash\nexit 0\n")
+        self.assertFalse(self.blanked())
+
+    def test_a_stale_playing_flag_does_not_keep_it_lit(self):
+        (self.h.dir / "media-playing").touch()
+        ShellHarness._write_exec(self.h.bin / "pgrep", "#!/bin/bash\nexit 1\n")
+        self.assertTrue(self.blanked())
