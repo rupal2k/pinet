@@ -224,6 +224,24 @@ def speaker_sinks(wpctl_status):
     return out
 
 
+def default_speaker(wpctl_status):
+    """Name of the default sink if it is a speaker (not the Pi's own output),
+    else None. Pure."""
+    in_sinks = False
+    for line in wpctl_status.splitlines():
+        if line.strip() in ("Video", "Settings"):
+            break
+        if "Sinks:" in line:
+            in_sinks = True
+        elif in_sinks and ("Sources:" in line or "Filters:" in line or "Streams:" in line):
+            in_sinks = False
+        elif in_sinks and "*" in line:
+            body = line.replace("*", " ").split("[vol:")[0].strip(" │├└─")
+            name = body.partition(". ")[2].strip()
+            return None if not name or name.startswith("Built-in") else name
+    return None
+
+
 def new_speaker(before, now):
     """Name of a speaker that has connected since `before`, or None. Pure."""
     fresh = [sid for sid in now if sid not in before]
@@ -273,6 +291,16 @@ def ensure_speaker():
         r = subprocess.run([AUDIO_ROUTE], capture_output=True, text=True,
                            timeout=20, check=False)
         return r.stdout.split(" at ")[0].strip() if r.returncode == 0 else None
+    # Already playing on a speaker: leave it, and its volume, alone.
+    # spotify-audio-route re-applies the boost level, which used to undo the
+    # viewer's own volume on every channel change.
+    try:
+        name = default_speaker(subprocess.run(["wpctl", "status"], capture_output=True,
+                                              text=True, timeout=5, check=False).stdout)
+    except (OSError, subprocess.SubprocessError):
+        name = None
+    if name:
+        return name
     name = route()
     if name:
         return name
@@ -404,7 +432,8 @@ def run_gui():
             box.pack_start(image, False, False, 0)
             btn.image = image
             box.pack_start(self._label(name, "choice-name"), False, False, 0)
-            box.pack_start(self._label(desc, "choice-desc"), False, False, 0)
+            btn.desc = self._label(desc, "choice-desc")
+            box.pack_start(btn.desc, False, False, 0)
             btn.add(box)
             btn.connect("clicked", cb)
             return btn
@@ -414,7 +443,7 @@ def run_gui():
             for side in ("top", "bottom", "start", "end"):
                 getattr(row, f"set_margin_{side}")(24)
             self.spotify_card = self._choice(
-                "SPOTIFY", "Start or stop\nSpotify Connect.", self._spotify, "spotify-off.svg")
+                "SPOTIFY", "Checking...", self._spotify, "spotify-off.svg")
             row.pack_start(self.spotify_card, True, True, 0)
             row.pack_start(self._choice(
                 "IPTV", "Live TV channels.\nSound on the speaker.", self._iptv, "iptv.svg"),
@@ -439,6 +468,10 @@ def run_gui():
                 if st in ("on", "partly", "off"):
                     name = "spotify-off.svg" if st == "off" else "spotify-on.svg"
                     GLib.idle_add(self._icon, self.spotify_card.image, name)
+                    # Say what a tap does: tapping while it runs STOPS it.
+                    GLib.idle_add(self.spotify_card.desc.set_text,
+                                  "Off. Tap to start,\nthen pick PINET in Spotify." if st == "off"
+                                  else "Running as PINET.\nTap to stop.")
             threading.Thread(target=ask, daemon=True).start()
             return True
 

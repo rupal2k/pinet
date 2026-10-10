@@ -95,6 +95,15 @@ class FollowSpeakerTest(unittest.TestCase):
         self.assertIsNone(mc.new_speaker({"99": "Muffs A3"}, {}))   # it left
 
 
+class VolumeTest(unittest.TestCase):
+    def test_default_speaker_is_kept(self):
+        self.assertEqual(mc.default_speaker(SINKS), "Muffs A3")
+
+    def test_pi_output_is_not_a_speaker(self):
+        self.assertIsNone(mc.default_speaker(SINKS.replace(" *   99", "     99")
+                                                  .replace("     70", " *   70")))
+
+
 class PickTest(unittest.TestCase):
     def test_only_576p_non_hd_in_both_lists(self):
         mk = lambda n, u: {"name": n, "url": u, "groups": ["News"], "opts": []}

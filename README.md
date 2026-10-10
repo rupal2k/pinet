@@ -2,6 +2,10 @@
 
 ![PINET boot splash](docs/images/boot-splash.png)
 
+[![PINET demo video on YouTube](https://img.youtube.com/vi/Q5zrIVO-YQM/hqdefault.jpg)](https://youtu.be/Q5zrIVO-YQM)
+
+▶ **[Watch the demo on YouTube](https://youtu.be/Q5zrIVO-YQM)**
+
 📖 **Full build write-up on Hackster.io:** [PINET: Dual-Screen Pi Cyber-Deck](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3)
 
 A single **Raspberry Pi 3B** turned into a self-contained, multi-purpose
