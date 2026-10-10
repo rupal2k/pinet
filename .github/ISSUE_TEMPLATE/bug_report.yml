@@ -1,0 +1,39 @@
+name: Bug report
+description: Something on the device doesn't work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Media Centre (Spotify / IPTV / HDMI)
+        - PINET hotspot and portal
+        - e-ink dashboard
+        - Touchscreen (photo frame, kiosks, lock, keyboard)
+        - Kali Tools / Ethernet Share
+        - Power, boot or install
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      placeholder: Raspberry Pi 3B, official 7" DSI, Waveshare 2.13" e-ink V4
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Relevant output, e.g. `journalctl --user -t media-centre`,
+        `journalctl -u <service>`, or `vcgencmd get_throttled`.
+        Remove passwords, IP addresses and anything personal first.
+      render: text
