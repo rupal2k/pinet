@@ -1,5 +1,5 @@
 # PINET splash: logo centred on the same dark gradient as the desktop
-# wallpaper, shown at boot and at shutdown/reboot. Structure follows pix.script.
+# wallpaper with cyberdeck breathing animation and progress bar.
 Window.SetBackgroundTopColor(0.059, 0.067, 0.078);
 Window.SetBackgroundBottomColor(0.118, 0.129, 0.157);
 
@@ -11,14 +11,67 @@ scale = Math.Min(screen_width / logo.GetWidth(), screen_height / logo.GetHeight(
 if (scale < 1)
     logo = logo.Scale(logo.GetWidth() * scale, logo.GetHeight() * scale);
 
-sprite = Sprite(logo);
-sprite.SetPosition((screen_width - logo.GetWidth()) / 2, (screen_height - logo.GetHeight()) / 2, -100);
+logo_x = (screen_width - logo.GetWidth()) / 2;
+logo_y = (screen_height - logo.GetHeight()) / 2 - 15;
 
+sprite = Sprite(logo);
+sprite.SetPosition(logo_x, logo_y, -100);
+
+# Progress bar
+progress_bg = Image("progress_bg.png");
+progress_bar = Image("progress_bar.png");
+bar_width = progress_bg.GetWidth();
+bar_height = progress_bg.GetHeight();
+bar_x = (screen_width - bar_width) / 2;
+bar_y = logo_y + logo.GetHeight() + 18;
+
+bg_sprite = Sprite(progress_bg);
+bg_sprite.SetPosition(bar_x, bar_y, 10);
+bg_sprite.SetOpacity(0.7);
+
+bar_sprite = Sprite();
+bar_sprite.SetPosition(bar_x, bar_y, 20);
+
+# Status message
 message_sprite = Sprite();
-message_sprite.SetPosition(screen_width * 0.1, screen_height * 0.9, 10000);
+message_sprite.SetPosition(screen_width * 0.1, screen_height * 0.92, 10000);
 
 fun message_callback(text) {
-    message_sprite.SetImage(Image.Text(text, 0.91, 0.91, 0.91));
+    message_sprite.SetImage(Image.Text(text, 0.75, 0.80, 0.88));
+}
+
+# Boot progress
+reported_progress = 0;
+fun boot_progress_callback(duration, progress) {
+    reported_progress = progress;
+}
+
+# Animation tick (~50 fps)
+tick = 0;
+fun refresh_callback() {
+    tick = tick + 0.035;
+
+    # Breathing glow on the logo (opacity oscillates smoothly between 0.78 and 1.0)
+    glow = 0.89 + 0.11 * Math.Sin(tick * 2.5);
+    sprite.SetOpacity(glow);
+
+    # Animated progress bar
+    if (reported_progress > 0.02) {
+        current_w = Math.Max(2, Math.Min(bar_width, bar_width * reported_progress));
+        bar_sprite.SetPosition(bar_x, bar_y, 20);
+        bar_sprite.SetImage(progress_bar.Crop(0, 0, current_w, bar_height));
+        bar_sprite.SetOpacity(1.0);
+    } else {
+        # Scanning pulse across the bar during early init
+        scan_ratio = (Math.Sin(tick * 3.0) + 1.0) / 2.0;
+        pulse_w = 40;
+        pulse_x = (bar_width - pulse_w) * scan_ratio;
+        bar_sprite.SetPosition(bar_x + pulse_x, bar_y, 20);
+        bar_sprite.SetImage(progress_bar.Crop(0, 0, pulse_w, bar_height));
+        bar_sprite.SetOpacity(0.6 + 0.4 * scan_ratio);
+    }
 }
 
 Plymouth.SetUpdateStatusFunction(message_callback);
+Plymouth.SetBootProgressFunction(boot_progress_callback);
+Plymouth.SetRefreshFunction(refresh_callback);

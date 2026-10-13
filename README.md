@@ -10,7 +10,7 @@
 ![Displays](https://img.shields.io/badge/displays-7%22%20DSI%20%2B%202.13%22%20e--Paper-blueviolet)
 ![Compositor](https://img.shields.io/badge/compositor-labwc%20(Wayland)-informational)
 
-![PINET boot splash](docs/images/boot-splash.png)
+![PINET Interface Walkthrough](docs/images/pinet-showcase.gif)
 
 | Demo video | Build write-up |
 |---|---|
@@ -206,7 +206,7 @@ All captures taken directly from the 800×480 touchscreen interface.
 | ![Kali Tools](docs/images/kali-tools.png)<br>**Wi-Fi auditing launcher.** Touch-friendly tool cards with embedded Vte terminal. | ![Ethernet Share](docs/images/ethernet-share.png)<br>**Ethernet Share.** Wired interface sharing with optional Pi-hole filtering. |
 | ![Lock screen](docs/images/lock-screen.png)<br>**Passcode lock screen.** Numeric PIN pad overlay protecting the touch session. | ![Brightness slider](docs/images/brightness-slider.png)<br>**Brightness slider.** Anchored taskbar slider with a 10% safety floor. |
 | ![E-ink status](docs/images/eink-status.png)<br>**E-ink status panel.** Rear-facing system metrics and telemetry display. | ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink join card.** Displays current SSID, guest key, and join count. |
-| ![Graph viewer](docs/images/graph-viewer.png)<br>**Code graph viewer.** On-device browser for inspecting repository structure. | |
+| ![Graph viewer](docs/images/graph-viewer.png)<br>**Code graph viewer.** On-device browser for inspecting repository structure. | ![PINET boot splash](docs/images/boot-splash.png)<br>**Boot splash.** Dark gradient boot and shutdown splash screen. |
 
 ---
 
