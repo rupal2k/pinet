@@ -79,7 +79,6 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
   </a>
   <p align="center">
     <a href="docs/images/block-diagram.png" target="_blank">🔍 <b>Open Full-Resolution Diagram (1600 × 1050 px)</b></a> &nbsp;•&nbsp;
-    <a href="tools/make_block_diagram.py">🛠️ <b>Diagram Generator Script</b></a> &nbsp;•&nbsp;
     <a href="#interactive-flowchart">📊 <b>Jump to Interactive Flowchart</b></a>
   </p>
 </div>
@@ -93,13 +92,13 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 ```mermaid
 flowchart TD
     subgraph Power["⚡ Power Subsystem"]
-        UPS["<b>Waveshare UPS HAT (D)</b><br/>Dual 21700 Li-ion Cells (8,400 mAh)"]
-        INA["<b>INA219 Current/Power Monitor</b><br/>I²C Address: 0x43"]
+        UPS["Waveshare UPS HAT (D)<br/>Dual 21700 Li-ion Cells (8400 mAh)"]
+        INA["INA219 Current/Power Monitor<br/>I2C Address: 0x43"]
         UPS -->|"Dual 3.7V Cells"| INA
     end
 
     subgraph SBC["🖥️ Single-Board Computer"]
-        SOC["<b>Raspberry Pi 3 Model B (Rev 1.2)</b><br/>Broadcom BCM2837 · 4× Cortex-A53 @ 1.2 GHz<br/>1 GB LPDDR2 · Debian 13 trixie (64-bit)"]
+        SOC["Raspberry Pi 3 Model B (Rev 1.2)<br/>Broadcom BCM2837 · 4x Cortex-A53 @ 1.2 GHz<br/>1 GB LPDDR2 · Debian 13 trixie (64-bit)"]
         GPIO["40-Pin GPIO Header"]
         USB_HUB["LAN9514 USB 2.0 Hub / 100M Ethernet"]
         SOC --- GPIO
@@ -107,30 +106,30 @@ flowchart TD
     end
 
     subgraph Front["📱 Front Display (Primary UI)"]
-        DSI["<b>Official 7&quot; Touchscreen</b><br/>800×480 RGB LCD · edt-ft5x06 Touch"]
+        DSI["Official 7-inch Touchscreen<br/>800x480 RGB LCD · edt-ft5x06 Touch"]
     end
 
     subgraph Rear["📟 Rear Display (Telemetry)"]
-        EPD["<b>Waveshare 2.13&quot; e-Paper (V4)</b><br/>250×122 1-bit Monochrome · SPI0"]
+        EPD["Waveshare 2.13-inch e-Paper (V4)<br/>250x122 1-bit Monochrome · SPI0"]
     end
 
     subgraph Wireless["📡 Wireless Interfaces"]
-        WLAN0["<b>Broadcom BCM43438 (SDIO)</b><br/>wlan0: Dedicated Hotspot AP (10.10.10.1)"]
-        WLAN1["<b>TP-Link Archer T2U Plus (USB)</b><br/>wlan1: RTL8821AU Uplink &amp; Pentest"]
+        WLAN0["Broadcom BCM43438 (SDIO)<br/>wlan0: Dedicated Hotspot AP (10.10.10.1)"]
+        WLAN1["TP-Link Archer T2U Plus (USB)<br/>wlan1: RTL8821AU Uplink & Pentest"]
     end
 
-    subgraph Media["🎥 Capture &amp; Audio Peripherals"]
-        CAM["<b>Pi Camera Module V2</b><br/>Sony IMX219 · 8 MP CSI-2"]
-        UVC["<b>USB HDMI Capture Card</b><br/>MacroSilicon MS2109 UVC"]
-        BT["<b>Bluetooth 4.2 / BLE</b><br/>PipeWire A2DP Audio Sink"]
+    subgraph Media["🎥 Capture & Audio Peripherals"]
+        CAM["Pi Camera Module V2<br/>Sony IMX219 · 8 MP CSI-2"]
+        UVC["USB HDMI Capture Card<br/>MacroSilicon MS2109 UVC"]
+        BT["Bluetooth 4.2 / BLE<br/>PipeWire A2DP Audio Sink"]
     end
 
     subgraph Storage["💾 Mass Storage"]
-        DISK["<b>58 GB USB 3.0 Flash Drive</b><br/>ext4 · Mounted at /mnt/pinet-media"]
+        DISK["58 GB USB 3.0 Flash Drive<br/>ext4 · Mounted at /mnt/pinet-media"]
     end
 
-    INA -->|"5V System Rail &amp; Telemetry"| SBC
-    SOC -->|"DSI Video + I²C Touch"| DSI
+    INA -->|"5V System Rail & Telemetry"| SBC
+    SOC -->|"DSI Video + I2C Touch"| DSI
     GPIO -->|"SPI0 (CS0, MOSI, SCLK, RST, DC, BUSY)"| EPD
     SOC -->|"SDIO Bus"| WLAN0
     USB_HUB -->|"USB 2.0"| WLAN1
