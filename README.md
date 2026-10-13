@@ -73,7 +73,74 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 
 ### Schematic & Interconnect Topology
 
-![PINET Hardware Architecture](docs/images/block-diagram.png)
+<div align="center">
+  <a href="docs/images/block-diagram.png" target="_blank" title="Click to view full-resolution schematic">
+    <img src="docs/images/block-diagram.png" alt="PINET Hardware Architecture Schematic" width="100%" style="border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);" />
+  </a>
+  <p align="center">
+    <a href="docs/images/block-diagram.png" target="_blank">🔍 <b>Open Full-Resolution Diagram (1600 × 1050 px)</b></a> &nbsp;•&nbsp;
+    <a href="tools/make_block_diagram.py">🛠️ <b>Diagram Generator Script</b></a> &nbsp;•&nbsp;
+    <a href="#interactive-flowchart">📊 <b>Jump to Interactive Flowchart</b></a>
+  </p>
+</div>
+
+<div id="interactive-flowchart"></div>
+
+<details>
+<summary><b>View Interactive Architecture Flowchart (Mermaid)</b></summary>
+<br />
+
+```mermaid
+flowchart TD
+    subgraph Power["⚡ Power Subsystem"]
+        UPS["<b>Waveshare UPS HAT (D)</b><br/>Dual 21700 Li-ion Cells (8,400 mAh)"]
+        INA["<b>INA219 Current/Power Monitor</b><br/>I²C Address: 0x43"]
+        UPS -->|"Dual 3.7V Cells"| INA
+    end
+
+    subgraph SBC["🖥️ Single-Board Computer"]
+        SOC["<b>Raspberry Pi 3 Model B (Rev 1.2)</b><br/>Broadcom BCM2837 · 4× Cortex-A53 @ 1.2 GHz<br/>1 GB LPDDR2 · Debian 13 trixie (64-bit)"]
+        GPIO["40-Pin GPIO Header"]
+        USB_HUB["LAN9514 USB 2.0 Hub / 100M Ethernet"]
+        SOC --- GPIO
+        SOC --- USB_HUB
+    end
+
+    subgraph Front["📱 Front Display (Primary UI)"]
+        DSI["<b>Official 7&quot; Touchscreen</b><br/>800×480 RGB LCD · edt-ft5x06 Touch"]
+    end
+
+    subgraph Rear["📟 Rear Display (Telemetry)"]
+        EPD["<b>Waveshare 2.13&quot; e-Paper (V4)</b><br/>250×122 1-bit Monochrome · SPI0"]
+    end
+
+    subgraph Wireless["📡 Wireless Interfaces"]
+        WLAN0["<b>Broadcom BCM43438 (SDIO)</b><br/>wlan0: Dedicated Hotspot AP (10.10.10.1)"]
+        WLAN1["<b>TP-Link Archer T2U Plus (USB)</b><br/>wlan1: RTL8821AU Uplink &amp; Pentest"]
+    end
+
+    subgraph Media["🎥 Capture &amp; Audio Peripherals"]
+        CAM["<b>Pi Camera Module V2</b><br/>Sony IMX219 · 8 MP CSI-2"]
+        UVC["<b>USB HDMI Capture Card</b><br/>MacroSilicon MS2109 UVC"]
+        BT["<b>Bluetooth 4.2 / BLE</b><br/>PipeWire A2DP Audio Sink"]
+    end
+
+    subgraph Storage["💾 Mass Storage"]
+        DISK["<b>58 GB USB 3.0 Flash Drive</b><br/>ext4 · Mounted at /mnt/pinet-media"]
+    end
+
+    INA -->|"5V System Rail &amp; Telemetry"| SBC
+    SOC -->|"DSI Video + I²C Touch"| DSI
+    GPIO -->|"SPI0 (CS0, MOSI, SCLK, RST, DC, BUSY)"| EPD
+    SOC -->|"SDIO Bus"| WLAN0
+    USB_HUB -->|"USB 2.0"| WLAN1
+    SOC -->|"15-pin CSI-2 Bus"| CAM
+    USB_HUB -->|"USB 2.0 UVC Video"| UVC
+    SOC -->|"UART HCI"| BT
+    USB_HUB -->|"USB 2.0 Mass Storage"| DISK
+```
+
+</details>
 
 ### Component Bill of Materials
 
@@ -270,18 +337,46 @@ throttling (`0x50005`) or USB bus resets. PINET implements multi-layered power c
 
 ## Screenshots
 
-All captures taken directly from the 800×480 touchscreen interface.
+The cyberdeck features two dedicated physical displays: a **Front 7" DSI Capacitive Touchscreen (800×480)** for interactive Wayland apps and video, and a **Rear 2.13" e-Paper Display (250×122)** for zero-power system telemetry.
+
+---
+
+### Display 1: Front 7" DSI Touchscreen (800×480)
+
+Driven by `labwc` (Wayland compositor) with `wf-panel-pi` under a custom dark theme. Touch interactions are optimized for fingertip navigation with 90-second display sleep and double-tap wake.
+
+#### Desktop Shell & System Utilities
 
 | | |
 |---|---|
-| ![Desktop](docs/images/desktop.png)<br>**Desktop.** Single-tap launchers with battery, lock, and virtual keyboard in the taskbar. | ![Media Centre](docs/images/media-centre.png)<br>**Media Centre.** Mode selector. The Spotify indicator turns green while active. |
-| ![IPTV channel list](docs/images/media-centre-iptv.png)<br>**IPTV channel list.** Filtered by language and category, pre-probed for liveness. | ![IPTV video controls](docs/images/media-centre-video.png)<br>**IPTV playback.** Full-screen video with corner controls visible. |
-| ![HDMI Monitor](docs/images/hdmi-monitor.png)<br>**HDMI monitor.** Displaying a laptop display feed via USB UVC capture dongle. | ![Start Spotify dialog](docs/images/spotify-confirm.png)<br>**Spotify Connect.** Confirmation dialog before starting raspotify. |
-| ![Start PINET dialog](docs/images/pinet-confirm.png)<br>**Service confirmation.** Safety prompt prior to toggling system daemons. | ![Portal login](docs/images/portal-login.png)<br>**PINET portal.** Captive message board and file drop sign-in screen. |
-| ![Kali Tools](docs/images/kali-tools.png)<br>**Wi-Fi auditing launcher.** Touch-friendly tool cards with embedded Vte terminal. | ![Ethernet Share](docs/images/ethernet-share.png)<br>**Ethernet Share.** Wired interface sharing with optional Pi-hole filtering. |
-| ![Lock screen](docs/images/lock-screen.png)<br>**Passcode lock screen.** Numeric PIN pad overlay protecting the touch session. | ![Brightness slider](docs/images/brightness-slider.png)<br>**Brightness slider.** Anchored taskbar slider with a 10% safety floor. |
-| ![E-ink status](docs/images/eink-status.png)<br>**E-ink status panel.** Rear-facing system metrics and telemetry display. | ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink join card.** Displays current SSID, guest key, and join count. |
-| ![Graph viewer](docs/images/graph-viewer.png)<br>**Code graph viewer.** On-device browser for inspecting repository structure. | ![PINET boot splash](docs/images/boot-splash.png)<br>**Boot splash.** Dark gradient boot and shutdown splash screen. |
+| <a href="docs/images/desktop.png" target="_blank"><img src="docs/images/desktop.png" alt="PINET Wayland Desktop" width="100%" /></a><br>**Wayland Touch Desktop.** Single-tap application launchers with battery telemetry, taskbar lock, and virtual keyboard toggle. | <a href="docs/images/lock-screen.png" target="_blank"><img src="docs/images/lock-screen.png" alt="PIN Passcode Lock Screen" width="100%" /></a><br>**Passcode Lock Screen.** Fullscreen numeric keypad overlay (`dsi-lock.py`) securing the touch session against unauthorized input. |
+| <a href="docs/images/brightness-slider.png" target="_blank"><img src="docs/images/brightness-slider.png" alt="DSI Backlight Brightness Slider" width="100%" /></a><br>**Backlight Brightness Slider.** Taskbar brightness adjustment widget with an enforced 10% hardware minimum floor. | <a href="docs/images/pinet-confirm.png" target="_blank"><img src="docs/images/pinet-confirm.png" alt="Service Confirmation Dialog" width="100%" /></a><br>**Service Confirmation Modal.** Pre-flight safety prompt prior to starting or stopping system daemons. |
+| <a href="docs/images/boot-splash.png" target="_blank"><img src="docs/images/boot-splash.png" alt="PINET Boot Splash" width="100%" /></a><br>**Plymouth Boot & Shutdown Splash.** Dark boot splash theme featuring breathing logo glow and progress bar. | <a href="docs/images/graph-viewer.png" target="_blank"><img src="docs/images/graph-viewer.png" alt="Repository Code Graph Viewer" width="100%" /></a><br>**Code Graph Viewer.** Touch-friendly on-device visualizer for inspecting repository structure and module dependencies. |
+
+#### Media Centre & External Video Capture
+
+| | |
+|---|---|
+| <a href="docs/images/media-centre.png" target="_blank"><img src="docs/images/media-centre.png" alt="Media Centre Mode Selector" width="100%" /></a><br>**Media Centre Home.** Unified mode launcher for Spotify Connect, IPTV, and HDMI input with live status indicator. | <a href="docs/images/spotify-confirm.png" target="_blank"><img src="docs/images/spotify-confirm.png" alt="Spotify Connect Launch Dialog" width="100%" /></a><br>**Spotify Connect Launcher.** Confirmation prompt before spawning raspotify receiver and auto-reconnecting Bluetooth speaker. |
+| <a href="docs/images/media-centre-iptv.png" target="_blank"><img src="docs/images/media-centre-iptv.png" alt="IPTV Channel Guide" width="100%" /></a><br>**IPTV Channel Guide.** Filtered Indian broadcasts in English, Bengali, and Hindi, pre-probed for live HLS streams. | <a href="docs/images/media-centre-video.png" target="_blank"><img src="docs/images/media-centre-video.png" alt="Full-Screen IPTV Playback" width="100%" /></a><br>**Full-Screen Playback.** Stream playback with auto-hiding corner touch controls (Back, Play/Pause, Close). |
+| <a href="docs/images/hdmi-monitor.png" target="_blank"><img src="docs/images/hdmi-monitor.png" alt="HDMI Field Monitor" width="100%" /></a><br>**HDMI Field Monitor.** Full-screen low-latency preview feed from an external laptop or camera via USB UVC capture dongle. | **HDMI Capture Pipeline**<br>Receives 1080p/720p 60Hz HDMI video via MacroSilicon MS2109 dongle, rendered with sub-120ms latency through an optimized `ffplay` pipeline with automatic USB bus recovery. |
+
+#### Hotspot, Captive Portal & Network Auditing
+
+| | |
+|---|---|
+| <a href="docs/images/portal-login.png" target="_blank"><img src="docs/images/portal-login.png" alt="Captive Portal Login" width="100%" /></a><br>**Captive Portal & Bulletin Board.** Offline mobile web interface (`pinet-board`) with guest and admin authentication tiers. | <a href="docs/images/kali-tools.png" target="_blank"><img src="docs/images/kali-tools.png" alt="Kali Tools Auditing Launcher" width="100%" /></a><br>**Wi-Fi Auditing Launcher.** Grid of wireless security tools with an integrated GTK3/Vte interactive terminal pane. |
+| <a href="docs/images/ethernet-share.png" target="_blank"><img src="docs/images/ethernet-share.png" alt="Ethernet Sharing Interface" width="100%" /></a><br>**Ethernet Share GUI.** Touchscreen control panel for routing Wi-Fi uplink through `eth0` with optional Pi-hole DNS interception. | **Network Isolation & Security**<br>Guest Wi-Fi on `wlan0` (`10.10.10.1`) is isolated by nftables rules, completely dropping guest access to host SSH (`22`) and VNC (`5900`) ports. |
+
+---
+
+### Display 2: Rear 2.13" Waveshare e-Paper HAT (250×122)
+
+Positioned on the rear of the cyberdeck enclosure and driven over SPI bus 0 by `pi-eink-dashboard.service`. Because e-paper holds an image with zero current, telemetry remains visible even while the unit is asleep or halting.
+
+| | |
+|---|---|
+| <a href="docs/images/eink-status.png" target="_blank"><img src="docs/images/eink-status.png" alt="E-ink System Telemetry" width="100%" /></a><br>**System Telemetry & Health.** Rotating carousel card displaying 12-hour clock, CPU load, RAM usage, SoC temperature, battery voltage, and IP addresses. | <a href="docs/images/eink-hotspot.png" target="_blank"><img src="docs/images/eink-hotspot.png" alt="E-ink Hotspot Join Card" width="100%" /></a><br>**Hotspot Join Card.** Displays current SSID (`PINET`), guest bulletin board passcode, and active connected client count. |
 
 ---
 
