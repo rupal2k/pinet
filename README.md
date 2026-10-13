@@ -181,7 +181,7 @@ the panel draws power only while refreshing.
   6. *PINET Hotspot Card*: SSID, guest board password, and connected client count.
   7. *Hardware Voltage*: INA219 bus voltage and disk space indicators.
 - **Auditing Alert**: Switches to a pirate "PENTEST" banner when Wi-Fi auditing starts.
-- **Clean Shutdown Splash**: Displays a persistent DOOM logo during system halt or reboot.
+- **Clean Shutdown Splash**: Displays a persistent PINET logo during system halt or reboot.
 
 </details>
 

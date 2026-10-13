@@ -226,7 +226,7 @@ def main():
                   ("Secondary Panel (Rear)", "Waveshare 2.13\" e-Paper (250x122 SPI)"),
                   ("E-ink Carousel & Alert", "7-Screen Status Carousel • Pentest Screen"),
                   ("Backlight Management", "dsi-tap-wake (Double Tap) • swayidle 90s"),
-                  ("Boot & Halt Splash", "Plymouth Breathing Pulse • DOOM Splash"),
+                  ("Boot & Halt Splash", "Plymouth Breathing Pulse • PINET Splash"),
               ],
               ACCENT_CYAN, badge="DSI + SPI")
               
