@@ -1,20 +1,38 @@
-# PINET
+<div align="center">
 
-**A Raspberry Pi 3B cyber-deck: offline hotspot and message board, e-ink status panel, touchscreen photo frame, Wi-Fi auditing toolkit and media centre in one battery-powered box.**
+# 📟 PINET
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%203B-c51a4a)
-![OS](https://img.shields.io/badge/OS-Debian%2013%20trixie%20(64--bit)-a80030)
-![Python](https://img.shields.io/badge/python-3-3776ab)
-![Tests](https://img.shields.io/badge/tests-301%20passing-brightgreen)
-![Displays](https://img.shields.io/badge/displays-7%22%20DSI%20%2B%202.13%22%20e--Paper-blueviolet)
-![Compositor](https://img.shields.io/badge/compositor-labwc%20(Wayland)-informational)
+### Dual-Screen Raspberry Pi 3B Cyber-Deck
 
-![PINET Interface Walkthrough](docs/images/pinet-showcase.gif)
+**An all-in-one battery-powered appliance: offline hotspot & captive message board, 2.13" e-ink rear telemetry panel, 7" touchscreen photo frame & kiosks, Wi-Fi auditing station, and wireless media centre.**
 
-| Demo video | Build write-up |
-|---|---|
-| [![PINET demo on YouTube](https://img.youtube.com/vi/Q5zrIVO-YQM/hqdefault.jpg)](https://youtu.be/Q5zrIVO-YQM) | [**PINET: Dual-Screen Pi Cyber-Deck**](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3) on Hackster.io: parts, wiring and assembly. |
+<br />
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%203B-c51a4a.svg?style=flat-square)](https://www.raspberrypi.com/)
+[![OS](https://img.shields.io/badge/OS-Debian%2013%20trixie%20(64--bit)-a80030.svg?style=flat-square)](https://www.debian.org/)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776ab.svg?style=flat-square)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/Tests-301%20passing-brightgreen.svg?style=flat-square)](tests/)
+[![Displays](https://img.shields.io/badge/Displays-7%22%20DSI%20%2B%202.13%22%20e--Paper-blueviolet.svg?style=flat-square)](#-hardware-specifications)
+[![Compositor](https://img.shields.io/badge/Compositor-labwc%20(Wayland)-informational.svg?style=flat-square)](#-subsystems)
+[![Power](https://img.shields.io/badge/Battery-8400%20mAh%20(2%C3%9721700)-f59e0b.svg?style=flat-square)](#-power-management-and-battery-guard)
+
+<br />
+
+[Hardware Architecture](#-hardware-architecture) • [Feature Highlights](#-feature-highlights) • [Subsystems](#-subsystems) • [Getting Started](#-getting-started) • [CLI Tools](#-command-line-utilities) • [Screenshots](#-screenshots)
+
+<br />
+
+| [▶️ **Watch Demo on YouTube**](https://youtu.be/Q5zrIVO-YQM) | [📖 **Read Build Guide on Hackster.io**](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3) |
+|:---:|:---:|
+
+<br />
+
+<img src="docs/images/pinet-showcase.gif" alt="PINET Interface Walkthrough" width="100%" style="border-radius: 10px; border: 1px solid #30363d;" />
+
+</div>
+
+<br />
 
 PINET started as an e-ink status display and grew into five coexisting subsystems
 sharing a single Raspberry Pi 3B. They run under a tight 5 V power budget: an
@@ -25,44 +43,52 @@ This repository contains the complete source code, system configurations, deskto
 definitions, unit tests and documentation for the device. For the detailed
 architectural write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 
-## Contents
+---
 
-- [Subsystems](#subsystems)
-  - [E-ink Status Dashboard](#e-ink-status-dashboard)
-  - [PINET Hotspot and Message Board](#pinet-hotspot-and-message-board)
-  - [Touchscreen Photo Frame and Kiosks](#touchscreen-photo-frame-and-kiosks)
-  - [Media Centre](#media-centre)
-  - [Wi-Fi Auditing Toolkit](#wi-fi-auditing-toolkit)
-  - [Ethernet Share](#ethernet-share)
-  - [Power Management and Battery Guard](#power-management-and-battery-guard)
-- [Screenshots](#screenshots)
-- [Hardware](#hardware)
-  - [Component Bill of Materials](#component-bill-of-materials)
-  - [System Block Diagram](#system-block-diagram)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [1. E-ink Dashboard Installation](#1-e-ink-dashboard-installation)
-  - [2. Deploying System Files](#2-deploying-system-files)
-  - [3. Media Storage Setup](#3-media-storage-setup)
-  - [4. Passwords and Credentials](#4-passwords-and-credentials)
-  - [5. Plymouth Boot Splash](#5-plymouth-boot-splash)
-- [Usage and Operation](#usage-and-operation)
-  - [Touchscreen Desktop](#touchscreen-desktop)
-  - [Command-Line Utilities](#command-line-utilities)
-  - [Service Management and Diagnostic Logs](#service-management-and-diagnostic-logs)
-- [Security and Secrets](#security-and-secrets)
-- [Known Limitations](#known-limitations)
-- [Repository Layout](#repository-layout)
-- [Testing](#testing)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
+## ⚡ Feature Highlights
+
+| | Subsystem | Description |
+|:---:|---|---|
+| 📟 | **Dual Displays** | Front 7" DSI capacitive touch panel (800×480) for Wayland desktop & kiosks; rear 2.13" e-Paper panel (250×122) for continuous system health and hotspot join QR. |
+| 📡 | **Air-Gapped Hotspot** | Self-hosted wireless AP on `wlan0` (`10.10.10.1`) with dnsmasq captive portal redirecting phones to `pinet-board` (message board + 1 GB file drop on USB). |
+| ⚡ | **Battery & UPS Protection** | Dual 21700 cells (8400 mAh) on Waveshare UPS HAT (D) with INA219 I²C monitoring, calibrated OCV math, and a proactive load-shedding daemon preventing brownouts. |
+| 📻 | **Unified Media Centre** | Touch launcher for Spotify Connect (PipeWire to Bluetooth with 150% boost), live 576p Indian IPTV streams, and low-latency USB UVC HDMI field monitoring. |
+| 🎯 | **Wi-Fi Auditing Suite** | Native pentest tools (`nmap`, `aircrack-ng`, `wifite`, `reaver`, `bully`) in `kali-launcher` with an embedded Vte terminal pane and dedicated monitor-mode power profile. |
+| 🔌 | **Ethernet Share & Pi-hole** | Bridges `wlan1` internet uplink out through `eth0` (`10.42.0.1/24`) with dnsmasq DHCP leases and toggleable Pi-hole ad blocking. |
 
 ---
 
-## Subsystems
+## 🛠️ Hardware Architecture
+
+### Schematic & Interconnect Topology
+
+![PINET Hardware Architecture](docs/images/block-diagram.png)
+
+### Component Bill of Materials
+
+| Component | Part / Specification | Interface | Role |
+|---|---|---|---|
+| **Single-Board Computer** | Raspberry Pi 3 Model B Rev 1.2 | — | Broadcom BCM2837, 4× Cortex-A53 @ 1.2 GHz, 1 GB LPDDR2 |
+| **Operating System** | Debian 13 "trixie" (64-bit) | SD Card | Kernel 6.12+, systemd, labwc Wayland compositor |
+| **Touchscreen** | Official Raspberry Pi 7" Touchscreen | DSI + I²C | 800×480 capacitive touch (`edt_ft5x06`), primary UI |
+| **Status Display** | Waveshare 2.13" e-Paper HAT (V4) | SPI (bus 0) | 250×122 1-bit monochrome rear status panel |
+| **Power Management** | Waveshare UPS HAT (D) | I²C (`0x43`) | Dual 21700 cells (8400 mAh), INA219 voltage/current sensor |
+| **Hotspot Radio** | On-board Broadcom BCM43438 | SDIO (`wlan0`) | Dedicated 2.4 GHz 802.11n AP for `PINET` (`10.10.10.1`) |
+| **Uplink / Auditing Radio** | TP-Link Archer T2U Plus (RTL8821AU) | USB (`wlan1`) | 2.4/5 GHz home uplink; monitor mode and packet injection |
+| **Mass Storage** | 58 GB USB 3.0 flash drive | USB | Mounted at `/mnt/pinet-media` (uploads, camera, slideshow) |
+| **Camera** | Raspberry Pi Camera Module V2 (IMX219) | 15-pin CSI | 8 MP sensor for live viewer and still/video capture |
+| **Video Capture** | USB UVC HDMI Capture Dongle (MS2109) | USB | Full-screen HDMI field monitor input |
+| **Audio Output** | Bluetooth A2DP Sink (Speaker/Headphones) | Bluetooth | PipeWire / WirePlumber audio endpoint |
+
+---
+
+## 🧩 Subsystems
 
 ### E-ink Status Dashboard
+
+<details open>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
 
 An always-on 2.13" panel on the rear of the deck provides continuous system
 telemetry without waking the touchscreen. Driven over SPI by
@@ -80,7 +106,13 @@ the panel draws power only while refreshing.
 - **Auditing Alert**: Switches to a pirate "PENTEST" banner when Wi-Fi auditing starts.
 - **Clean Shutdown Splash**: Displays a persistent DOOM logo during system halt or reboot.
 
+</details>
+
 ### PINET Hotspot and Message Board
+
+<details>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
 
 A self-contained, internet-free wireless network hosted on the internal Broadcom
 radio (`wlan0`, `10.10.10.1`). When client devices connect, a dnsmasq wildcard DNS
@@ -100,7 +132,13 @@ opening the `pinet-board` web application.
 - **Network Isolation**: Strict nftables rules prevent hotspot clients from accessing
   SSH (port 22) or VNC (port 5900). Started and stopped on demand.
 
+</details>
+
 ### Touchscreen Photo Frame and Kiosks
+
+<details>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
 
 An official Raspberry Pi 7" capacitive touchscreen (800×480) driven by `labwc`
 (Wayland) and `wf-panel-pi` under a custom PINET dark theme.
@@ -121,7 +159,13 @@ An official Raspberry Pi 7" capacitive touchscreen (800×480) driven by `labwc`
   smart-camera viewer, and the PINET Portal. Kiosks run in `cog` (WPE WebKit) or
   PyQt6 to prevent the high memory overhead of full desktop browsers.
 
+</details>
+
 ### Media Centre
+
+<details>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
 
 A unified touch interface (`media-centre`) providing three dedicated entertainment
 modes behind one desktop launcher:
@@ -141,7 +185,13 @@ modes behind one desktop launcher:
   for laptops or cameras. Streams video through low-latency `ffmpeg` and `ffplay`
   pipelines with automatic recovery if the USB bus resets.
 
+</details>
+
 ### Wi-Fi Auditing Toolkit
+
+<details>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
 
 A specialized launcher (`kali-launcher`) for wireless and network assessments on
 authorized hardware:
@@ -156,7 +206,13 @@ authorized hardware:
   power consumers, and updates the e-ink screen with the pirate skull indicator.
   `wifi-pentest-stop` cleanly restores station mode.
 
+</details>
+
 ### Ethernet Share
+
+<details>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
 
 Routes uplink connectivity from the Wi-Fi interface (`wlan1`) out through the
 built-in Ethernet jack (`eth0`):
@@ -167,7 +223,13 @@ built-in Ethernet jack (`eth0`):
 - **Touch and CLI Controls**: Managed either via command line (`eth-share`) or an
   on-screen touchscreen window (`eth-share-gui`).
 
+</details>
+
 ### Power Management and Battery Guard
+
+<details>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
 
 Because the Raspberry Pi 3B shares a single 5 V rail across its SoC, dual displays,
 CSI camera, and USB peripherals, unmanaged power draws can trigger under-voltage
@@ -191,9 +253,11 @@ throttling (`0x50005`) or USB bus resets. PINET implements multi-layered power c
   kernel dirty memory thresholds (`/etc/sysctl.d/90-sd-writeback.conf`) during `apt`
   operations avoids SD controller stalls.
 
+</details>
+
 ---
 
-## Screenshots
+## 📸 Screenshots
 
 All captures taken directly from the 800×480 touchscreen interface.
 
@@ -210,57 +274,7 @@ All captures taken directly from the 800×480 touchscreen interface.
 
 ---
 
-## Hardware
-
-### Component Bill of Materials
-
-| Component | Part / Specification | Interface | Role |
-|---|---|---|---|
-| **Single-Board Computer** | Raspberry Pi 3 Model B Rev 1.2 | — | Broadcom BCM2837, 4× Cortex-A53 @ 1.2 GHz, 1 GB LPDDR2 |
-| **Operating System** | Debian 13 "trixie" (64-bit) | SD Card | Kernel 6.12+, systemd, labwc Wayland compositor |
-| **Touchscreen** | Official Raspberry Pi 7" Touchscreen | DSI + I²C | 800×480 capacitive touch (`edt_ft5x06`), primary UI |
-| **Status Display** | Waveshare 2.13" e-Paper HAT (V4) | SPI (bus 0) | 250×122 1-bit monochrome rear status panel |
-| **Power Management** | Waveshare UPS HAT (D) | I²C (`0x43`) | Dual 21700 cells (8400 mAh), INA219 voltage/current sensor |
-| **Hotspot Radio** | On-board Broadcom BCM43438 | SDIO (`wlan0`) | Dedicated 2.4 GHz 802.11n AP for `PINET` (`10.10.10.1`) |
-| **Uplink / Auditing Radio** | TP-Link Archer T2U Plus (RTL8821AU) | USB (`wlan1`) | 2.4/5 GHz home uplink; monitor mode and packet injection |
-| **Mass Storage** | 58 GB USB 3.0 flash drive | USB | Mounted at `/mnt/pinet-media` (uploads, camera, slideshow) |
-| **Camera** | Raspberry Pi Camera Module V2 (IMX219) | 15-pin CSI | 8 MP sensor for live viewer and still/video capture |
-| **Video Capture** | USB UVC HDMI Capture Dongle (MS2109) | USB | Full-screen HDMI field monitor input |
-| **Audio Output** | Bluetooth A2DP Sink (Speaker/Headphones) | Bluetooth | PipeWire / WirePlumber audio endpoint |
-
-### System Block Diagram
-
-```mermaid
-flowchart LR
-    subgraph Power["Power Subsystem"]
-        BAT["2× 21700 Li-ion Cells<br/>8400 mAh (3.7 V nominal)"] --> UPS["Waveshare UPS HAT (D)<br/>INA219 I²C Monitor (0x43)"]
-        UPS -->|5 V Regulated| PI["<b>Raspberry Pi 3B</b><br/>Debian 13 · labwc · systemd"]
-        UPS -.->|"I²C Telemetry<br/>(Bus 1, 0x43)"| PI
-    end
-
-    subgraph Displays["Display Subsystems"]
-        PI <-->|DSI Video + I²C Touch| LCD["7-inch Touchscreen<br/>800×480 · edt_ft5x06"]
-        PI -->|SPI Bus 0 + GPIO| EINK["2.13-inch e-Paper HAT<br/>250×122 · Rear Panel"]
-    end
-
-    subgraph Networking["Radio & Network Interfaces"]
-        PI -->|Onboard Broadcom| WLAN0["wlan0: PINET Hotspot<br/>10.10.10.1 · hostapd + dnsmasq"]
-        PI -->|USB 2.0| WLAN1["wlan1: TP-Link Archer T2U<br/>Home Uplink / Monitor Mode"]
-        PI -->|Built-in PHY| ETH["eth0: Ethernet Share<br/>10.42.0.1/24 + Pi-hole"]
-    end
-
-    subgraph Peripherals["Peripherals & Capture"]
-        CAM["Pi Camera (IMX219)"] -->|15-pin CSI| PI
-        HDMI["HDMI Source<br/>(Laptop / Camera)"] --> CAP["USB UVC HDMI Capture<br/>MacroSilicon MS2109"]
-        CAP -->|USB 2.0| PI
-        PI -->|USB 2.0| DRIVE["58 GB USB Drive<br/>/mnt/pinet-media"]
-        PI -.->|Bluetooth A2DP| SPK["Bluetooth Speaker<br/>PipeWire Sink"]
-    end
-```
-
----
-
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
 
@@ -356,7 +370,7 @@ sudo plymouth-set-default-theme -R pinet
 
 ---
 
-## Usage and Operation
+## 💻 Usage and Operation
 
 ### Touchscreen Desktop
 
@@ -408,7 +422,7 @@ vcgencmd get_throttled
 
 ---
 
-## Security and Secrets
+## 🔒 Security and Secrets
 
 - **No Secrets in Source**: Passwords, TLS keys, Flask secret tokens, and lock-screen
   PINs are never committed to git. They reside solely on the physical device in
@@ -428,7 +442,7 @@ To report security issues, refer to [SECURITY.md](SECURITY.md).
 
 ---
 
-## Known Limitations
+## ⚠️ Known Limitations
 
 - **5 V Power Sensitivity**: Heavy concurrent operations (compiling packages, large
   file transfers, or software video decoding) can cause input rail voltage sags.
@@ -445,7 +459,7 @@ To report security issues, refer to [SECURITY.md](SECURITY.md).
 
 ---
 
-## Repository Layout
+## 📁 Repository Layout
 
 ```
 .
@@ -466,7 +480,7 @@ To report security issues, refer to [SECURITY.md](SECURITY.md).
 
 ---
 
-## Testing
+## 🧪 Testing
 
 The repository includes a comprehensive unit test suite written strictly with the
 Python standard library. Tests run on any Linux or macOS environment without
@@ -485,7 +499,7 @@ python3 -B -m unittest discover -s tests
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 Contributions and bug reports are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
 and adhere to the [Code of Conduct](CODE_OF_CONDUCT.md). Ensure all unit tests pass
@@ -493,13 +507,13 @@ prior to submitting pull requests.
 
 ---
 
-## License
+## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-## Acknowledgements
+## 🙏 Acknowledgements
 
 - [iptv-org/iptv](https://github.com/iptv-org/iptv) for public channel playlists.
 - [raspotify](https://github.com/dtcooper/raspotify) and [librespot](https://github.com/librespot-org/librespot) for Spotify Connect audio streaming.
