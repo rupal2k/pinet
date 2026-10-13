@@ -6,6 +6,9 @@
 ![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%203B-c51a4a)
 ![OS](https://img.shields.io/badge/OS-Debian%2013%20trixie%20(64--bit)-a80030)
 ![Python](https://img.shields.io/badge/python-3-3776ab)
+![Tests](https://img.shields.io/badge/tests-301%20passing-brightgreen)
+![Displays](https://img.shields.io/badge/displays-7%22%20DSI%20%2B%202.13%22%20e--Paper-blueviolet)
+![Compositor](https://img.shields.io/badge/compositor-labwc%20(Wayland)-informational)
 
 ![PINET boot splash](docs/images/boot-splash.png)
 
@@ -13,237 +16,492 @@
 |---|---|
 | [![PINET demo on YouTube](https://img.youtube.com/vi/Q5zrIVO-YQM/hqdefault.jpg)](https://youtu.be/Q5zrIVO-YQM) | [**PINET: Dual-Screen Pi Cyber-Deck**](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3) on Hackster.io: parts, wiring and assembly. |
 
-PINET started as an e-ink status display and became five services sharing one
-Raspberry Pi 3B. They share a tight power budget: a power manager sheds load
-when the touchscreen kiosks run, and no service starts at boot unless it has to.
+PINET started as an e-ink status display and grew into five coexisting subsystems
+sharing a single Raspberry Pi 3B. They run under a tight 5 V power budget: an
+on-board power manager sheds background services whenever heavy touchscreen kiosks
+run, and no service starts at boot unless it must.
 
-This repository is the source of truth for the device's code, configuration
-and documentation. For the full design write-up, see
-[`docs/Device Overview.md`](docs/Device%20Overview.md).
+This repository contains the complete source code, system configurations, desktop
+definitions, unit tests and documentation for the device. For the detailed
+architectural write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 
 ## Contents
 
-- [Features](#features)
+- [Subsystems](#subsystems)
+  - [E-ink Status Dashboard](#e-ink-status-dashboard)
+  - [PINET Hotspot and Message Board](#pinet-hotspot-and-message-board)
+  - [Touchscreen Photo Frame and Kiosks](#touchscreen-photo-frame-and-kiosks)
+  - [Media Centre](#media-centre)
+  - [Wi-Fi Auditing Toolkit](#wi-fi-auditing-toolkit)
+  - [Ethernet Share](#ethernet-share)
+  - [Power Management and Battery Guard](#power-management-and-battery-guard)
 - [Screenshots](#screenshots)
 - [Hardware](#hardware)
-- [Getting started](#getting-started)
-- [Usage](#usage)
-- [Security and secrets](#security-and-secrets)
-- [Known limitations](#known-limitations)
-- [Repository layout](#repository-layout)
+  - [Component Bill of Materials](#component-bill-of-materials)
+  - [System Block Diagram](#system-block-diagram)
+- [Getting Started](#getting-started)
+  - [Prerequisites](#prerequisites)
+  - [1. E-ink Dashboard Installation](#1-e-ink-dashboard-installation)
+  - [2. Deploying System Files](#2-deploying-system-files)
+  - [3. Media Storage Setup](#3-media-storage-setup)
+  - [4. Passwords and Credentials](#4-passwords-and-credentials)
+  - [5. Plymouth Boot Splash](#5-plymouth-boot-splash)
+- [Usage and Operation](#usage-and-operation)
+  - [Touchscreen Desktop](#touchscreen-desktop)
+  - [Command-Line Utilities](#command-line-utilities)
+  - [Service Management and Diagnostic Logs](#service-management-and-diagnostic-logs)
+- [Security and Secrets](#security-and-secrets)
+- [Known Limitations](#known-limitations)
+- [Repository Layout](#repository-layout)
 - [Testing](#testing)
 - [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgements](#acknowledgements)
 
-## Features
+---
 
-| Subsystem | Description |
-|---|---|
-| **E-ink dashboard** | An always-on 2.13" rear panel showing time, CPU, memory, temperature, weather, network status, a Wi-Fi QR code and the PINET join card. Runs headless, and switches to a "PENTEST" screen in pentest mode. |
-| **PINET hotspot and portal** | A self-hosted, internet-free Wi-Fi network (`wlan0`, `10.10.10.1`) with a captive-portal message board and file sharing up to 1 GB (`pinet-board`), stored on USB. Started on demand. |
-| **Touchscreen** | A 7" photo frame with a fit-to-screen slideshow and double-tap wake, plus on-demand kiosks: the live Pi camera with photo and video capture, the Ezykam web app, and the PINET portal. A passcode lock screen and an on-screen keyboard are in the taskbar. |
-| **Media Centre** | One launcher for three services. **Spotify** runs a Spotify Connect receiver (raspotify) that plays through a Bluetooth speaker. **IPTV** shows live Indian channels in English, Bengali and Hindi from [iptv-org](https://github.com/iptv-org/iptv), filtered to 576p streams that respond when the list opens. **HDMI** turns a USB capture dongle into a full-screen field monitor for a laptop or camera. |
-| **Wi-Fi auditing toolkit** | A touch launcher for nmap, the aircrack-ng suite, wifite, reaver, bully, mdk4 and hcxtools, with an embedded terminal and a pentest power mode. For networks you own or are authorised to test. |
-| **Ethernet Share** | Shares the Wi-Fi uplink out of the Ethernet port, with optional Pi-hole ad blocking. |
+## Subsystems
 
-### Media Centre details
+### E-ink Status Dashboard
 
-- **Audio routing.** Sound goes to a Bluetooth speaker. If none is connected,
-  the app reconnects a paired one, trying the last-used speaker first.
-  Connecting a different speaker mid-channel moves the sound to it, and the
-  volume you set is kept between channels.
-- **Resilience.** Streams buffer 3 seconds ahead. A dropped stream reconnects
-  up to three times before giving up, and the screen stays awake while a
-  channel plays.
-- **Controls.** Tapping the top-left corner over a playing channel shows back,
-  pause and close buttons, which hide again after four seconds.
+An always-on 2.13" panel on the rear of the deck provides continuous system
+telemetry without waking the touchscreen. Driven over SPI by
+`pi-eink-dashboard.service`. Because e-paper holds an image with zero current,
+the panel draws power only while refreshing.
+
+- **Rotating Carousel**: Cycles through seven information cards:
+  1. *Clock and Date*: 12-hour local time and calendar date.
+  2. *System Health*: CPU utilization percentage, RAM consumption, and SoC temperature.
+  3. *Live Weather*: Current conditions and forecast via web API.
+  4. *Network Status*: IP addresses for `eth0`, `wlan0` (hotspot), and `wlan1` (station).
+  5. *Wi-Fi Join QR*: Scannable QR code encoding the local home Wi-Fi credentials.
+  6. *PINET Hotspot Card*: SSID, guest board password, and connected client count.
+  7. *Hardware Voltage*: INA219 bus voltage and disk space indicators.
+- **Auditing Alert**: Switches to a pirate "PENTEST" banner when Wi-Fi auditing starts.
+- **Clean Shutdown Splash**: Displays a persistent DOOM logo during system halt or reboot.
+
+### PINET Hotspot and Message Board
+
+A self-contained, internet-free wireless network hosted on the internal Broadcom
+radio (`wlan0`, `10.10.10.1`). When client devices connect, a dnsmasq wildcard DNS
+responder (`address=/#/10.10.10.1`) triggers the mobile captive portal prompt,
+opening the `pinet-board` web application.
+
+- **Anonymous Message Board**: SQLite-backed bulletin board for local discussions.
+- **File Sharing (up to 1 GB)**: Upload and download files directly from mobile
+  browsers. Large files stream directly to `/mnt/pinet-media/` with dedicated `TMPDIR`
+  handling to protect the Pi's 463 MB RAM-backed `/tmp` from exhaustion.
+- **In-Browser Preview**: Inline viewing for images, PDFs, text, and videos (`/view/<id>`),
+  with forced download and `X-Content-Type-Options: nosniff` headers on executable or
+  scriptable file types (`.html`, `.svg`, `.js`).
+- **Two-Tier Authentication**: Single password prompt differentiates between Guest
+  (view, post, upload, download; password shown on e-ink) and Admin (file deletion;
+  managed via `set_password.py`).
+- **Network Isolation**: Strict nftables rules prevent hotspot clients from accessing
+  SSH (port 22) or VNC (port 5900). Started and stopped on demand.
+
+### Touchscreen Photo Frame and Kiosks
+
+An official Raspberry Pi 7" capacitive touchscreen (800×480) driven by `labwc`
+(Wayland) and `wf-panel-pi` under a custom PINET dark theme.
+
+- **Photo Frame Slideshow**: Runs fullscreen via `pqiv` when the device is idle.
+  Images from `/mnt/pinet-media/slideshow/` are normalized to 800×480 and displayed
+  fit-to-screen over blurred letterboxing rather than cropped.
+- **Touch Sleep and Double-Tap Wake**: After 90 seconds of inactivity, `swayidle`
+  blanks the DSI output and backlight. While asleep, `dsi-tap-wake.py` grabs the
+  touchscreen evdev node exclusively (`EVIOCGRAB`) so stray contact cannot trigger
+  desktop icons. A rapid double-tap re-lights the display and re-arms the sleep timer.
+- **Passcode Lock Screen**: Taskbar lock icon launches `dsi-lock.py`, presenting an
+  on-screen numeric keypad before restoring desktop access.
+- **On-Screen Keyboard**: Integrated `wvkbd` launcher in the taskbar. Auto-compresses
+  window geometry when active so input fields remain visible.
+- **Lightweight Kiosks**: On-demand shortcuts launch the Pi Camera (`dsi-cam-server.py`
+  providing 640×480 MJPEG at 10 fps with upright photo/video capture), the Ezykam
+  smart-camera viewer, and the PINET Portal. Kiosks run in `cog` (WPE WebKit) or
+  PyQt6 to prevent the high memory overhead of full desktop browsers.
+
+### Media Centre
+
+A unified touch interface (`media-centre`) providing three dedicated entertainment
+modes behind one desktop launcher:
+
+- **Spotify Connect**: Runs `raspotify` as a background receiver. Sound routes to
+  connected Bluetooth speakers via PipeWire. If no speaker is currently connected,
+  it attempts reconnection with paired devices (prioritizing the last-used speaker).
+  Forces speaker volume to 150% so the source phone's volume slider controls the
+  full audible range.
+- **IPTV Player**: Plays live Indian broadcast streams in English, Bengali, and
+  Hindi from `iptv-org`. Automatically filters playlists to 576p streams (avoiding
+  Pi 3B hardware decoding bottlenecks) and pre-probes stream endpoints when the list
+  opens. VLC plays full-screen while a media flag suppresses screen blanking.
+  Corner touch controls (Back, Play/Pause, Close) auto-hide after 4 seconds.
+- **HDMI Field Monitor**: Connects to a USB UVC HDMI capture card (tested with
+  MacroSilicon MS2109) to convert the touchscreen into an external HDMI field monitor
+  for laptops or cameras. Streams video through low-latency `ffmpeg` and `ffplay`
+  pipelines with automatic recovery if the USB bus resets.
+
+### Wi-Fi Auditing Toolkit
+
+A specialized launcher (`kali-launcher`) for wireless and network assessments on
+authorized hardware:
+
+- **Touch-Friendly Tool Grid**: Quick-access cards for `nmap`, `aircrack-ng`, `wifite`,
+  `reaver`, `bully`, `mdk4`, `hcxdumptool`, `hcxtools`, `macchanger`, and `tcpdump`.
+- **Embedded Terminal**: An integrated GTK3/Vte terminal pane hosts interactive
+  ncurses sessions (e.g. `wifite`, `airodump-ng`) directly within the window. Cards
+  automatically collapse when the on-screen keyboard opens.
+- **Pentest Power Mode**: `wifi-pentest-start` switches the external USB Wi-Fi
+  dongle (`wlan1`) into monitor mode, stops the PINET hotspot, sheds non-essential
+  power consumers, and updates the e-ink screen with the pirate skull indicator.
+  `wifi-pentest-stop` cleanly restores station mode.
+
+### Ethernet Share
+
+Routes uplink connectivity from the Wi-Fi interface (`wlan1`) out through the
+built-in Ethernet jack (`eth0`):
+
+- **DHCP and Routing**: Assigns static `10.42.0.1/24` to `eth0`, hands out DHCP leases
+  from `10.42.0.10` to `10.42.0.254` via dnsmasq, and configures nftables NAT masquerade.
+- **Ad-Blocking**: Includes an optional local Pi-hole DNS interception toggle.
+- **Touch and CLI Controls**: Managed either via command line (`eth-share`) or an
+  on-screen touchscreen window (`eth-share-gui`).
+
+### Power Management and Battery Guard
+
+Because the Raspberry Pi 3B shares a single 5 V rail across its SoC, dual displays,
+CSI camera, and USB peripherals, unmanaged power draws can trigger under-voltage
+throttling (`0x50005`) or USB bus resets. PINET implements multi-layered power controls:
+
+- **Battery Telemetry (`pinet-battery`)**: Interrogates the INA219 sensor on the
+  Waveshare UPS HAT (D) over I²C (`0x43`). Calculates resting voltage by compensating
+  for internal pack resistance ($IR = 0.045\,\Omega$), interpolates battery percentage
+  against an empirically measured Open Circuit Voltage curve (3.35 V to 4.20 V), and
+  renders a battery status icon in the taskbar.
+- **Automatic Shutdown Guard (`pinet-ups-guard`)**: Monitors battery levels every 15
+  seconds. When the pack drops to critical levels ($\le 3.3\,\text{V}$ under load or
+  $\le 10\%$), the daemon executes an orderly shutdown to protect the SD card from
+  sudden power loss.
+- **Proactive Load Shedding (`pi-power-manager`)**: Whenever high-demand workloads
+  (kiosks or pentest mode) launch, this daemon automatically stops background consumers
+  (VNC, Bluetooth, PINET hotspot, photo frame slideshow). When the workload exits,
+  services are restored in staggered 2-second intervals, verifying voltage stability
+  at each step.
+- **I/O Flush Protection (`dsi-install-guard`)**: Blanking the DSI display and tuning
+  kernel dirty memory thresholds (`/etc/sysctl.d/90-sd-writeback.conf`) during `apt`
+  operations avoids SD controller stalls.
+
+---
 
 ## Screenshots
 
-All captures come from the device's 800×480 touchscreen. Home network details,
-a captured PC's taskbar and broadcast video are blurred.
+All captures taken directly from the 800×480 touchscreen interface.
 
 | | |
 |---|---|
-| ![Desktop](docs/images/desktop.png)<br>**Desktop.** One icon per service; lock and keyboard in the taskbar. | ![Media Centre](docs/images/media-centre.png)<br>**Media Centre.** The Spotify icon turns green while it runs. |
-| ![IPTV channel list](docs/images/media-centre-iptv.png)<br>**IPTV channel list,** filtered by language and category. | ![IPTV video controls](docs/images/media-centre-video.png)<br>**IPTV playback** with the corner controls shown. |
-| ![HDMI Monitor](docs/images/hdmi-monitor.png)<br>**HDMI monitor** showing a laptop through a USB capture dongle. | ![Start Spotify dialog](docs/images/spotify-confirm.png)<br>**Spotify Connect,** started from a confirm dialog. |
-| ![Start PINET dialog](docs/images/pinet-confirm.png)<br>**Confirm dialogs** before any service starts or stops. | ![Portal login](docs/images/portal-login.png)<br>**PINET portal:** offline message board and file drop. |
-| ![Kali Tools](docs/images/kali-tools.png)<br>**Wi-Fi auditing launcher.** | ![Ethernet Share](docs/images/ethernet-share.png)<br>**Ethernet Share** with Pi-hole. |
-| ![Lock screen](docs/images/lock-screen.png)<br>**Passcode lock screen.** | ![Brightness slider](docs/images/brightness-slider.png)<br>**Brightness slider** in the taskbar (minimum 10%). |
-| ![E-ink status](docs/images/eink-status.png)<br>**E-ink status panel** on the back of the device. | ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink PINET join card** (placeholder values). |
-| ![Graph viewer](docs/images/graph-viewer.png)<br>**Code graph viewer** for browsing this repository's structure on the device. | |
+| ![Desktop](docs/images/desktop.png)<br>**Desktop.** Single-tap launchers with battery, lock, and virtual keyboard in the taskbar. | ![Media Centre](docs/images/media-centre.png)<br>**Media Centre.** Mode selector. The Spotify indicator turns green while active. |
+| ![IPTV channel list](docs/images/media-centre-iptv.png)<br>**IPTV channel list.** Filtered by language and category, pre-probed for liveness. | ![IPTV video controls](docs/images/media-centre-video.png)<br>**IPTV playback.** Full-screen video with corner controls visible. |
+| ![HDMI Monitor](docs/images/hdmi-monitor.png)<br>**HDMI monitor.** Displaying a laptop display feed via USB UVC capture dongle. | ![Start Spotify dialog](docs/images/spotify-confirm.png)<br>**Spotify Connect.** Confirmation dialog before starting raspotify. |
+| ![Start PINET dialog](docs/images/pinet-confirm.png)<br>**Service confirmation.** Safety prompt prior to toggling system daemons. | ![Portal login](docs/images/portal-login.png)<br>**PINET portal.** Captive message board and file drop sign-in screen. |
+| ![Kali Tools](docs/images/kali-tools.png)<br>**Wi-Fi auditing launcher.** Touch-friendly tool cards with embedded Vte terminal. | ![Ethernet Share](docs/images/ethernet-share.png)<br>**Ethernet Share.** Wired interface sharing with optional Pi-hole filtering. |
+| ![Lock screen](docs/images/lock-screen.png)<br>**Passcode lock screen.** Numeric PIN pad overlay protecting the touch session. | ![Brightness slider](docs/images/brightness-slider.png)<br>**Brightness slider.** Anchored taskbar slider with a 10% safety floor. |
+| ![E-ink status](docs/images/eink-status.png)<br>**E-ink status panel.** Rear-facing system metrics and telemetry display. | ![E-ink hotspot card](docs/images/eink-hotspot.png)<br>**E-ink join card.** Displays current SSID, guest key, and join count. |
+| ![Graph viewer](docs/images/graph-viewer.png)<br>**Code graph viewer.** On-device browser for inspecting repository structure. | |
+
+---
 
 ## Hardware
 
-| Component | Part | Role |
-|---|---|---|
-| Computer | Raspberry Pi 3 Model B (Rev 1.2) | Debian 13 "trixie", 64-bit |
-| Touchscreen | Official Raspberry Pi 7" DSI display, 800×480 | Desktop, photo frame, kiosks |
-| Status panel | Waveshare 2.13" e-Paper HAT (V4), SPI | Rear status display |
-| Power | Waveshare UPS HAT (D), 2× 21700 cells (8400 mAh), INA219 gauge on I²C | Battery and runtime |
-| Wi-Fi (onboard) | Broadcom, `wlan0` | PINET hotspot only |
-| Wi-Fi (USB) | TP-Link Archer T2U Plus (RTL8821AU), `wlan1` | Home uplink; the only monitor-mode radio |
-| Storage | 58 GB USB drive at `/mnt/pinet-media` | Portal uploads, photos, captures |
-| Camera | Raspberry Pi camera (Sony IMX219), CSI | Camera kiosk |
-| Capture | Any UVC USB HDMI capture dongle (tested: MacroSilicon MS2109) | HDMI monitor |
-| Audio | Any Bluetooth speaker or headphones, via PipeWire | Spotify and IPTV sound |
+### Component Bill of Materials
 
-### Block diagram
+| Component | Part / Specification | Interface | Role |
+|---|---|---|---|
+| **Single-Board Computer** | Raspberry Pi 3 Model B Rev 1.2 | — | Broadcom BCM2837, 4× Cortex-A53 @ 1.2 GHz, 1 GB LPDDR2 |
+| **Operating System** | Debian 13 "trixie" (64-bit) | SD Card | Kernel 6.12+, systemd, labwc Wayland compositor |
+| **Touchscreen** | Official Raspberry Pi 7" Touchscreen | DSI + I²C | 800×480 capacitive touch (`edt_ft5x06`), primary UI |
+| **Status Display** | Waveshare 2.13" e-Paper HAT (V4) | SPI (bus 0) | 250×122 1-bit monochrome rear status panel |
+| **Power Management** | Waveshare UPS HAT (D) | I²C (`0x43`) | Dual 21700 cells (8400 mAh), INA219 voltage/current sensor |
+| **Hotspot Radio** | On-board Broadcom BCM43438 | SDIO (`wlan0`) | Dedicated 2.4 GHz 802.11n AP for `PINET` (`10.10.10.1`) |
+| **Uplink / Auditing Radio** | TP-Link Archer T2U Plus (RTL8821AU) | USB (`wlan1`) | 2.4/5 GHz home uplink; monitor mode and packet injection |
+| **Mass Storage** | 58 GB USB 3.0 flash drive | USB | Mounted at `/mnt/pinet-media` (uploads, camera, slideshow) |
+| **Camera** | Raspberry Pi Camera Module V2 (IMX219) | 15-pin CSI | 8 MP sensor for live viewer and still/video capture |
+| **Video Capture** | USB UVC HDMI Capture Dongle (MS2109) | USB | Full-screen HDMI field monitor input |
+| **Audio Output** | Bluetooth A2DP Sink (Speaker/Headphones) | Bluetooth | PipeWire / WirePlumber audio endpoint |
+
+### System Block Diagram
 
 ```mermaid
 flowchart LR
-    BAT["2× 21700 cells<br/>8400 mAh"] --> UPS["UPS HAT (D)<br/>INA219 battery gauge"]
-    UPS -->|5 V power| PI
-    UPS -->|"I²C 0x43: battery level"| PI
+    subgraph Power["Power Subsystem"]
+        BAT["2× 21700 Li-ion Cells<br/>8400 mAh (3.7 V nominal)"] --> UPS["Waveshare UPS HAT (D)<br/>INA219 I²C Monitor (0x43)"]
+        UPS -->|5 V Regulated| PI["<b>Raspberry Pi 3B</b><br/>Debian 13 · labwc · systemd"]
+        UPS -.->|"I²C Telemetry<br/>(Bus 1, 0x43)"| PI
+    end
 
-    PI["<b>Raspberry Pi 3B</b><br/>Debian 13 · labwc · systemd"]
+    subgraph Displays["Display Subsystems"]
+        PI <-->|DSI Video + I²C Touch| LCD["7-inch Touchscreen<br/>800×480 · edt_ft5x06"]
+        PI -->|SPI Bus 0 + GPIO| EINK["2.13-inch e-Paper HAT<br/>250×122 · Rear Panel"]
+    end
 
-    LCD["7-inch touchscreen<br/>800×480"] <-->|DSI| PI
-    EINK["2.13-inch e-ink HAT<br/>rear status panel"] <-->|SPI| PI
-    CAM["Pi camera<br/>IMX219"] -->|CSI| PI
+    subgraph Networking["Radio & Network Interfaces"]
+        PI -->|Onboard Broadcom| WLAN0["wlan0: PINET Hotspot<br/>10.10.10.1 · hostapd + dnsmasq"]
+        PI -->|USB 2.0| WLAN1["wlan1: TP-Link Archer T2U<br/>Home Uplink / Monitor Mode"]
+        PI -->|Built-in PHY| ETH["eth0: Ethernet Share<br/>10.42.0.1/24 + Pi-hole"]
+    end
 
-    PI -->|onboard Wi-Fi| WLAN0["wlan0: PINET hotspot<br/>10.10.10.1, offline"]
-    PI -->|USB| WLAN1["wlan1: TP-Link Archer T2U<br/>home uplink · monitor mode"]
-    PI -->|Ethernet| ETH["eth0: Ethernet Share<br/>+ Pi-hole"]
-    PI -->|USB| DRIVE["USB drive, 58 GB<br/>uploads · photos · captures"]
-    PI -->|Bluetooth| SPK["Bluetooth speaker<br/>Spotify · IPTV"]
-    HDMI["HDMI source<br/>laptop · camera"] -->|HDMI| CAP["USB HDMI capture<br/>UVC, MJPEG"]
-    CAP -->|USB| PI
+    subgraph Peripherals["Peripherals & Capture"]
+        CAM["Pi Camera (IMX219)"] -->|15-pin CSI| PI
+        HDMI["HDMI Source<br/>(Laptop / Camera)"] --> CAP["USB UVC HDMI Capture<br/>MacroSilicon MS2109"]
+        CAP -->|USB 2.0| PI
+        PI -->|USB 2.0| DRIVE["58 GB USB Drive<br/>/mnt/pinet-media"]
+        PI -.->|Bluetooth A2DP| SPK["Bluetooth Speaker<br/>PipeWire Sink"]
+    end
 ```
 
-## Getting started
+---
 
-### E-ink dashboard
+## Getting Started
 
-On a Raspberry Pi with the Waveshare 2.13" e-Paper HAT, one command enables
-SPI, installs the dependencies and sets up the services:
+### Prerequisites
+
+- A Raspberry Pi 3B with Debian 13 "trixie" (or Raspberry Pi OS 64-bit).
+- Hardware assembled per the [Hackster.io build guide](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3).
+- Passwordless `sudo` configured for the primary user.
+- I²C and SPI enabled in `/boot/firmware/config.txt`.
+
+### 1. E-ink Dashboard Installation
+
+The e-ink status dashboard includes an automated setup script that enables the
+hardware interfaces, fetches the Waveshare driver, installs Python dependencies,
+and sets up systemd services:
 
 ```bash
 git clone https://github.com/rupal2k/pinet.git
-cd pinet/eink-dashboard && bash scripts/install.sh
+cd pinet/eink-dashboard
+chmod +x scripts/install.sh
+./scripts/install.sh
 ```
 
-### Everything else
-
-The rest of PINET is installed by copying files to the paths a running
-Raspberry Pi OS install expects:
-
-| Repository path | Installed to |
-|---|---|
-| `scripts/bin/` | `/usr/local/bin/` |
-| `scripts/sbin/` | `/usr/local/sbin/` |
-| `systemd/` | `/etc/systemd/system/` |
-| `etc/` | `/etc/` |
-| `config/` | `~/.config/` |
-| `desktop/*.desktop`, `desktop/icons/` | `~/Desktop/`, `~/.local/share/icons/` |
-| `desktop/applications/` | `/usr/share/applications/` |
-| `eink-dashboard/` | `~/pi-eink-dashboard/` |
-| `pinet-board/` | `/opt/pinet-board/` |
-
-This is a single-device project, so adjust users and paths to your setup.
-`tests/test_consistency.py` holds the authoritative map and checks that every
-installed path a script references exists in the repository.
-
-## Usage
-
-| Task | How |
-|---|---|
-| Start or stop a service | Tap its desktop icon (one tap). Every start and stop asks for confirmation first. |
-| Play Spotify | **Media Centre → Spotify**, then choose **PINET** as the device in the Spotify app. The card says whether Spotify is running; tapping it while it runs stops it. |
-| Watch live TV | **Media Centre → IPTV**. The list takes about 10–15 seconds to open while streams are checked. Switch the speaker on first, and disconnect it from your phone if it is paired there. |
-| Use the HDMI monitor | Connect an HDMI source to the capture dongle, then tap **Media Centre → HDMI**. `HDMI_MONITOR_SIZE` and `HDMI_MONITOR_FPS` set the capture mode (default 1280×720 at 30 fps). |
-| Close full-screen video | Tap the top-left corner (IPTV) or top-right corner (HDMI) to reveal the controls. |
-| Lock the screen | Tap the lock icon in the taskbar. |
-| Audit a network you own | Open **Kali Tools**. See [`docs/kali-tools-guide.txt`](docs/kali-tools-guide.txt). |
-| Administer remotely | SSH or SFTP over `wlan1` or Ethernet. The firewall blocks both from PINET guests. |
-
-Useful logs:
+Verify service status:
 
 ```bash
-journalctl --user -t media-centre      # Media Centre and VLC
-journalctl -t hdmi-monitor             # HDMI monitor
-journalctl -u raspotify                # Spotify Connect
-vcgencmd get_throttled                 # power: 0x0 means no under-voltage
+sudo systemctl status pi-eink-dashboard.service
+journalctl -u pi-eink-dashboard.service -f
 ```
 
-## Security and secrets
+### 2. Deploying System Files
 
-- No credentials are committed. The board and guest passwords, Flask secret
-  key, TLS key and lock-screen passcode exist only on the device
-  (`/etc/pinet-board/`, `/etc/dsi-lock/passcode`). Set your own; the passcode
-  in the source code is only a fallback default.
-- The PINET hotspot is an open network by design. The portal has its own
-  login, serves HTTPS itself, and the firewall blocks SSH and VNC from hotspot
-  guests.
-- The Wi-Fi auditing tools are for networks and devices you own or are
-  explicitly authorised to test.
+Install the remaining system scripts, services, and configurations to their
+expected filesystem locations:
 
-To report a vulnerability, see [SECURITY.md](SECURITY.md).
+```bash
+# Core user-facing scripts and background daemons
+sudo install -m 755 scripts/bin/* /usr/local/bin/
+sudo install -m 755 scripts/sbin/* /usr/local/sbin/
 
-## Known limitations
+# Systemd services and drop-ins
+sudo cp -r systemd/* /etc/systemd/system/
+sudo systemctl daemon-reload
 
-- **Power.** The 5 V supply is the main constraint. Sustained heavy load
-  (browser engines, large installs) or a loose cable can cause under-voltage,
-  which can reset the whole USB bus, including the drive, the Wi-Fi dongle and
-  the capture card. The kiosks use the lightweight `cog` browser, and the power
-  manager sheds load. A solid 5 V / 3 A supply and a short, thick cable are the
-  real fix.
-- **Bluetooth audio.** The Pi 3B's onboard radio occasionally corrupts frames
-  (`hci0: Frame reassembly failed` in `dmesg`), which you hear as short
-  dropouts. A USB Bluetooth adapter avoids this.
-- **HDMI capture.** The Pi 3B has no hardware MJPEG decoder. 720p at 30 fps
-  uses about 1.2 CPU cores, and 20 fps about 0.8.
-- **IPTV.** iptv-org streams are community-maintained, so channels come and
-  go and some servers buffer more than others.
-- **One radio for two jobs.** `wlan1` is both the internet uplink and the only
-  monitor-mode radio, so pentest mode takes the Pi offline until you stop it.
+# Network and hardware configuration files
+sudo cp -r etc/* /etc/
 
-## Repository layout
+# Captive portal web application
+sudo mkdir -p /opt/pinet-board
+sudo cp -r pinet-board/* /opt/pinet-board/
+sudo chown -R pinet-board:pinet-board /opt/pinet-board
+
+# Desktop shortcuts and icons
+mkdir -p ~/.config ~/.local/share/icons ~/Desktop
+cp -r config/* ~/.config/
+cp -r desktop/icons/* ~/.local/share/icons/
+cp desktop/*.desktop ~/Desktop/
+chmod +x ~/Desktop/*.desktop
+```
+
+### 3. Media Storage Setup
+
+Attach an external USB flash drive formatted as ext4, create the required
+directory structure, and configure `/etc/fstab`:
+
+```bash
+sudo mkdir -p /mnt/pinet-media/{uploads,camera,slideshow}
+sudo chown -R rupal:rupal /mnt/pinet-media/slideshow /mnt/pinet-media/camera
+sudo chown -R pinet-board:pinet-board /mnt/pinet-media/uploads
+```
+
+### 4. Passwords and Credentials
+
+Set authentication keys and passwords. No default credentials exist in the
+repository:
+
+```bash
+# Set PINET portal admin and guest passwords
+sudo python3 /opt/pinet-board/set_password.py
+sudo python3 /opt/pinet-board/set_guest_password.py
+
+# Set DSI touchscreen passcode (numeric PIN)
+echo -n "1234" | sudo tee /etc/dsi-lock/passcode > /dev/null
+sudo chmod 600 /etc/dsi-lock/passcode
+```
+
+### 5. Plymouth Boot Splash
+
+Install the custom boot animation theme:
+
+```bash
+sudo install -D -m 644 -t /usr/share/plymouth/themes/pinet plymouth/pinet/*
+sudo plymouth-set-default-theme -R pinet
+```
+
+---
+
+## Usage and Operation
+
+### Touchscreen Desktop
+
+| Action | Interaction | Behavior |
+|---|---|---|
+| **Launch Service** | Single tap on icon | Opens confirmation prompt prior to starting or stopping daemon. |
+| **Media Centre** | Tap **Media Centre** icon | Select Spotify, IPTV, or HDMI Monitor. Spotify card indicates live status. |
+| **Watch IPTV** | Tap **IPTV** | Opens channel selector. Tapping video corner displays playback controls. |
+| **HDMI Capture** | Tap **HDMI Monitor** | Connect HDMI cable, then tap to open low-latency fullscreen preview. |
+| **Lock Screen** | Tap lock icon in taskbar | Engages `dsi-lock.py` overlay. Requires PIN to dismiss. |
+| **Virtual Keyboard** | Tap keyboard icon in taskbar | Spawns `wvkbd`. Dismiss by tapping the floating edge tab. |
+| **Screen Brightness** | Tap or scroll brightness icon | Adjusts backlight between 10% floor and 100%. Auto-saves to config. |
+| **Display Sleep / Wake** | Idle 90s / Double-tap screen | Automatically sleeps. Double-tap wakes display and re-arms sleep timer. |
+
+### Command-Line Utilities
+
+PINET provides standalone CLI commands for manual control and automation:
+
+| Command | Arguments | Purpose |
+|---|---|---|
+| `pinet-battery` | `--once` | Prints live voltage, current (mA), resting percentage, and power state. |
+| `pinet-battery` | `--log <file>` | Appends CSV telemetry per minute to calibrate battery discharge curves. |
+| `pinet-brightness` | `--once` | Outputs current and saved DSI backlight brightness levels. |
+| `pinet-start` | — | Starts `pinet-ap-network`, `hostapd`, `dnsmasq`, and `pinet-board`. |
+| `pinet-stop` | — | Stops hotspot services and tears down the AP network. |
+| `wifi-pentest-start` | — | Puts `wlan1` into monitor mode, sheds power consumers, alerts e-ink. |
+| `wifi-pentest-stop` | — | Restores `wlan1` to managed Wi-Fi station mode and normal power profile. |
+| `eth-share` | `[on\|off\|status]` | Enables or disables Ethernet routing and optional Pi-hole filtering. |
+| `pi-diagnostic` | `[all\|eink\|network\|dsi]` | Runs automated functional tests against live hardware interfaces. |
+| `hdmi-monitor` | `[--device]` | Finds connected UVC capture device or launches full-screen viewer. |
+
+### Service Management and Diagnostic Logs
+
+Monitor system behavior with standard journald commands:
+
+```bash
+# Monitor Media Centre and VLC stream playback
+journalctl --user -t media-centre -f
+
+# Monitor HDMI video capture pipeline and USB recovery events
+journalctl -t hdmi-monitor -f
+
+# Inspect Spotify Connect receiver daemon
+journalctl -u raspotify.service -f
+
+# Check hardware under-voltage status (0x0 means healthy, 0x50005 indicates throttling)
+vcgencmd get_throttled
+```
+
+---
+
+## Security and Secrets
+
+- **No Secrets in Source**: Passwords, TLS keys, Flask secret tokens, and lock-screen
+  PINs are never committed to git. They reside solely on the physical device in
+  mode-restricted files (`/etc/pinet-board/`, `/etc/dsi-lock/passcode`).
+- **Open Hotspot with Isolated Access**: The PINET Wi-Fi hotspot is intentionally
+  open for easy guest access. However, web application operations require authentication,
+  and the host firewall strictly drops inbound SSH (port 22) and VNC (port 5900)
+  packets arriving over `wlan0`.
+- **Upload Hardening**: User uploads are stripped of path traversals, prepended
+  with random tokens, and stored outside web roots. Scriptable MIME types are forced
+  to download with `nosniff` headers to block stored XSS attacks.
+- **Legal Compliance**: Wi-Fi auditing utilities (`kali-launcher`) are intended solely
+  for authorized security assessments on networks you own or have explicit written
+  permission to test.
+
+To report security issues, refer to [SECURITY.md](SECURITY.md).
+
+---
+
+## Known Limitations
+
+- **5 V Power Sensitivity**: Heavy concurrent operations (compiling packages, large
+  file transfers, or software video decoding) can cause input rail voltage sags.
+  Under-voltage can trigger temporary USB bus resets. A stable 5 V / 3 A supply
+  and heavy-gauge wiring are recommended.
+- **Single Radio Contention**: The external adapter (`wlan1`) handles both normal
+  internet connectivity and monitor-mode frame injection. Entering pentest mode
+  temporarily disconnects the Pi from its uplink network.
+- **Software Video Decoding**: The Raspberry Pi 3B lacks hardware acceleration for
+  USB MJPEG decoding. 720p at 30 fps requires approximately 1.2 CPU cores.
+- **Bluetooth Dropouts**: The on-board Broadcom Bluetooth controller can drop audio
+  frames under sustained Wi-Fi throughput. Using an external USB Bluetooth dongle
+  resolves radio interference.
+
+---
+
+## Repository Layout
 
 ```
 .
-├── config/              # user config (~/.config): labwc, taskbar, GTK themes, autostart
-├── desktop/             # desktop shortcuts, taskbar launchers, SVG icons, desktop layouts
-├── docs/                # device overview, module notes, fixes log, Kali guide, screenshots
-├── eink-dashboard/      # e-ink dashboard app (src/, config/, systemd/, scripts/, assets/)
-├── etc/                 # /etc config: hostapd (password redacted), dnsmasq, nftables,
-│                        #   NetworkManager, camera
-├── pinet-board/         # PINET captive-portal web app (Flask)
+├── config/              # User configuration (~/.config): labwc, GTK themes, taskbar
+├── desktop/             # Desktop shortcuts, menu entries, and custom PINET SVG icons
+├── docs/                # Architecture guides, hardware notes, and screenshot assets
+├── eink-dashboard/      # E-ink status dashboard (SPI driver, carousel src, systemd units)
+├── etc/                 # System configuration: hostapd, dnsmasq, nftables, NetworkManager
+├── pinet-board/         # Captive portal Flask application (message board and file drop)
+├── plymouth/            # PINET custom boot splash theme
 ├── scripts/
-│   ├── bin/             # /usr/local/bin: touchscreen, camera and GUI apps (media-centre,
-│   │                    #   kali-launcher, eth-share-gui)
-│   └── sbin/            # /usr/local/sbin: pinet-start/stop, power management, pentest mode
-├── systemd/             # service units and drop-ins
-├── tests/               # unit tests (standard library only)
-└── tools/               # developer tools: icon generator, code-graph refresh
+│   ├── bin/             # /usr/local/bin: Touchscreen apps, media centre, kali launcher
+│   └── sbin/            # /usr/local/sbin: Power manager, ups guard, pentest scripts
+├── systemd/             # Systemd service units, timers, and drop-in configurations
+├── tests/               # Standalone unit test suite (301 tests, Python standard library)
+└── tools/               # Developer utilities: icon generators, code-graph refreshers
 ```
+
+---
 
 ## Testing
 
-The test suite uses only the Python standard library and runs on any machine,
-without the Pi's hardware:
+The repository includes a comprehensive unit test suite written strictly with the
+Python standard library. Tests run on any Linux or macOS environment without
+requiring Raspberry Pi hardware or display servers:
 
 ```bash
 python3 -B -m unittest discover -s tests
 ```
 
-GUI code imports GTK lazily, so the parsing and decision logic is tested
-without a display. Hardware behaviour is verified on the device.
+- **Filesystem Consistency**: Verifies that every installed path referenced by desktop
+  files, systemd units, or shell scripts matches an existing file in the repository.
+- **Headless Execution**: GUI modules lazily import GTK and Vte, allowing argument
+  parsing, playlist caching, and configuration parsers to be tested in CI environments.
+- **Power and Battery Math**: Validates battery percentage interpolation, resting
+  voltage formulas, and load-shedding sequencing.
+
+---
 
 ## Contributing
 
-Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
-first, and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Contributions and bug reports are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+and adhere to the [Code of Conduct](CODE_OF_CONDUCT.md). Ensure all unit tests pass
+prior to submitting pull requests.
+
+---
 
 ## License
 
-Released under the [MIT License](LICENSE).
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+---
 
 ## Acknowledgements
 
-- [iptv-org/iptv](https://github.com/iptv-org/iptv) for the public channel playlists
-- [raspotify](https://github.com/dtcooper/raspotify) and [librespot](https://github.com/librespot-org/librespot) for Spotify Connect
-- [VLC](https://www.videolan.org/) for stream playback
-- [Waveshare](https://www.waveshare.com/) for the `waveshare_epd` e-Paper driver
+- [iptv-org/iptv](https://github.com/iptv-org/iptv) for public channel playlists.
+- [raspotify](https://github.com/dtcooper/raspotify) and [librespot](https://github.com/librespot-org/librespot) for Spotify Connect audio streaming.
+- [VLC media player](https://www.videolan.org/) for stream decoding.
+- [Waveshare](https://www.waveshare.com/) for e-Paper hardware and driver libraries.
