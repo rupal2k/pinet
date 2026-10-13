@@ -13,13 +13,13 @@
 [![OS](https://img.shields.io/badge/OS-Debian%2013%20trixie%20(64--bit)-a80030.svg?style=flat-square)](https://www.debian.org/)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab.svg?style=flat-square)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/Tests-301%20passing-brightgreen.svg?style=flat-square)](tests/)
-[![Displays](https://img.shields.io/badge/Displays-7%22%20DSI%20%2B%202.13%22%20e--Paper-blueviolet.svg?style=flat-square)](#-hardware-specifications)
-[![Compositor](https://img.shields.io/badge/Compositor-labwc%20(Wayland)-informational.svg?style=flat-square)](#-subsystems)
-[![Power](https://img.shields.io/badge/Battery-8400%20mAh%20(2%C3%9721700)-f59e0b.svg?style=flat-square)](#-power-management-and-battery-guard)
+[![Displays](https://img.shields.io/badge/Displays-7%22%20DSI%20%2B%202.13%22%20e--Paper-blueviolet.svg?style=flat-square)](#hardware-architecture)
+[![Compositor](https://img.shields.io/badge/Compositor-labwc%20(Wayland)-informational.svg?style=flat-square)](#subsystems)
+[![Battery](https://img.shields.io/badge/Battery-8400%20mAh%20(2%C3%9721700)-f59e0b.svg?style=flat-square)](#power-management-and-battery-guard)
 
 <br />
 
-[Hardware Architecture](#-hardware-architecture) • [Feature Highlights](#-feature-highlights) • [Subsystems](#-subsystems) • [Getting Started](#-getting-started) • [CLI Tools](#-command-line-utilities) • [Screenshots](#-screenshots)
+[Overview](#overview) • [Feature Highlights](#feature-highlights) • [Hardware Architecture](#hardware-architecture) • [Subsystems](#subsystems) • [Screenshots](#screenshots) • [Getting Started](#getting-started) • [Usage & CLI](#usage-and-operation)
 
 <br />
 
@@ -34,31 +34,42 @@
 
 <br />
 
+---
+
+## Overview
+
 PINET started as an e-ink status display and grew into five coexisting subsystems
 sharing a single Raspberry Pi 3B. They run under a tight 5 V power budget: an
 on-board power manager sheds background services whenever heavy touchscreen kiosks
 run, and no service starts at boot unless it must.
 
 This repository contains the complete source code, system configurations, desktop
-definitions, unit tests and documentation for the device. For the detailed
-architectural write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
+definitions, unit tests and documentation for the device. For the full architectural
+design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
+
+### Core Design Principles
+
+- **100% Offline-First**: PINET operates independently of upstream internet connections. The message board, captive portal, and internal utilities require no external server.
+- **Power Budget Discipline**: A proactive load-shedding daemon manages the single 5 V rail, preventing under-voltage brownouts (`0x50005`) and USB bus resets during heavy tasks.
+- **Dual-Display Synergy**: The primary 7" touchscreen handles rich GUI apps and kiosks, while the rear 2.13" e-Paper panel provides always-on system telemetry with zero static current draw.
+- **Strict Network Isolation**: The open guest Wi-Fi hotspot (`wlan0`) is air-gapped by nftables rules, completely dropping guest access to host SSH and VNC ports.
 
 ---
 
-## ⚡ Feature Highlights
+## Feature Highlights
 
-| | Subsystem | Description |
-|:---:|---|---|
-| 📟 | **Dual Displays** | Front 7" DSI capacitive touch panel (800×480) for Wayland desktop & kiosks; rear 2.13" e-Paper panel (250×122) for continuous system health and hotspot join QR. |
-| 📡 | **Air-Gapped Hotspot** | Self-hosted wireless AP on `wlan0` (`10.10.10.1`) with dnsmasq captive portal redirecting phones to `pinet-board` (message board + 1 GB file drop on USB). |
-| ⚡ | **Battery & UPS Protection** | Dual 21700 cells (8400 mAh) on Waveshare UPS HAT (D) with INA219 I²C monitoring, calibrated OCV math, and a proactive load-shedding daemon preventing brownouts. |
-| 📻 | **Unified Media Centre** | Touch launcher for Spotify Connect (PipeWire to Bluetooth with 150% boost), live 576p Indian IPTV streams, and low-latency USB UVC HDMI field monitoring. |
-| 🎯 | **Wi-Fi Auditing Suite** | Native pentest tools (`nmap`, `aircrack-ng`, `wifite`, `reaver`, `bully`) in `kali-launcher` with an embedded Vte terminal pane and dedicated monitor-mode power profile. |
-| 🔌 | **Ethernet Share & Pi-hole** | Bridges `wlan1` internet uplink out through `eth0` (`10.42.0.1/24`) with dnsmasq DHCP leases and toggleable Pi-hole ad blocking. |
+| Subsystem | Key Technologies | Operational Role |
+|---|---|---|
+| **Dual Displays** | 7" DSI Touchscreen (800×480) + 2.13" e-Paper (250×122) | Front GUI for desktop, kiosks & video; always-on rear panel for system telemetry & join QR. |
+| **Offline Hotspot** | Broadcom `wlan0` (`10.10.10.1`), hostapd, dnsmasq | Air-gapped Wi-Fi network triggering captive portal into `pinet-board` (message board + 1 GB file drop). |
+| **Media Centre** | Raspotify, VLC, UVC Video (`ffmpeg`/`ffplay`), PipeWire | Spotify Connect (Bluetooth @ 150% boost), live 576p Indian IPTV streams, and low-latency HDMI field monitor. |
+| **Wi-Fi Auditing** | `nmap`, `aircrack-ng`, `wifite`, `reaver`, `mdk4`, Vte terminal | Touch grid with embedded terminal pane; pentest mode flips `wlan1` to monitor mode & alerts e-ink. |
+| **Ethernet Share** | `eth0` (`10.42.0.1/24`), dnsmasq DHCP, nftables NAT | Routes `wlan1` internet uplink out through Ethernet with optional Pi-hole ad-blocking DNS. |
+| **Power & Battery** | Waveshare UPS HAT (D), INA219 (I²C `0x43`), 8400 mAh | Real-time voltage/current monitoring, calibrated OCV math, auto-shutdown guard, and load shedding. |
 
 ---
 
-## 🛠️ Hardware Architecture
+## Hardware Architecture
 
 ### Schematic & Interconnect Topology
 
@@ -82,7 +93,7 @@ architectural write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.m
 
 ---
 
-## 🧩 Subsystems
+## Subsystems
 
 ### E-ink Status Dashboard
 
@@ -257,7 +268,7 @@ throttling (`0x50005`) or USB bus resets. PINET implements multi-layered power c
 
 ---
 
-## 📸 Screenshots
+## Screenshots
 
 All captures taken directly from the 800×480 touchscreen interface.
 
@@ -274,7 +285,7 @@ All captures taken directly from the 800×480 touchscreen interface.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -283,7 +294,7 @@ All captures taken directly from the 800×480 touchscreen interface.
 - Passwordless `sudo` configured for the primary user.
 - I²C and SPI enabled in `/boot/firmware/config.txt`.
 
-### 1. E-ink Dashboard Installation
+### Step 1: E-ink Dashboard Installation
 
 The e-ink status dashboard includes an automated setup script that enables the
 hardware interfaces, fetches the Waveshare driver, installs Python dependencies,
@@ -303,7 +314,7 @@ sudo systemctl status pi-eink-dashboard.service
 journalctl -u pi-eink-dashboard.service -f
 ```
 
-### 2. Deploying System Files
+### Step 2: Deploying System Files
 
 Install the remaining system scripts, services, and configurations to their
 expected filesystem locations:
@@ -333,7 +344,7 @@ cp desktop/*.desktop ~/Desktop/
 chmod +x ~/Desktop/*.desktop
 ```
 
-### 3. Media Storage Setup
+### Step 3: Media Storage Setup
 
 Attach an external USB flash drive formatted as ext4, create the required
 directory structure, and configure `/etc/fstab`:
@@ -344,7 +355,7 @@ sudo chown -R rupal:rupal /mnt/pinet-media/slideshow /mnt/pinet-media/camera
 sudo chown -R pinet-board:pinet-board /mnt/pinet-media/uploads
 ```
 
-### 4. Passwords and Credentials
+### Step 4: Passwords and Credentials
 
 Set authentication keys and passwords. No default credentials exist in the
 repository:
@@ -359,9 +370,9 @@ echo -n "1234" | sudo tee /etc/dsi-lock/passcode > /dev/null
 sudo chmod 600 /etc/dsi-lock/passcode
 ```
 
-### 5. Plymouth Boot Splash
+### Step 5: Plymouth Boot Splash
 
-Install the custom boot animation theme:
+Install the custom animated boot theme:
 
 ```bash
 sudo install -D -m 644 -t /usr/share/plymouth/themes/pinet plymouth/pinet/*
@@ -370,7 +381,7 @@ sudo plymouth-set-default-theme -R pinet
 
 ---
 
-## 💻 Usage and Operation
+## Usage and Operation
 
 ### Touchscreen Desktop
 
@@ -422,7 +433,7 @@ vcgencmd get_throttled
 
 ---
 
-## 🔒 Security and Secrets
+## Security and Secrets
 
 - **No Secrets in Source**: Passwords, TLS keys, Flask secret tokens, and lock-screen
   PINs are never committed to git. They reside solely on the physical device in
@@ -442,7 +453,7 @@ To report security issues, refer to [SECURITY.md](SECURITY.md).
 
 ---
 
-## ⚠️ Known Limitations
+## Known Limitations
 
 - **5 V Power Sensitivity**: Heavy concurrent operations (compiling packages, large
   file transfers, or software video decoding) can cause input rail voltage sags.
@@ -459,7 +470,7 @@ To report security issues, refer to [SECURITY.md](SECURITY.md).
 
 ---
 
-## 📁 Repository Layout
+## Repository Layout
 
 ```
 .
@@ -480,7 +491,7 @@ To report security issues, refer to [SECURITY.md](SECURITY.md).
 
 ---
 
-## 🧪 Testing
+## Testing
 
 The repository includes a comprehensive unit test suite written strictly with the
 Python standard library. Tests run on any Linux or macOS environment without
@@ -499,7 +510,7 @@ python3 -B -m unittest discover -s tests
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions and bug reports are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
 and adhere to the [Code of Conduct](CODE_OF_CONDUCT.md). Ensure all unit tests pass
@@ -507,13 +518,13 @@ prior to submitting pull requests.
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 - [iptv-org/iptv](https://github.com/iptv-org/iptv) for public channel playlists.
 - [raspotify](https://github.com/dtcooper/raspotify) and [librespot](https://github.com/librespot-org/librespot) for Spotify Connect audio streaming.
