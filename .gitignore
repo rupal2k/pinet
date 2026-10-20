@@ -32,6 +32,8 @@ slideshow-cache/
 ruvector.db
 agentdb.rvf
 agentdb.rvf.lock
+brag-output/
+.archify/
 
 # knowledge graph build output (graphify) -- regenerate with:
 #   graphify update . && graphify-link . --map graphify-out/deploy-map.txt

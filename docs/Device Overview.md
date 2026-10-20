@@ -103,6 +103,11 @@ reconnects.
 - Everything auto-starts on boot **except** PINET; the e-ink, desktop, photo
   frame, and raspotify come up on their own.
 
+## Architecture & Diagrams
+- **Interactive System Architecture:** [`docs/architecture.html`](architecture.html) (Archify interactive software subsystem, IPC & hardware interface diagram)
+- **Power Management Lifecycle:** [`docs/power-lifecycle.html`](power-lifecycle.html) (Archify 5V load-shedding, inrush protection & brownout mitigation state machine)
+- **Hardware Schematic:** [`docs/images/block-diagram.png`](images/block-diagram.png)
+
 ## Detailed notes
 [[Overview]] · [[dashboard.py]] · [[icons.py]] · [[config.ini]] ·
 [[systemd service]] · [[dsi photo frame]] · [[pinet-board]] ·

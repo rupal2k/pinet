@@ -79,7 +79,9 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
   </a>
   <p align="center">
     <a href="docs/images/block-diagram.png" target="_blank">🔍 <b>Open Full-Resolution Diagram (1600 × 1050 px)</b></a> &nbsp;•&nbsp;
-    <a href="#interactive-flowchart">📊 <b>Jump to Interactive Flowchart</b></a>
+    <a href="docs/architecture.html" target="_blank">🌐 <b>Interactive System Architecture (Archify)</b></a> &nbsp;•&nbsp;
+    <a href="docs/power-lifecycle.html" target="_blank">⚡ <b>Power & Brownout Lifecycle (Archify)</b></a> &nbsp;•&nbsp;
+    <a href="#interactive-flowchart">📊 <b>Jump to Hardware Flowchart</b></a>
   </p>
 </div>
 
