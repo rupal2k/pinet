@@ -104,8 +104,30 @@ reconnects.
   frame, and raspotify come up on their own.
 
 ## Architecture & Diagrams
-- **Interactive System Architecture:** [`docs/architecture.html`](architecture.html) (Archify interactive software subsystem, IPC & hardware interface diagram)
-- **Power Management Lifecycle:** [`docs/power-lifecycle.html`](power-lifecycle.html) (Archify 5V load-shedding, inrush protection & brownout mitigation state machine)
+
+### Software Subsystems & IPC Architecture
+<div align="center">
+  <a href="images/architecture.png" target="_blank">
+    <img src="images/architecture.png" alt="PINET Software Architecture & IPC Topology" width="100%" style="border-radius: 8px;" />
+  </a>
+  <p align="center">
+    <a href="images/architecture.png" target="_blank">🔍 <b>Open Full-Resolution (2048 × 1320 px)</b></a> &nbsp;•&nbsp;
+    <a href="architecture.html" target="_blank">🌐 <b>Open Interactive Archify Diagram</b></a>
+  </p>
+</div>
+
+### Power Management & Brownout Mitigation Lifecycle
+<div align="center">
+  <a href="images/power-lifecycle.png" target="_blank">
+    <img src="images/power-lifecycle.png" alt="PINET Power Management & Brownout Mitigation Lifecycle" width="100%" style="border-radius: 8px;" />
+  </a>
+  <p align="center">
+    <a href="images/power-lifecycle.png" target="_blank">🔍 <b>Open Full-Resolution (2048 × 1320 px)</b></a> &nbsp;•&nbsp;
+    <a href="power-lifecycle.html" target="_blank">⚡ <b>Open Interactive Archify Lifecycle</b></a>
+  </p>
+</div>
+
+### Hardware Schematic
 - **Hardware Schematic:** [`docs/images/block-diagram.png`](images/block-diagram.png)
 
 ## Detailed notes

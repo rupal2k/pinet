@@ -79,8 +79,6 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
   </a>
   <p align="center">
     <a href="docs/images/block-diagram.png" target="_blank">🔍 <b>Open Full-Resolution Diagram (1600 × 1050 px)</b></a> &nbsp;•&nbsp;
-    <a href="docs/architecture.html" target="_blank">🌐 <b>Interactive System Architecture (Archify)</b></a> &nbsp;•&nbsp;
-    <a href="docs/power-lifecycle.html" target="_blank">⚡ <b>Power & Brownout Lifecycle (Archify)</b></a> &nbsp;•&nbsp;
     <a href="#interactive-flowchart">📊 <b>Jump to Hardware Flowchart</b></a>
   </p>
 </div>
@@ -88,7 +86,7 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 <div id="interactive-flowchart"></div>
 
 <details>
-<summary><b>View Interactive Architecture Flowchart (Mermaid)</b></summary>
+<summary><b>View Hardware Architecture Flowchart (Mermaid)</b></summary>
 <br />
 
 ```mermaid
@@ -139,6 +137,161 @@ flowchart TD
     USB_HUB -->|"USB 2.0 UVC Video"| UVC
     SOC -->|"UART HCI"| BT
     USB_HUB -->|"USB 2.0 Mass Storage"| DISK
+```
+
+</details>
+
+---
+
+## Software Architecture & IPC Topology
+
+### Subsystem Interconnect & Power Coordination
+
+<div align="center">
+  <a href="docs/images/architecture.png" target="_blank" title="Click to view full-resolution software architecture">
+    <img src="docs/images/architecture.png" alt="PINET Software Architecture & Subsystem Interconnect" width="100%" style="border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);" />
+  </a>
+  <p align="center">
+    <a href="docs/images/architecture.png" target="_blank">🔍 <b>Open Full-Resolution Architecture (2048 × 1320 px)</b></a> &nbsp;•&nbsp;
+    <a href="docs/architecture.html" target="_blank">🌐 <b>Open Interactive Archify Diagram</b></a> &nbsp;•&nbsp;
+    <a href="#software-flowchart">📊 <b>Jump to Software Flowchart</b></a>
+  </p>
+</div>
+
+<div id="software-flowchart"></div>
+
+<details>
+<summary><b>View Software Subsystems & IPC Flowchart (Mermaid)</b></summary>
+<br />
+
+```mermaid
+flowchart TD
+    subgraph HW["⚡ Hardware & Sensor Interfaces"]
+        UPS["Waveshare UPS HAT (D)<br/>8400 mAh 2×21700"]
+        INA["INA219 Power Monitor<br/>I2C Address: 0x43"]
+        PWR_PIN["PWR_LOW_N GPIO<br/>Debugfs Pin Monitor"]
+        DSI_HW["7-inch DSI Panel<br/>800×480 Touch"]
+        EPD_HW["2.13-inch e-Paper<br/>Waveshare V4 (SPI0)"]
+        WLAN0_HW["wlan0 Broadcom AP<br/>10.10.10.1 Air-Gapped"]
+        WLAN1_HW["wlan1 RTL8821AU<br/>Client / Monitor Mode"]
+    end
+
+    subgraph PowerSvc["🛡️ Root Power & Security Daemons"]
+        PM["pi-power-manager<br/>Load-Shedding & UV-Wait"]
+        UPS_G["pinet-ups-guard<br/>3.3V Cutoff & MCU Arm"]
+        NFT["nftables Firewall<br/>Drops wlan0 SSH/VNC"]
+        AP["hostapd & dnsmasq<br/>Captive DNS & DHCP"]
+        ETH["eth-share<br/>10.42.0.1/24 NAT Router"]
+    end
+
+    subgraph IPC["🔄 /run tmpfs Coordination Bus"]
+        LOCK["flock /run/power-shed.lock<br/>Mutex Serializer"]
+        FLAGS["/run Flags & State<br/>kiosk-mode · pentest-mode<br/>pinet-ups-low · stopped.json"]
+    end
+
+    subgraph UserGUI["📱 User Session & Touch GUI (UID 1000)"]
+        EINK["pi-eink-dashboard<br/>7-Screen Telemetry Carousel"]
+        SHELL["labwc Wayland Shell<br/>wf-panel-pi & swayidle"]
+        KIOSK["DSI Kiosks & Photo Frame<br/>pqiv & cog WPE WebKit"]
+        KALI["kali-launcher & Shed<br/>Vte Grid & Pentest Shed"]
+        MEDIA["Media Centre & Audio<br/>PipeWire 150% · Spotify · VLC"]
+        BOARD["pinet-board (Flask)<br/>Captive Portal & File Drop"]
+    end
+
+    subgraph StorageExt["💾 Storage & External Clients"]
+        USB["/mnt/pinet-media<br/>58 GB USB Storage"]
+        GUEST["Guest Mobile Devices<br/>Captive Portal Visitors"]
+    end
+
+    UPS -->|"5V Rail"| INA
+    INA -->|"I2C 0x43"| UPS_G
+    PWR_PIN -->|"PWR_LOW_N pin"| PM
+    UPS_G -->|"pinet-ups-low deadline"| FLAGS
+    PM -->|"stopped.json & mode"| FLAGS
+    PM <-->|"flock mutex"| LOCK
+    KALI <-->|"flock mutex"| LOCK
+    KIOSK -->|"kiosk-mode flag"| FLAGS
+    KALI -->|"pentest-mode flag"| FLAGS
+    FLAGS -->|"live telemetry"| EINK
+    EINK -->|"SPI0 updates"| EPD_HW
+    SHELL -->|"Wayland scanout"| DSI_HW
+    SHELL -->|"launches"| KIOSK
+    PM -.->|"sheds photo-frame / VNC"| SHELL
+    WLAN0_HW -->|"AP frames"| AP
+    AP -->|"10.10.10.0/24"| NFT
+    NFT -->|"permit :80/:443, drop :22/:5900"| BOARD
+    BOARD -->|"uploads & db"| USB
+    GUEST -->|"Wi-Fi HTTP"| BOARD
+    WLAN1_HW -->|"uplink"| ETH
+```
+
+</details>
+
+---
+
+## Power Coordination & Brownout Mitigation Lifecycle
+
+<div align="center">
+  <a href="docs/images/power-lifecycle.png" target="_blank" title="Click to view full-resolution power management lifecycle">
+    <img src="docs/images/power-lifecycle.png" alt="PINET Power Management & Brownout Mitigation Lifecycle" width="100%" style="border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);" />
+  </a>
+  <p align="center">
+    <a href="docs/images/power-lifecycle.png" target="_blank">🔍 <b>Open Full-Resolution Lifecycle (2048 × 1320 px)</b></a> &nbsp;•&nbsp;
+    <a href="docs/power-lifecycle.html" target="_blank">⚡ <b>Open Interactive Archify Lifecycle</b></a> &nbsp;•&nbsp;
+    <a href="#power-state-machine">📊 <b>Jump to State Machine</b></a>
+  </p>
+</div>
+
+<div id="power-state-machine"></div>
+
+<details>
+<summary><b>View Power Management State Machine (Mermaid)</b></summary>
+<br />
+
+```mermaid
+stateDiagram-v2
+    [*] --> NormalRun: System Boot
+    
+    NormalRun --> KioskMode: Launch Kiosk (dsi-kiosk.sh)
+    state KioskMode {
+        [*] --> AcquireFlock
+        AcquireFlock --> StopServices: Stop 9 heavy units
+        StopServices --> KioskActive: Web browser running on 5V
+    }
+
+    KioskMode --> VoltageGating: Kiosk Exited (flag removed)
+    state VoltageGating {
+        [*] --> PollPwrPin: Read debugfs PWR_LOW_N
+        PollPwrPin --> SettleWait: Voltage low / sagging
+        SettleWait --> PollPwrPin: Wait 1s (max 5s)
+        PollPwrPin --> Healthy: Rail settled (PWR_LOW_N high)
+    }
+
+    VoltageGating --> StaggeredRestore: Voltage Healthy
+    state StaggeredRestore {
+        [*] --> ReverseOrder: Reverse order (hostapd before dnsmasq)
+        ReverseOrder --> PacingDelay: Sleep 2s per unit
+        PacingDelay --> UnmaskBluetooth: Unmask runtime D-Bus bluetoothd
+    }
+
+    StaggeredRestore --> NormalRun: All units restored
+
+    KioskMode --> PentestMode: Pentest Mode Toggle
+    state PentestMode {
+        [*] --> HandoffUnits: kali-power-shed acquires flock
+        HandoffUnits --> MonMode: wlan1 monitor mode active
+        MonMode --> EinkAlert: Rear e-Paper displays Pirate screen
+    }
+    PentestMode --> VoltageGating: Exit Pentest (wifi-pentest-stop)
+
+    NormalRun --> BatteryWarning: Cell < 3.3V for 60s
+    state BatteryWarning {
+        [*] --> ShedEth: Drop eth-share load
+        ShedEth --> Countdown: /run/pinet-ups-low e-ink countdown
+    }
+    BatteryWarning --> NormalRun: Charger plugged in
+    BatteryWarning --> CleanShutdown: Grace timeout expired
+    CleanShutdown --> [*]: Arm MCU (0x55 -> reg 0x01) & poweroff
 ```
 
 </details>
