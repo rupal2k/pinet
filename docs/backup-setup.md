@@ -47,21 +47,43 @@ Task name: `ClaudeMemoryBackupToPi`
 
 ## Pi side
 
-### Backup repositories
-Both are Git-tracked on the Pi. No remote; local history only.
+### Storage location
+All backup data and knowledge graphs live on the **PINET USB drive** (`/dev/sda`, 58 GB ext4, permanently mounted at `/mnt/pinet-media`):
 
 ```
-~/agentic-skills-backup/    # skills backup
-~/agentic-memory-backup/    # memory + graphs + vaults backup
+/mnt/pinet-media/agentic-data/
+    agentic-skills-backup/    ← skills (git-tracked)
+    agentic-memory-backup/    ← memory + graphs + vaults (git-tracked)
+    graphs/                   ← graphify knowledge graphs
 ```
 
-First-time setup (run on Pi if repos don't exist yet):
+Symlinks in the home directory keep all scripts working without changes:
+```
+~/agentic-skills-backup  →  /mnt/pinet-media/agentic-data/agentic-skills-backup
+~/agentic-memory-backup  →  /mnt/pinet-media/agentic-data/agentic-memory-backup
+~/graphs                 →  /mnt/pinet-media/agentic-data/graphs
+```
+
+> **Note:** if the USB drive is not mounted, the symlinks dangle and backups will fail. The drive uses `nofail` in fstab so a missing drive won't block boot, but the backup cron will error visibly.
+
+### First-time setup (new Pi or re-formatted USB)
 ```bash
-mkdir -p ~/agentic-skills-backup ~/agentic-memory-backup
-cd ~/agentic-skills-backup && git init -b main
-  && git config user.email "rupal@backup" && git config user.name "Backup Bot"
-cd ~/agentic-memory-backup && git init -b main
-  && git config user.email "rupal@backup" && git config user.name "Backup Bot"
+# Create dir on USB drive
+sudo mkdir -p /mnt/pinet-media/agentic-data
+sudo chown rupal:rupal /mnt/pinet-media/agentic-data
+
+# Init git repos
+cd /mnt/pinet-media/agentic-data
+git init -b main agentic-skills-backup && cd agentic-skills-backup \
+  && git config user.email "rupal@backup" && git config user.name "Backup Bot" && cd ..
+git init -b main agentic-memory-backup && cd agentic-memory-backup \
+  && git config user.email "rupal@backup" && git config user.name "Backup Bot" && cd ..
+mkdir -p graphs
+
+# Create symlinks
+ln -s /mnt/pinet-media/agentic-data/agentic-skills-backup ~/agentic-skills-backup
+ln -s /mnt/pinet-media/agentic-data/agentic-memory-backup ~/agentic-memory-backup
+ln -s /mnt/pinet-media/agentic-data/graphs ~/graphs
 ```
 
 ### `backup-status-index` script
