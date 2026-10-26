@@ -73,8 +73,15 @@ scp scripts/bin/backup-status-index rupal@192.168.29.125:~/backup-status-index
 ssh rupal@192.168.29.125 "sudo mv ~/backup-status-index /usr/local/bin/ && sudo chmod +x /usr/local/bin/backup-status-index"
 ```
 
-### Backup Status desktop shortcut
-`desktop/backup-pi.desktop` → deployed to `~/Desktop/`, icon to `~/.local/share/icons/`.
+### Backup Status taskbar launcher
+`desktop/backup-pi.desktop` → deployed to `~/.local/share/applications/` (not `~/Desktop/`), icon to `~/.local/share/icons/`.
+
+The icon lives in the **taskbar launcher strip** alongside Photo Frame and Camera, keeping the desktop clean. Deploy:
+
+```bash
+scp desktop/backup-pi.desktop desktop/icons/backup-pi.svg rupal@192.168.29.125:~/
+ssh rupal@192.168.29.125 "mv ~/backup-pi.desktop ~/.local/share/applications/ && mv ~/backup-pi.svg ~/.local/share/icons/"
+```
 
 When tapped:
 1. Regenerates `~/backup-status/index.html`
