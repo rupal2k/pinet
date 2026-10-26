@@ -1,0 +1,20 @@
+[Unit]
+Description=PIN unlock for LUKS-encrypted PINET USB storage
+Documentation=https://github.com/rupal2k/pinet/blob/main/docs/storage-encryption.md
+# Must run after the Wayland compositor is available (GTK layer-shell)
+After=graphical-session.target
+Wants=graphical-session.target
+# Blocks dsi-photo-frame which reads /mnt/pinet-media/slideshow-cache
+Before=dsi-photo-frame.service
+
+[Service]
+Type=oneshot
+# Stays "active" after PIN entry so dependent units don't restart the dialog
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/pinet-luks-unlock
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# Only installed/enabled by pinet-media-encrypt; not enabled by default
+WantedBy=default.target

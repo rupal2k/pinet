@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Full-screen PIN dialog to decrypt LUKS USB storage at boot.
+
+Shown early in the graphical session — before pqiv / pinet-board can start.
+Reuses the same passcode file as dsi-lock so only one PIN is needed.
+
+Flow:
+  correct PIN → sudo cryptsetup open /dev/sda pinet-media
+              → sudo mount /mnt/pinet-media
+              → exits 0 (systemd marks pinet-luks-unlock.service active)
+  5 bad PINs  → reboots (brute-force guard on a touchscreen device)
+
+Recovery (SSH): sudo cryptsetup open /dev/sda pinet-media && sudo mount /mnt/pinet-media
+                then: systemctl --user start pinet-luks-unlock.service
+"""
+import subprocess
+import sys
+import time
+
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
+
+PASSCODE_FILE = "/etc/dsi-lock/passcode"
+LOGO_FILE     = "/etc/dsi-lock/logo.png"
+LUKS_DEV      = "/dev/sda"
+LUKS_NAME     = "pinet-media"
+MOUNT_POINT   = "/mnt/pinet-media"
+MAX_ATTEMPTS  = 5
+
+CSS = b"""
+window { background-color: #0f1114; }
+#title { color: #e8e8e8; font-size: 22px; font-weight: bold; margin-top: 2px; }
+#sub   { color: #888; font-size: 14px; margin-bottom: 4px; }
+#dots  { color: #e8e8e8; font-size: 30px; }
+#dots.bad { color: #d24141; }
+button.key {
+    background: #282c30;
+    color: #e8e8e8;
+    font-size: 25px;
+    border-radius: 14px;
+    border: 2px solid rgba(255,255,255,0.14);
+    min-width: 90px;
+    min-height: 58px;
+    margin: 4px;
+}
+button.key:active { background: #5078b4; }
+"""
+
+
+def read_passcode():
+    try:
+        with open(PASSCODE_FILE) as f:
+            return f.readline().strip() or None
+    except OSError:
+        return None
+
+
+def unlock():
+    subprocess.run(["sudo", "cryptsetup", "open", LUKS_DEV, LUKS_NAME], check=True)
+    subprocess.run(["sudo", "mount", MOUNT_POINT], check=True)
+
+
+class UnlockDialog:
+    def __init__(self):
+        self.code     = read_passcode()
+        self.entered  = ""
+        self.fails    = 0
+        self.blocked_until = 0.0
+
+        prov = Gtk.CssProvider()
+        prov.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), prov,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        win.set_decorated(False)
+        GtkLayerShell.init_for_window(win)
+        GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+        for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                     GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+            GtkLayerShell.set_anchor(win, edge, True)
+        GtkLayerShell.set_exclusive_zone(win, -1)
+        GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer.set_halign(Gtk.Align.CENTER)
+        outer.set_valign(Gtk.Align.CENTER)
+
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 76, True)
+            outer.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
+        except Exception:
+            pass
+
+        self.title = Gtk.Label(label="Unlock storage")
+        self.title.set_name("title")
+        sub = Gtk.Label(label="Enter PIN to decrypt USB drive")
+        sub.set_name("sub")
+        self.dots = Gtk.Label(label="–")
+        self.dots.set_name("dots")
+        outer.pack_start(self.title, False, False, 0)
+        outer.pack_start(sub,        False, False, 0)
+        outer.pack_start(self.dots,  False, False, 0)
+
+        grid = Gtk.Grid()
+        grid.set_halign(Gtk.Align.CENTER)
+        keys = [("1", 0, 0), ("2", 1, 0), ("3", 2, 0),
+                ("4", 0, 1), ("5", 1, 1), ("6", 2, 1),
+                ("7", 0, 2), ("8", 1, 2), ("9", 2, 2),
+                ("⌫", 0, 3), ("0", 1, 3), ("C", 2, 3)]
+        for label, col, row in keys:
+            b = Gtk.Button(label=label)
+            b.get_style_context().add_class("key")
+            b.connect("clicked", self.on_key, label)
+            grid.attach(b, col, row, 1, 1)
+        outer.pack_start(grid, False, False, 0)
+
+        win.add(outer)
+        win.connect("destroy", Gtk.main_quit)
+        win.connect("key-press-event", self.on_keypress)
+        win.show_all()
+
+    def refresh(self):
+        self.dots.set_text("●" * len(self.entered) if self.entered else "–")
+
+    def feed(self, digit):
+        if self.code is None or time.monotonic() < self.blocked_until:
+            return
+        self.dots.get_style_context().remove_class("bad")
+        self.entered += digit
+        if len(self.entered) >= len(self.code):
+            self._check()
+        else:
+            self.refresh()
+
+    def _check(self):
+        if self.entered == self.code:
+            self.title.set_text("Unlocking…")
+            self.dots.set_text("●" * len(self.entered))
+            GLib.timeout_add(50, self._do_unlock)
+        else:
+            self.reject()
+
+    def _do_unlock(self):
+        try:
+            unlock()
+            Gtk.main_quit()
+        except subprocess.CalledProcessError as e:
+            self.title.set_text("Failed — try again")
+            self.entered = ""
+            self.fails += 1
+            if self.fails >= MAX_ATTEMPTS:
+                subprocess.Popen(["sudo", "reboot"])
+            self._bad()
+        return False
+
+    def reject(self):
+        if time.monotonic() >= self.blocked_until:
+            self.fails += 1
+            if self.fails >= MAX_ATTEMPTS:
+                subprocess.Popen(["sudo", "reboot"])
+            if self.fails >= 5:
+                self.blocked_until = time.monotonic() + min(30 << (self.fails - 5), 3600)
+        self.entered = ""
+        self._bad()
+
+    def _bad(self):
+        self.dots.set_text("✕")
+        self.dots.get_style_context().add_class("bad")
+        GLib.timeout_add(700, self._clear_bad)
+
+    def _clear_bad(self):
+        self.dots.get_style_context().remove_class("bad")
+        self.refresh()
+        return False
+
+    def backspace(self):
+        self.entered = self.entered[:-1]
+        self.refresh()
+
+    def on_key(self, _btn, label):
+        if label.isdigit():
+            self.feed(label)
+        elif label == "⌫":
+            self.backspace()
+        elif label == "C":
+            self.entered = ""
+            self.refresh()
+
+    def on_keypress(self, _w, event):
+        name = Gdk.keyval_name(event.keyval) or ""
+        if len(name) == 1 and name.isdigit():
+            self.feed(name)
+        elif name.startswith("KP_") and name[3:].isdigit():
+            self.feed(name[3:])
+        elif name == "BackSpace":
+            self.backspace()
+        elif name in ("Return", "KP_Enter"):
+            if self.entered:
+                self._check()
+        return True
+
+
+def main():
+    UnlockDialog()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

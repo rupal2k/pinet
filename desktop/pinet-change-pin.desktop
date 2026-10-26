@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Change PIN
+Comment=Change the device PIN (lock screen and disk encryption)
+Exec=/usr/local/bin/pinet-change-pin
+Icon=/home/rupal/.local/share/icons/pinet-change-pin.svg
+Terminal=false
+Categories=Settings;Security;

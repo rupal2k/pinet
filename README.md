@@ -604,6 +604,41 @@ sudo chown -R rupal:rupal /mnt/pinet-media/slideshow /mnt/pinet-media/camera
 sudo chown -R pinet-board:pinet-board /mnt/pinet-media/uploads
 ```
 
+### Step 3b: USB Storage Encryption (Optional)
+
+Encrypt the USB flash drive with LUKS2 so all photos, uploads, and backup data
+are encrypted at rest. A PIN screen appears before the photo frame on each boot.
+
+**Prerequisites**: complete Steps 1–3 and set the DSI passcode (Step 4) first,
+since the same PIN is used for both the lock screen and the disk unlock screen.
+
+```bash
+# Install cryptsetup if not present
+sudo apt install cryptsetup
+
+# Set your DSI lock PIN (Step 4) BEFORE running this
+echo -n "YOUR_PIN" | sudo tee /etc/dsi-lock/passcode > /dev/null
+sudo chmod 600 /etc/dsi-lock/passcode
+
+# Run the interactive encryption setup (erases and re-encrypts the USB drive)
+sudo pinet-media-encrypt
+```
+
+The setup script: backs up all USB data to the SD card, formats the drive as
+LUKS2 (AES-256 + Argon2id KDF), restores the data, updates `/etc/fstab` and
+`/etc/crypttab`, installs the `pinet-luks-unlock` boot PIN service, and adds a
+systemd drop-in so `dsi-photo-frame` waits for the unlock before starting.
+
+> **Recovery (SSH):** if the PIN dialog fails to appear:
+> ```bash
+> sudo cryptsetup open /dev/sda pinet-media && sudo mount /mnt/pinet-media
+> ```
+
+See [`docs/storage-encryption.md`](docs/storage-encryption.md) for full details
+and the restore procedure.
+
+---
+
 ### Step 4: Passwords and Credentials
 
 Set authentication keys and passwords. No default credentials exist in the

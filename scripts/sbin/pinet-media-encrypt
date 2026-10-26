@@ -1,0 +1,206 @@
+#!/bin/bash
+# Interactive one-time setup: encrypt the PINET USB storage drive with LUKS2.
+#
+# What it does:
+#   1. Detects the USB drive mounted at /mnt/pinet-media
+#   2. Backs up all data to a temp directory on the SD card
+#   3. Formats the drive as LUKS2 (passphrase = current dsi-lock PIN)
+#   4. Creates an ext4 filesystem inside the container
+#   5. Restores all data
+#   6. Updates /etc/fstab and /etc/crypttab
+#   7. Installs the pinet-luks-unlock graphical PIN dialog as a boot service
+#   8. Adds a drop-in so dsi-photo-frame waits for the drive to be unlocked
+#
+# Run once as root (or with sudo). Safe to re-run: aborts if already encrypted.
+#
+# Recovery after running:
+#   sudo cryptsetup open /dev/sda pinet-media && sudo mount /mnt/pinet-media
+#   Then:  systemctl --user start pinet-luks-unlock.service
+set -euo pipefail
+
+### --- configuration ---
+DEVICE="/dev/sda"
+LUKS_NAME="pinet-media"
+MOUNT_POINT="/mnt/pinet-media"
+PASSCODE_FILE="/etc/dsi-lock/passcode"
+BACKUP_DIR="/home/rupal/usb-backup-$(date +%Y%m%d%H%M%S)"
+MARKER="/etc/pinet-luks"
+SUDOERS_FILE="/etc/sudoers.d/pinet-luks"
+UNIT_SRC="/usr/local/bin/pinet-luks-unlock"
+USER_UNIT_DIR="/home/rupal/.config/systemd/user"
+DROPIN_DIR="$USER_UNIT_DIR/dsi-photo-frame.service.d"
+### ----------------------
+
+RED='\033[0;31m'; YEL='\033[1;33m'; GRN='\033[0;32m'; NC='\033[0m'
+
+die() { echo -e "${RED}ERROR: $*${NC}" >&2; exit 1; }
+info(){ echo -e "${GRN}>>>${NC} $*"; }
+warn(){ echo -e "${YEL}WARNING:${NC} $*"; }
+
+[[ $EUID -eq 0 ]] || die "Run as root:  sudo pinet-media-encrypt"
+
+# Abort if already encrypted
+if [[ -f "$MARKER" ]]; then
+    warn "Already encrypted (marker $MARKER exists). Nothing to do."
+    exit 0
+fi
+if cryptsetup isLuks "$DEVICE" 2>/dev/null; then
+    warn "$DEVICE already contains a LUKS header. Nothing to do."
+    exit 0
+fi
+
+# Check prerequisites
+[[ -b "$DEVICE" ]]             || die "$DEVICE not found. Is the USB drive connected?"
+[[ -f "$PASSCODE_FILE" ]]      || die "PIN file $PASSCODE_FILE missing. Run Step 4 first."
+[[ -f "$UNIT_SRC" ]]           || die "$UNIT_SRC not installed. Run Step 2 first."
+command -v cryptsetup >/dev/null || die "cryptsetup not installed:  sudo apt install cryptsetup"
+
+PIN=$(head -1 "$PASSCODE_FILE" | tr -d '\n')
+[[ -n "$PIN" ]] || die "PIN file is empty. Set a PIN first."
+
+# Check space for backup
+USED=$(df --output=used -B1 "$MOUNT_POINT" | tail -1)
+AVAIL=$(df --output=avail -B1 / | tail -1)
+if (( USED + 524288000 > AVAIL )); then   # 500 MB headroom
+    die "Not enough space on SD card (need ~$((USED/1048576)) MB + 500 MB, have $((AVAIL/1048576)) MB free)"
+fi
+
+echo ""
+echo "======================================================"
+echo "  PINET USB Storage Encryption Setup"
+echo "======================================================"
+echo ""
+echo "  Device : $DEVICE"
+echo "  Mount  : $MOUNT_POINT"
+echo "  Backup : $BACKUP_DIR"
+echo "  PIN    : read from $PASSCODE_FILE"
+echo ""
+echo "  This will ERASE ALL DATA on $DEVICE and re-encrypt it."
+echo "  All data will be backed up first and then restored."
+echo ""
+read -rp "  Type YES to continue: " CONFIRM
+[[ "$CONFIRM" == "YES" ]] || { echo "Aborted."; exit 0; }
+
+# 1. Stop all services using the drive
+info "Stopping USB-dependent services..."
+systemctl --user stop dsi-photo-frame.service  2>/dev/null || true
+systemctl --user stop dsi-photo-sync.timer     2>/dev/null || true
+systemctl        stop pinet-board.service       2>/dev/null || true
+systemctl        stop docker.service            2>/dev/null || true
+sleep 2
+
+# 2. Back up data
+info "Backing up $MOUNT_POINT to $BACKUP_DIR ..."
+mkdir -p "$BACKUP_DIR"
+cp -a "$MOUNT_POINT/." "$BACKUP_DIR/"
+info "Backup complete: $(du -sh "$BACKUP_DIR" | cut -f1)"
+
+# 3. Unmount
+info "Unmounting $DEVICE ..."
+umount "$MOUNT_POINT"
+
+# 4. LUKS format
+info "Formatting $DEVICE as LUKS2 (this takes ~30 seconds) ..."
+echo -n "$PIN" | cryptsetup luksFormat \
+    --type luks2 \
+    --cipher aes-xts-plain64 \
+    --key-size 512 \
+    --hash sha256 \
+    --pbkdf argon2id \
+    --batch-mode \
+    --key-file - \
+    "$DEVICE"
+
+# 5. Open container
+info "Opening LUKS container ..."
+echo -n "$PIN" | cryptsetup open --key-file - "$DEVICE" "$LUKS_NAME"
+
+# 6. Format filesystem
+info "Creating ext4 filesystem ..."
+mkfs.ext4 -q -L pinet-media "/dev/mapper/$LUKS_NAME"
+
+# 7. Mount and restore
+info "Mounting and restoring data ..."
+mount "/dev/mapper/$LUKS_NAME" "$MOUNT_POINT"
+cp -a "$BACKUP_DIR/." "$MOUNT_POINT/"
+chown -R pinet-board:pinet-board "$MOUNT_POINT/uploads" "$MOUNT_POINT/tmp" 2>/dev/null || true
+info "Data restored: $(du -sh "$MOUNT_POINT" | cut -f1)"
+
+# 8. Update /etc/fstab
+info "Updating /etc/fstab ..."
+# Comment out the old UUID-based entry
+sed -i "s|^UUID=.*pinet-media.*$|# & (replaced by pinet-media-encrypt)|" /etc/fstab
+# Add new entry using device mapper
+if ! grep -q "/dev/mapper/$LUKS_NAME" /etc/fstab; then
+    echo "/dev/mapper/$LUKS_NAME  $MOUNT_POINT  ext4  defaults,nofail  0  2" >> /etc/fstab
+fi
+
+# 9. Update /etc/crypttab (noauto — unlocked by graphical PIN dialog, not initramfs)
+info "Updating /etc/crypttab ..."
+LUKS_UUID=$(blkid -s UUID -o value "$DEVICE")
+if ! grep -q "$LUKS_NAME" /etc/crypttab; then
+    echo "$LUKS_NAME  UUID=$LUKS_UUID  none  noauto,luks" >> /etc/crypttab
+fi
+
+# 10. Sudoers entry so rupal can run cryptsetup open and mount without a password
+info "Writing sudoers entry ..."
+cat > "$SUDOERS_FILE" << EOF
+# pinet-luks-unlock: open/close LUKS and mount/umount at boot
+rupal ALL=(root) NOPASSWD: /sbin/cryptsetup open $DEVICE $LUKS_NAME
+rupal ALL=(root) NOPASSWD: /sbin/cryptsetup close $LUKS_NAME
+rupal ALL=(root) NOPASSWD: /bin/mount $MOUNT_POINT
+rupal ALL=(root) NOPASSWD: /bin/umount $MOUNT_POINT
+rupal ALL=(root) NOPASSWD: /sbin/reboot
+# pinet-change-pin: update PIN file and rotate LUKS key
+rupal ALL=(root) NOPASSWD: /usr/local/sbin/pinet-setpin
+rupal ALL=(root) NOPASSWD: /sbin/cryptsetup luksChangeKey --batch-mode --key-file * $DEVICE *
+EOF
+chmod 440 "$SUDOERS_FILE"
+visudo -c -q "$SUDOERS_FILE" || { rm "$SUDOERS_FILE"; die "sudoers syntax error — removed"; }
+
+# 11. Enable pinet-luks-unlock user service
+info "Installing pinet-luks-unlock.service ..."
+mkdir -p "$USER_UNIT_DIR"
+cp "/etc/systemd/user/pinet-luks-unlock.service" "$USER_UNIT_DIR/" 2>/dev/null \
+  || cp "$(dirname "$UNIT_SRC")/../../systemd/user/pinet-luks-unlock.service" "$USER_UNIT_DIR/" 2>/dev/null \
+  || warn "Copy the service file manually to $USER_UNIT_DIR/"
+sudo -u rupal systemctl --user daemon-reload 2>/dev/null || true
+sudo -u rupal systemctl --user enable pinet-luks-unlock.service 2>/dev/null || true
+
+# 12. Drop-in: make dsi-photo-frame wait for unlock
+info "Adding drop-in for dsi-photo-frame.service ..."
+mkdir -p "$DROPIN_DIR"
+cat > "$DROPIN_DIR/10-after-luks.conf" << 'EOF'
+[Unit]
+After=pinet-luks-unlock.service
+Requires=pinet-luks-unlock.service
+EOF
+sudo -u rupal systemctl --user daemon-reload 2>/dev/null || true
+
+# 13. Marker
+echo "luks" > "$MARKER"
+chmod 444 "$MARKER"
+
+# 14. Clean up backup
+info "Removing backup (data is now on the encrypted drive) ..."
+rm -rf "$BACKUP_DIR"
+
+# 15. Restart services
+info "Restarting services ..."
+systemctl        start pinet-board.service       2>/dev/null || true
+systemctl        start docker.service            2>/dev/null || true
+sudo -u rupal systemctl --user start dsi-photo-frame.service 2>/dev/null || true
+
+echo ""
+echo -e "${GRN}======================================================"
+echo "  Encryption setup complete!"
+echo "======================================================"
+echo ""
+echo "  On the next reboot, a PIN screen will appear"
+echo "  before the photo frame loads."
+echo ""
+echo "  To test without rebooting:"
+echo "    sudo cryptsetup close $LUKS_NAME"
+echo "    sudo umount $MOUNT_POINT     (if still mounted)"
+echo "    sudo systemctl --user start pinet-luks-unlock.service"
+echo -e "======================================================${NC}"

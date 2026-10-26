@@ -1,0 +1,11 @@
+#!/bin/bash
+# Called by pinet-change-pin (via sudo) to write the new PIN to the passcode file.
+# Reads the PIN from stdin so it never appears in the process argument list.
+# Usage: echo -n "NEWPIN" | sudo pinet-setpin
+set -euo pipefail
+PASSCODE_FILE="/etc/dsi-lock/passcode"
+pin=$(cat)
+[[ -n "$pin" ]] || { echo "pinet-setpin: empty PIN" >&2; exit 1; }
+[[ "$pin" =~ ^[0-9]{4,8}$ ]] || { echo "pinet-setpin: PIN must be 4-8 digits" >&2; exit 1; }
+printf '%s' "$pin" > "$PASSCODE_FILE"
+chmod 600 "$PASSCODE_FILE"
