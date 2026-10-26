@@ -14,5 +14,5 @@ if ! up; then
         sleep 0.5
     done
 fi
-export DSI_CLOSE_CORNER=left DSI_KIOSK_SHED=no
+export DSI_CLOSE_CORNER=left DSI_KIOSK_SHED=no DSI_CLOSE_AUTOHIDE=4
 exec /usr/local/bin/dsi-kiosk.sh pinet-portal "http://localhost/login?kiosk=1"

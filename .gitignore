@@ -38,3 +38,11 @@ brag-output/
 # knowledge graph build output (graphify) -- regenerate with:
 #   graphify update . && graphify-link . --map graphify-out/deploy-map.txt
 graphify-out/
+
+# Ruflo local secrets and runtime data
+.env
+.env.local
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/

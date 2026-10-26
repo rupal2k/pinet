@@ -2,7 +2,7 @@
 Type=Application
 Name=Backup Status
 Comment=View Claude skills, memory and graph backup history on the Pi
-Exec=sh -c '/usr/local/bin/backup-status-index && DSI_CLOSE_CORNER=left DSI_KIOSK_TITLE="BACKUP STATUS" DSI_KIOSK_LABEL=Backup exec /usr/local/bin/dsi-kiosk.sh backup file:///home/rupal/backup-status/index.html'
+Exec=sh -c '/usr/local/bin/backup-status-index && DSI_CLOSE_CORNER=left DSI_CLOSE_AUTOHIDE=4 DSI_KIOSK_TITLE="BACKUP STATUS" DSI_KIOSK_LABEL=Backup exec /usr/local/bin/dsi-kiosk.sh backup file:///home/rupal/backup-status/index.html'
 Icon=/home/rupal/.local/share/icons/backup-pi.svg
 Terminal=false
 Categories=Utility;
