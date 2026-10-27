@@ -208,19 +208,7 @@ class Lock:
         return False
 
     def _unlock(self):
-        """Correct PIN — exit, showing whatever is behind the lock."""
-        if self._pqiv_running():
-            Gtk.main_quit()
-            return
-        # Photo frame not running (user closed it intentionally). Just exit.
         Gtk.main_quit()
-
-    def _wait_frame(self):
-        self._frame_ms += 400
-        if self._pqiv_running() or self._frame_ms >= 8000:
-            Gtk.main_quit()
-            return False
-        return True
 
     def feed(self, digit):
         if self.code is None or time.monotonic() < self.blocked_until:
