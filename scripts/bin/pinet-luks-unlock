@@ -259,6 +259,11 @@ def main():
     UnlockDialog()
     Gtk.main()
 
+    # Drive is now unlocked. The photo frame starts automatically via systemd
+    # (Requires= this service). Show screen lock now so pqiv is already
+    # rendering behind it; entering the PIN reveals the frame immediately.
+    subprocess.Popen(["python3", "/usr/local/bin/dsi-lock.py"])
+
 
 if __name__ == "__main__":
     main()
