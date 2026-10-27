@@ -46,7 +46,7 @@ def load_defs(path, names, globals_=None, modname=None):
     preserved so tracebacks point at the real source. *globals_* supplies the
     names the extracted code refers to (e.g. ``time``, ``os``, ``Path``).
     """
-    path = Path(path)
+    path = REPO / path  # relative paths resolve from the repo root, not the cwd
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     wanted = set(names)
     body = []

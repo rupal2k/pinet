@@ -312,7 +312,20 @@ class BoardTemplate(unittest.TestCase):
             self.assertIn("{% if is_admin %}", before.rsplit("{% endif %}", 1)[-1],
                           f"{marker} is not inside an is_admin block")
         self.assertEqual(self.src.count("if not is_admin():"), 2)
-        self.assertEqual(self.src.count("abort(403)"), 2)
+        self.assertEqual(len(re.findall(r"if not is_admin\(\):\s*\n\s*abort\(403\)", self.src)), 2)
+
+    def test_module_level_calls_follow_their_defs(self):
+        # A bare module-level call to a function defined further down crashes
+        # every gunicorn worker at import (NameError), which no def-only test sees.
+        import ast
+        defined = set()
+        for node in ast.parse(self.src).body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                defined.add(node.name)
+            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                fn = node.value.func
+                if isinstance(fn, ast.Name) and fn.id.startswith("_"):
+                    self.assertIn(fn.id, defined, f"{fn.id}() called before its def")
 
 
 class LiveMessages(unittest.TestCase):

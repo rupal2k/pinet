@@ -21,7 +21,7 @@ INSTALL_MAP = {
     "/home/rupal/.local/share/icons/": "desktop/icons/",
 }
 # Freedesktop icon-theme names that any desktop provides.
-THEME_ICONS = {"camera-photo", "image-x-generic", "utilities-terminal", "system-lock-screen"}
+THEME_ICONS = {"camera-photo", "image-x-generic", "utilities-terminal", "system-lock-screen", "folder"}
 # Units provided by Debian / Raspberry Pi OS packages, not by this repo.
 DISTRO_UNITS = {
     "bluetooth.service", "dbus-org.bluez.service", "hostapd.service", "dnsmasq.service",

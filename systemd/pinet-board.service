@@ -14,6 +14,9 @@ WorkingDirectory=/opt/pinet-board
 # before the app ever sees them. Without this, any upload approaching
 # the 1GB cap fails well before reaching app.py's own disk-space check.
 Environment=TMPDIR=/mnt/pinet-media/tmp
+# The app needs the LUKS drive; until the PIN unlocks it, fail this cheap check
+# and retry instead of crash-looping gunicorn.
+ExecStartPre=/usr/bin/mountpoint -q /mnt/pinet-media
 ExecStart=/usr/bin/gunicorn \
     --workers 2 \
     --bind 0.0.0.0:443 \
@@ -28,7 +31,7 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 # bridge feature. This service doesn't need sudo at all, but keeping the
 # bounding set at its default avoids the same class of mistake regardless.
 Restart=on-failure
-RestartSec=3
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

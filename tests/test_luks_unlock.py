@@ -90,14 +90,16 @@ class PinCheck(unittest.TestCase):
             m.UnlockDialog._check(d)
             mock_unlock.assert_not_called()
 
-    def test_called_process_error_increments_fails(self):
+    def test_key_mismatch_does_not_increment_fails(self):
+        # The PIN matched the passcode file, so a cryptsetup rejection is a
+        # key-sync problem, not a guess: it must not count toward the reboot.
         d, m, _ = _make_dialog("1234")
         with patch.object(m, "unlock", side_effect=subprocess.CalledProcessError(1, "cryptsetup")), \
              patch.object(m, "mount_media"), \
              patch("subprocess.Popen"):
             d.entered = "1234"
             m.UnlockDialog._do_unlock(d)
-            self.assertEqual(d.fails, 1)
+            self.assertEqual(d.fails, 0)
             self.assertEqual(d.entered, "")
 
     def test_mount_failure_does_not_increment_fails(self):
@@ -112,33 +114,31 @@ class PinCheck(unittest.TestCase):
 
 
 class RebootGuard(unittest.TestCase):
-    def test_fifth_wrong_pin_reboots(self):
-        d, m, _ = _make_dialog("1234")
-        with patch("subprocess.Popen") as mock_popen:
-            for _ in range(4):
-                d.entered = "9999"
-                m.UnlockDialog._check(d)
-            mock_popen.assert_not_called()
+    def _wrong(self, d, m, n):
+        for _ in range(n):
+            d.blocked_until = 0.0  # skip the backoff so every attempt counts
             d.entered = "9999"
             m.UnlockDialog._check(d)
-            # reboot call should be in the Popen calls
-            reboot_calls = [c for c in mock_popen.call_args_list
-                            if c.args and "reboot" in c.args[0]]
-            self.assertTrue(reboot_calls, "Expected reboot Popen call after 5 fails")
 
-    def test_fourth_wrong_pin_does_not_reboot(self):
+    def test_last_wrong_pin_reboots(self):
         d, m, _ = _make_dialog("1234")
         with patch("subprocess.Popen") as mock_popen:
-            for _ in range(4):
-                d.entered = "9999"
-                m.UnlockDialog._check(d)
+            self._wrong(d, m, m.MAX_ATTEMPTS)
+            reboot_calls = [c for c in mock_popen.call_args_list
+                            if c.args and "reboot" in c.args[0]]
+            self.assertTrue(reboot_calls, "Expected reboot after MAX_ATTEMPTS fails")
+
+    def test_one_short_of_max_does_not_reboot(self):
+        d, m, _ = _make_dialog("1234")
+        with patch("subprocess.Popen") as mock_popen:
+            self._wrong(d, m, m.MAX_ATTEMPTS - 1)
             reboot_calls = [c for c in mock_popen.call_args_list
                             if c.args and "reboot" in c.args[0]]
             self.assertFalse(reboot_calls)
 
-    def test_max_attempts_constant_is_5(self):
+    def test_max_attempts_constant_is_10(self):
         d, m, _ = _make_dialog()
-        self.assertEqual(m.MAX_ATTEMPTS, 5)
+        self.assertEqual(m.MAX_ATTEMPTS, 10)
 
 
 class BlockedUntil(unittest.TestCase):
@@ -154,32 +154,32 @@ class BlockedUntil(unittest.TestCase):
             m.UnlockDialog.feed(d, "1")
             self.assertEqual(d.entered, "")
 
-    def test_do_unlock_cpe_sets_blocked_until_after_5_fails(self):
-        # C4 regression: _do_unlock CalledProcessError path must set blocked_until
-        # at fails >= 5, just like reject() does.
+    def test_key_mismatch_never_blocks_or_reboots(self):
         d, m, clk = _make_dialog("1234")
-        d.fails = 4  # next failure is the 5th
+        d.fails = m.MAX_ATTEMPTS - 1
         with patch.object(m, "unlock",
                           side_effect=subprocess.CalledProcessError(1, "cryptsetup")), \
-             patch("subprocess.Popen"):
+             patch("subprocess.Popen") as mock_popen:
             d.entered = "1234"
             m.UnlockDialog._do_unlock(d)
-            self.assertEqual(d.fails, 5)
-            self.assertGreater(d.blocked_until, clk.now,
-                               "_do_unlock must set blocked_until on 5th CalledProcessError")
+            self.assertEqual(d.fails, m.MAX_ATTEMPTS - 1)
+            self.assertLessEqual(d.blocked_until, clk.now)
+            mock_popen.assert_not_called()
 
 
 class LastAttemptWarning(unittest.TestCase):
-    def test_fourth_failure_shows_last_attempt_title(self):
-        # Q4: "Last attempt" warning must appear on fail 4 (== MAX_ATTEMPTS - 1).
+    def test_penultimate_failure_shows_last_attempt_title(self):
+        # "Last attempt" warning must appear on fail MAX_ATTEMPTS - 1.
         d, m, _ = _make_dialog("1234")
         with patch("subprocess.Popen"):
-            for _ in range(3):
+            for _ in range(m.MAX_ATTEMPTS - 2):
+                d.blocked_until = 0.0
                 d.entered = "9999"
                 m.UnlockDialog._check(d)
             d.title.set_text.reset_mock()
+            d.blocked_until = 0.0
             d.entered = "9999"
-            m.UnlockDialog._check(d)  # 4th failure
+            m.UnlockDialog._check(d)
             calls = [str(c) for c in d.title.set_text.call_args_list]
             self.assertTrue(
                 any("Last attempt" in c for c in calls),

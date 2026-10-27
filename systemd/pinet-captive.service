@@ -8,6 +8,9 @@ User=pinet-board
 Group=pinet-board
 WorkingDirectory=/opt/pinet-board
 Environment=TMPDIR=/mnt/pinet-media/tmp
+# The app needs the LUKS drive; until the PIN unlocks it, fail this cheap check
+# and retry instead of crash-looping gunicorn.
+ExecStartPre=/usr/bin/mountpoint -q /mnt/pinet-media
 ExecStart=/usr/bin/gunicorn \
     --workers 1 \
     --bind 0.0.0.0:80 \
@@ -16,7 +19,7 @@ ExecStart=/usr/bin/gunicorn \
     app:app
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 Restart=on-failure
-RestartSec=3
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
