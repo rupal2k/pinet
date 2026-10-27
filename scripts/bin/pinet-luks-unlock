@@ -37,7 +37,7 @@ LOGO_FILE     = "/etc/dsi-lock/logo.png"
 LUKS_DEV      = "/dev/sda"
 LUKS_NAME     = "pinet-media"
 MOUNT_POINT   = "/mnt/pinet-media"
-MAX_ATTEMPTS  = 5
+MAX_ATTEMPTS  = 10
 
 CSS = b"""
 window { background-color: #0f1114; }
@@ -178,15 +178,11 @@ class UnlockDialog:
         try:
             unlock(self.entered)
         except subprocess.CalledProcessError:
-            self.title.set_text("Failed — try again")
+            # LUKS rejected the PIN even though it matched the passcode file.
+            # This is a key-sync issue (pinet-setpin ran without rotating LUKS),
+            # not a brute-force attempt — do not count toward MAX_ATTEMPTS or reboot.
+            self.title.set_text("LUKS mismatch — try your old PIN")
             self.entered = ""
-            self.fails += 1
-            if self.fails == MAX_ATTEMPTS - 1:
-                self.title.set_text("Last attempt — device will reboot")
-            if self.fails >= MAX_ATTEMPTS:
-                subprocess.Popen(["sudo", "reboot"])
-            if self.fails >= 5:
-                self.blocked_until = time.monotonic() + min(30 << (self.fails - 5), 3600)
             self._bad()
             return False
         try:
