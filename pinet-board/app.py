@@ -64,11 +64,14 @@ NOTICES = {
 
 MAX_ATTEMPTS = 5
 LOCKOUT_SECONDS = 60
-_attempts = {}  # ip -> (count, locked_until_monotonic)
+_attempts = {}         # ip -> (count, locked_until_monotonic)
+_storage_cache = [0.0, {}]  # [expires_monotonic, stats_dict]
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.config["HTTPS_ON"] = False   # set in __main__ once the TLS listener is up
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400
 
 
 class _PerSchemeCookieSession(SecureCookieSessionInterface):
@@ -165,6 +168,7 @@ def _load_secret_key():
 app.secret_key = _load_secret_key()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+Path("/mnt/pinet-media/tmp").mkdir(parents=True, exist_ok=True)
 
 
 def get_db():
@@ -200,13 +204,21 @@ def check_password(password, conf_path=PASSWORD_CONF):
     return hmac.compare_digest(calc, expected)
 
 
-def _cred_tag(conf_path):
+def _cred_tag(conf_path, _cache={}):
     # Digest of the credential file a session was issued under. Changing a
     # password (or deleting guest.conf) changes it, which ends every session
     # issued under the old one -- the signed cookie alone can't be revoked.
+    # _cache={} is a mutable default: persists across calls without a global.
     try:
-        return hashlib.sha256(Path(conf_path).read_bytes()).hexdigest()
+        p = Path(conf_path)
+        mtime = p.stat().st_mtime
+        if _cache.get(conf_path, (None,))[0] == mtime:
+            return _cache[conf_path][1]
+        digest = hashlib.sha256(p.read_bytes()).hexdigest()
+        _cache[conf_path] = (mtime, digest)
+        return digest
     except OSError:
+        _cache.pop(conf_path, None)
         return None
 
 
@@ -263,12 +275,15 @@ def free_disk_bytes():
 
 
 def storage_stats():
+    now = time.monotonic()
+    if now < _storage_cache[0]:
+        return _storage_cache[1]
     st = os.statvfs(str(UPLOAD_DIR))
     free = st.f_bavail * st.f_frsize
     total = st.f_blocks * st.f_frsize
     used_pct = round((1 - free / total) * 100, 1) if total else 0.0
     free_gb, total_gb = free / (1024**3), total / (1024**3)
-    return {
+    result = {
         "free_gb": free_gb,
         "total_gb": total_gb,
         "used_pct": used_pct,
@@ -276,6 +291,8 @@ def storage_stats():
         "storage_text": f"{free_gb:.1f}GB free of {total_gb:.0f}GB",
         "storage_low": free < LOW_FREE_BYTES,
     }
+    _storage_cache[:] = [now + 15, result]
+    return result
 
 
 @app.before_request
@@ -512,7 +529,7 @@ def delete_message(msg_id):
     return redirect(url_for("board", ok="message-deleted"))
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return redirect(url_for("login"))

@@ -142,9 +142,14 @@ def capture_photo():
     _on_cam(_cap)
     angle = (360 - ROTATION) % 360
     if angle:
-        with Image.open(tmp) as im:
-            im.rotate(angle, expand=True).save(final, quality=90)
-        os.remove(tmp)
+        try:
+            with Image.open(tmp) as im:
+                im.rotate(angle, expand=True).save(final, quality=90)
+        finally:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     else:
         os.replace(tmp, final)
     return name
@@ -178,7 +183,11 @@ def record_stop():
         return paths
 
     tmp, final = _on_cam(_stop)
-    time.sleep(0.4)
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        if os.path.exists(tmp) and os.path.getsize(tmp) > 0:
+            break
+        time.sleep(0.05)
     if not os.path.exists(tmp) or os.path.getsize(tmp) == 0:
         raise RuntimeError("no video captured (encoder produced no file)")
     name = os.path.basename(final)

@@ -119,7 +119,9 @@ class UnlockDialog:
         except Exception:
             pass
 
-        self.title = Gtk.Label(label="Unlock storage")
+        self.title = Gtk.Label(
+            label="PIN unavailable — recover via SSH" if self.code is None else "Unlock storage"
+        )
         self.title.set_name("title")
         sub = Gtk.Label(label="Enter PIN to decrypt USB drive")
         sub.set_name("sub")
@@ -139,6 +141,8 @@ class UnlockDialog:
             b = Gtk.Button(label=label)
             b.get_style_context().add_class("key")
             b.connect("clicked", self.on_key, label)
+            if self.code is None:
+                b.set_sensitive(False)
             grid.attach(b, col, row, 1, 1)
         outer.pack_start(grid, False, False, 0)
 
@@ -177,8 +181,12 @@ class UnlockDialog:
             self.title.set_text("Failed — try again")
             self.entered = ""
             self.fails += 1
+            if self.fails == MAX_ATTEMPTS - 1:
+                self.title.set_text("Last attempt — device will reboot")
             if self.fails >= MAX_ATTEMPTS:
                 subprocess.Popen(["sudo", "reboot"])
+            if self.fails >= 5:
+                self.blocked_until = time.monotonic() + min(30 << (self.fails - 5), 3600)
             self._bad()
             return False
         try:
@@ -226,6 +234,8 @@ class UnlockDialog:
     def reject(self):
         if time.monotonic() >= self.blocked_until:
             self.fails += 1
+            if self.fails == MAX_ATTEMPTS - 1:
+                self.title.set_text("Last attempt — device will reboot")
             if self.fails >= MAX_ATTEMPTS:
                 subprocess.Popen(["sudo", "reboot"])
             if self.fails >= 5:
@@ -286,9 +296,8 @@ def wait_for_wayland(timeout: int = 30) -> bool:
     socket_path = os.path.join(xdg_rt, wayland_display)
     for _ in range(timeout):
         try:
-            s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            s.connect(socket_path)
-            s.close()
+            with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as s:
+                s.connect(socket_path)
             return True
         except OSError:
             time.sleep(1)

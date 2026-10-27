@@ -140,7 +140,10 @@
         e.preventDefault();
         body.setCustomValidity("Write something before posting.");
         body.reportValidity();
+        return;
       }
+      var btn = postForm.querySelector("button[type=submit]");
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Posting…'; }
     });
   }
 

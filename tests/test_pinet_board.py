@@ -15,7 +15,7 @@ APP = repo_path("pinet-board", "app.py")
 NAMES = [
     "filesize_str", "_file_ext", "_file_kind",
     "_IMAGE_EXT", "_VIDEO_EXT", "_AUDIO_EXT", "_TEXT_EXT",
-    "MAX_ATTEMPTS", "LOCKOUT_SECONDS", "_attempts",
+    "MAX_ATTEMPTS", "LOCKOUT_SECONDS", "_attempts", "_storage_cache",
     "is_locked_out", "record_attempt",
     "UPLOAD_DIR", "free_disk_bytes", "storage_stats", "NOTICES", "LOW_FREE_BYTES",
 ]

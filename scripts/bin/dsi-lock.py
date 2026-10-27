@@ -284,7 +284,9 @@ class Lock:
         elif name == "BackSpace":
             self.backspace()
         elif name in ("Return", "KP_Enter"):
-            if self.entered == self.code:
+            if self.code is None:
+                pass
+            elif self.entered == self.code:
                 self._unlock()
             else:
                 self.reject()
