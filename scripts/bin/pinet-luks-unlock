@@ -13,6 +13,7 @@ Flow:
 Recovery (SSH): sudo cryptsetup open /dev/sda pinet-media && sudo mount /mnt/pinet-media
                 then: systemctl --user start pinet-luks-unlock.service
 """
+import os
 import subprocess
 import sys
 import time
@@ -206,7 +207,14 @@ class UnlockDialog:
         return True
 
 
+def already_unlocked():
+    return (os.path.exists(f"/dev/mapper/{LUKS_NAME}") and
+            os.path.ismount(MOUNT_POINT))
+
+
 def main():
+    if already_unlocked():
+        return  # device already open and mounted — exit 0, service goes active
     UnlockDialog()
     Gtk.main()
 
