@@ -160,6 +160,9 @@ class UnlockDialog:
         try:
             unlock(self.entered)
             self.title.set_text("Storage unlocked")
+            # Kick off photo frame now (before the service exits) so pqiv has
+            # maximum time to render before the screen lock is dismissed.
+            subprocess.Popen(["systemctl", "--user", "start", "dsi-photo-frame.service"])
             # Pre-launch screen lock while this window is still visible so it
             # renders on top before we close — desktop never flashes through.
             subprocess.Popen(["python3", "/usr/local/bin/dsi-lock.py"])
