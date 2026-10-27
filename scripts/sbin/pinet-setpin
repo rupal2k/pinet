@@ -1,11 +1,35 @@
 #!/bin/bash
-# Called by pinet-change-pin (via sudo) to write the new PIN to the passcode file.
-# Reads the PIN from stdin so it never appears in the process argument list.
+# Called by pinet-change-pin (via sudo) to write the new PIN and rotate the LUKS key.
+# Reads the new PIN from stdin so it never appears in the process argument list.
 # Usage: echo -n "NEWPIN" | sudo pinet-setpin
 set -euo pipefail
+
 PASSCODE_FILE="/etc/dsi-lock/passcode"
-pin=$(cat)
-[[ -n "$pin" ]] || { echo "pinet-setpin: empty PIN" >&2; exit 1; }
-[[ "$pin" =~ ^[0-9]{4,8}$ ]] || { echo "pinet-setpin: PIN must be 4-8 digits" >&2; exit 1; }
-printf '%s' "$pin" > "$PASSCODE_FILE"
+LUKS_MARKER="/etc/pinet-luks"
+LUKS_DEV="/dev/sda"
+RUNTIME_DIR="/run/user/$(id -u rupal 2>/dev/null || echo 1000)"
+
+new_pin=$(cat)
+[[ -n "$new_pin" ]] || { echo "pinet-setpin: empty PIN" >&2; exit 1; }
+[[ "$new_pin" =~ ^[0-9]{4,8}$ ]] || { echo "pinet-setpin: PIN must be 4-8 digits" >&2; exit 1; }
+
+# If the drive is LUKS-encrypted, rotate the key before overwriting the file.
+if [[ -f "$LUKS_MARKER" ]] && cryptsetup isLuks "$LUKS_DEV" 2>/dev/null; then
+    old_pin=$(cat "$PASSCODE_FILE") || { echo "pinet-setpin: cannot read old PIN" >&2; exit 1; }
+    [[ -n "$old_pin" ]] || { echo "pinet-setpin: old PIN is empty, cannot rotate LUKS key" >&2; exit 1; }
+
+    OLD_KEY="$RUNTIME_DIR/.luks-old-key"
+    NEW_KEY="$RUNTIME_DIR/.luks-new-key"
+    # Write key files with tight permissions; clean up on any exit
+    trap 'rm -f "$OLD_KEY" "$NEW_KEY"' EXIT
+    install -m 600 /dev/null "$OLD_KEY"
+    install -m 600 /dev/null "$NEW_KEY"
+    printf '%s' "$old_pin" > "$OLD_KEY"
+    printf '%s' "$new_pin" > "$NEW_KEY"
+
+    /usr/sbin/cryptsetup luksChangeKey --batch-mode --key-file "$OLD_KEY" "$LUKS_DEV" "$NEW_KEY" \
+        || { echo "pinet-setpin: LUKS key rotation failed — PIN NOT changed" >&2; exit 1; }
+fi
+
+printf '%s' "$new_pin" > "$PASSCODE_FILE"
 chmod 600 "$PASSCODE_FILE"
