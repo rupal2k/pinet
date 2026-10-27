@@ -52,7 +52,7 @@ button.key {
     border-radius: 12px;
     border: 2px solid rgba(255,255,255,0.14);
     min-width: 90px;
-    min-height: 50px;
+    min-height: 64px;
     margin: 3px;
 }
 button.key:active { background: #5078b4; }

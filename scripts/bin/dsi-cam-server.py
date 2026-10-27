@@ -219,7 +219,7 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             logging.warning("capture error: %s", exc)
             try:
-                self._json(200, {"ok": False, "error": str(exc)})
+                self._json(200, {"ok": False, "error": "Capture failed"})
             except OSError:
                 pass
 

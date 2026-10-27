@@ -365,10 +365,10 @@ def login():
 def board():
     db = get_db()
     messages = db.execute(
-        "SELECT id, body, created FROM messages ORDER BY id DESC LIMIT 200"
+        "SELECT id, body, created FROM messages ORDER BY id DESC LIMIT 50"
     ).fetchall()
     file_rows = db.execute(
-        "SELECT id, filename, size, created FROM files ORDER BY id DESC LIMIT 200"
+        "SELECT id, filename, size, created FROM files ORDER BY id DESC LIMIT 50"
     ).fetchall()
     files = [_file_row(*row) for row in file_rows]
     return render_template(
