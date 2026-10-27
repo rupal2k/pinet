@@ -1,0 +1,55 @@
+#!/bin/bash
+# Install (or update) Spotifast, the lightweight Spotify client that Media
+# Centre's SPOTIFAST card opens. Downloads the aarch64 release, checks it
+# against the release checksums, and installs to /opt/spotifast.
+# Usage: sudo pinet-install-spotifast [version]   (default: the latest release)
+set -euo pipefail
+
+REPO_URL="https://github.com/crmne/spotifast"
+if [[ -n "${1:-}" ]]; then
+    VER="${1#v}"
+else
+    # /releases/latest redirects to /releases/tag/vX.Y.Z (no API rate limit).
+    latest="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$REPO_URL/releases/latest")"
+    VER="${latest##*/v}"
+    [[ "$VER" =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo "Could not find the latest release ($latest)" >&2; exit 1; }
+fi
+current="$(/opt/spotifast/spotifast --version 2>/dev/null | awk '{print $2}' || true)"
+if [[ "$current" == "$VER" ]]; then
+    echo "Spotifast $VER is already installed"
+    exit 0
+fi
+echo "Installing Spotifast $VER${current:+ (replacing $current)}"
+NAME="spotifast-v${VER}-aarch64-unknown-linux-gnu"
+BASE="$REPO_URL/releases/download/v${VER}"
+USER_NAME="${SUDO_USER:-$(logname 2>/dev/null || echo pi)}"
+USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+
+[[ "$(id -u)" -eq 0 ]] || { echo "Run with sudo" >&2; exit 1; }
+[[ "$(uname -m)" == aarch64 ]] || { echo "Needs a 64-bit (aarch64) OS" >&2; exit 1; }
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL -o "$tmp/$NAME.tar.gz" "$BASE/$NAME.tar.gz"
+curl -fsSL -o "$tmp/checksums.txt" "$BASE/checksums.txt"
+(cd "$tmp" && grep " $NAME.tar.gz\$" checksums.txt | sha256sum -c -)
+tar -xzf "$tmp/$NAME.tar.gz" -C "$tmp"
+
+install -d /opt/spotifast
+install -m 755 "$tmp/$NAME/spotifast" /opt/spotifast/spotifast
+install -m 644 "$tmp/$NAME/LICENSE" /opt/spotifast/LICENSE
+ln -sf /opt/spotifast/spotifast /usr/local/bin/spotifast
+
+if [[ -n "$USER_HOME" && -d "$USER_HOME" ]]; then
+    as_user() { sudo -u "$USER_NAME" "$@"; }
+    as_user install -D -m 644 "$tmp/$NAME/packaging/icons/spotifast.svg" \
+        "$USER_HOME/.local/share/icons/hicolor/scalable/apps/spotifast.svg"
+    as_user install -D -m 644 "$tmp/$NAME/packaging/icons/spotifast.svg" \
+        "$USER_HOME/.local/share/icons/spotifast.svg"
+    # Executable, or pcmanfm opens the launcher in a text editor.
+    as_user install -D -m 755 "$tmp/$NAME/packaging/applications/spotifast.desktop" \
+        "$USER_HOME/.local/share/applications/spotifast.desktop"
+    as_user update-desktop-database "$USER_HOME/.local/share/applications" 2>/dev/null || true
+fi
+
+/usr/local/bin/spotifast --version

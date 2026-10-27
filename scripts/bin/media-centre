@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""PINET Media Centre -- one desktop icon, three services: Spotify Connect,
-live TV from the iptv-org playlists (github.com/iptv-org/iptv), or the HDMI
-capture monitor.
+"""PINET Media Centre -- one desktop icon, four services: Spotify Connect,
+the Spotifast player (library, search, Winamp-style mini player), live TV from
+the iptv-org playlists (github.com/iptv-org/iptv), or the HDMI capture monitor.
 
 The first screen asks which one. Spotify hands straight to `pinet-confirm
 toggle spotify` (its own confirm dialog, as the old Spotify icon did); its
@@ -47,6 +47,7 @@ CACHE_MAX_AGE = 24 * 3600
 CONFIRM = "/usr/local/bin/pinet-confirm"
 AUDIO_ROUTE = "/usr/local/bin/spotify-audio-route"
 HDMI_MONITOR = "/usr/local/bin/hdmi-monitor"
+SPOTIFAST = "/opt/spotifast/spotifast"   # optional, installed by pinet-install-spotifast
 ICON_DIR = os.path.expanduser("~/.local/share/icons")
 PLAYING_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "media-playing")
 RC_SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "media-centre-vlc.sock")
@@ -66,10 +67,14 @@ MAX_RETRIES = 3   # the corner controls hide again after this long untouched
 
 EXTRA_CSS = b"""
 .choice { background-color: #ffffff; color: #000000; border: 2px solid #000000;
-          border-radius: 12px; padding: 18px; }
+          border-radius: 16px; padding: 14px 18px; }
+.choice:hover { background-color: #ffffff; }
 .choice:active { background-color: #000000; color: #ffffff; }
-.choice-name { color: inherit; font-weight: 800; font-size: 22px; letter-spacing: 2px; }
-.choice-desc { color: inherit; font-size: 11px; }
+.choice:disabled { opacity: 0.4; }
+.choice-eyebrow { color: inherit; font-size: 10px; font-weight: 700; letter-spacing: 2px; }
+.choice-name { color: inherit; font-weight: 800; font-size: 20px; letter-spacing: 1px; }
+.choice-desc { color: inherit; font-size: 12px; }
+.choice-chevron { color: inherit; font-size: 30px; }
 treeview.view { background-color: #ffffff; color: #000000; font-size: 15px; }
 combobox button { background-image: none; background-color: #ffffff; color: #000000;
                   border: 2px solid #000000; border-radius: 6px; padding: 6px 10px; }
@@ -418,43 +423,65 @@ def run_gui():
         def _icon(self, image, name):
             try:
                 pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(
-                    os.path.join(ICON_DIR, name), 72, 72, True)
+                    os.path.join(ICON_DIR, name), 56, 56, True)
+                pb.saturate_and_pixelate(pb, 0.0, False)   # the theme has no colour
                 image.set_from_pixbuf(pb)
             except GLib.Error:
                 pass
             return image
 
-        def _choice(self, name, desc, cb, icon):
+        def _choice(self, eyebrow, name, desc, cb, icon, pill=False):
+            # Wide card: icon | eyebrow / NAME / description | status pill or chevron
             btn = self._cls(Gtk.Button(), "choice")
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            box.set_valign(Gtk.Align.CENTER)
-            image = self._icon(Gtk.Image(), icon)
-            box.pack_start(image, False, False, 0)
-            btn.image = image
-            box.pack_start(self._label(name, "choice-name"), False, False, 0)
-            btn.desc = self._label(desc, "choice-desc")
-            box.pack_start(btn.desc, False, False, 0)
-            btn.add(box)
+            row = Gtk.Box(spacing=16)
+            row.set_valign(Gtk.Align.CENTER)
+            btn.image = self._icon(Gtk.Image(), icon)
+            row.pack_start(btn.image, False, False, 0)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text.set_valign(Gtk.Align.CENTER)
+            text.pack_start(self._label(eyebrow, "choice-eyebrow", 0), False, False, 0)
+            text.pack_start(self._label(name, "choice-name", 0), False, False, 0)
+            btn.desc = self._label(desc, "choice-desc", 0)
+            text.pack_start(btn.desc, False, False, 0)
+            row.pack_start(text, True, True, 0)
+            btn.pill = None
+            if pill:
+                btn.pill = self._cls(Gtk.Label(label="..."), "pill", "pill-off")
+                btn.pill.set_valign(Gtk.Align.CENTER)
+                row.pack_end(btn.pill, False, False, 0)
+            else:
+                row.pack_end(self._label("›", "choice-chevron"), False, False, 0)
+            btn.add(row)
             btn.connect("clicked", cb)
             return btn
 
         def _chooser(self):
-            row = Gtk.Box(spacing=16, homogeneous=True)
+            grid = Gtk.Grid(row_spacing=14, column_spacing=14,
+                            row_homogeneous=True, column_homogeneous=True)
             for side in ("top", "bottom", "start", "end"):
-                getattr(row, f"set_margin_{side}")(24)
+                getattr(grid, f"set_margin_{side}")(20)
             self.spotify_card = self._choice(
-                "SPOTIFY", "Checking...", self._spotify, "spotify-off.svg")
-            row.pack_start(self.spotify_card, True, True, 0)
-            row.pack_start(self._choice(
-                "IPTV", "Live TV channels.\nSound on the speaker.", self._iptv, "iptv.svg"),
-                True, True, 0)
-            row.pack_start(self._choice(
-                "HDMI", "Show the HDMI\ncapture input.", self._hdmi, "hdmi-monitor.svg"),
-                True, True, 0)
-            # Same green/off icon as the desktop, kept current while open.
+                "SPEAKER", "SPOTIFY", "Checking...", self._spotify, "spotify-off.svg",
+                pill=True)
+            installed = os.access(SPOTIFAST, os.X_OK)
+            self.spotifast_card = self._choice(
+                "PLAYER", "SPOTIFAST", "Browse, search and play.\nWinamp mini player."
+                if installed else "Not installed.\nsudo pinet-install-spotifast",
+                self._spotifast, "spotifast.svg")
+            self.spotifast_card.set_sensitive(installed)
+            cards = [self.spotify_card, self.spotifast_card,
+                     self._choice("LIVE TV", "IPTV", "Indian channels, 576p.\nSound on the speaker.",
+                                  self._iptv, "iptv.svg"),
+                     self._choice("INPUT", "HDMI", "Show the HDMI\ncapture input.",
+                                  self._hdmi, "hdmi-monitor.svg")]
+            for i, card in enumerate(cards):
+                card.set_hexpand(True)
+                card.set_vexpand(True)
+                grid.attach(card, i % 2, i // 2, 1, 1)
+            # Same on/off state as the desktop icon, kept current while open.
             self._spotify_icon()
             GLib.timeout_add_seconds(5, self._spotify_icon)
-            return row
+            return grid
 
         def _spotify_icon(self):
             if self.stack.get_visible_child_name() not in (None, "choose"):
@@ -468,12 +495,20 @@ def run_gui():
                 if st in ("on", "partly", "off"):
                     name = "spotify-off.svg" if st == "off" else "spotify-on.svg"
                     GLib.idle_add(self._icon, self.spotify_card.image, name)
+                    GLib.idle_add(self._spotify_pill, st != "off")
                     # Say what a tap does: tapping while it runs STOPS it.
                     GLib.idle_add(self.spotify_card.desc.set_text,
-                                  "Off. Tap to start,\nthen pick PINET in Spotify." if st == "off"
-                                  else "Running as PINET.\nTap to stop.")
+                                  "Tap to start, then pick\nPINET in the Spotify app." if st == "off"
+                                  else "Playing to PINET.\nTap to stop.")
             threading.Thread(target=ask, daemon=True).start()
             return True
+
+        def _spotify_pill(self, on):
+            pill = self.spotify_card.pill
+            pill.set_text("ON" if on else "OFF")
+            ctx = pill.get_style_context()
+            ctx.remove_class("pill-off" if on else "pill-on")
+            ctx.add_class("pill-on" if on else "pill-off")
 
         def _hdmi(self, *_):
             subprocess.Popen([HDMI_MONITOR], start_new_session=True)
@@ -521,6 +556,19 @@ def run_gui():
         def _spotify(self, *_):
             subprocess.Popen([CONFIRM, "toggle", "spotify"], start_new_session=True)
             self.destroy()
+
+        def _spotifast(self, *_):
+            if self.starting:
+                return   # a second tap while the speaker is being connected
+            self.starting = True
+            self.spotifast_card.desc.set_text("Connecting to\na speaker...")
+            def work():
+                ensure_speaker()   # None is fine: it plays on the built-in output
+                GLib.idle_add(launch)
+            def launch():
+                subprocess.Popen([SPOTIFAST], start_new_session=True)
+                self.destroy()
+            threading.Thread(target=work, daemon=True).start()
 
         def _iptv(self, *_):
             self.stack.set_visible_child_name("iptv")
