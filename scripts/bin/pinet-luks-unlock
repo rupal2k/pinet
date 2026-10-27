@@ -70,7 +70,9 @@ def read_passcode():
 def unlock(pin: str):
     subprocess.run(
         ["sudo", "/usr/sbin/cryptsetup", "open", "--key-file", "-", LUKS_DEV, LUKS_NAME],
-        input=(pin + "\n").encode(), check=True
+        # --key-file - uses stdin verbatim; a trailing newline would become part
+        # of the key, and every keyslot is written without one (pinet-setpin).
+        input=pin.encode(), check=True
     )
 
 

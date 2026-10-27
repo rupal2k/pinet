@@ -1,7 +1,7 @@
 """pinet-luks-unlock: pure logic tests (no GTK, no sudo, no cryptsetup).
 
 Covers:
-  - correct PIN → unlock() called with pin+"\n" (once newline fix applied)
+  - unlock() feeds cryptsetup the PIN bytes verbatim (no trailing newline)
   - wrong PIN → reject(), entered cleared
   - 5 wrong PINs → reboot Popen called
   - CalledProcessError from unlock() → "Failed", increments fails, reboot at MAX
@@ -50,6 +50,16 @@ def _make_dialog(code="1234", clock=None):
     d.dots.get_style_context.return_value = MagicMock()
     d._frame_ms = 0
     return d, m, clk
+
+
+class UnlockKeyBytes(unittest.TestCase):
+    def test_unlock_sends_pin_without_newline(self):
+        # --key-file - keeps a trailing newline as part of the key, and keyslots
+        # are written without one, so a newline makes every correct PIN fail.
+        m, _ = _load()
+        with patch.object(subprocess, "run") as run:
+            m.unlock("1234")
+        self.assertEqual(run.call_args.kwargs["input"], b"1234")
 
 
 class PinCheck(unittest.TestCase):
