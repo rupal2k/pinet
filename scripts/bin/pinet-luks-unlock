@@ -159,7 +159,11 @@ class UnlockDialog:
     def _do_unlock(self):
         try:
             unlock(self.entered)
-            Gtk.main_quit()
+            self.title.set_text("Storage unlocked")
+            # Pre-launch screen lock while this window is still visible so it
+            # renders on top before we close — desktop never flashes through.
+            subprocess.Popen(["python3", "/usr/local/bin/dsi-lock.py"])
+            GLib.timeout_add(700, Gtk.main_quit)
         except subprocess.CalledProcessError as e:
             self.title.set_text("Failed — try again")
             self.entered = ""
@@ -258,11 +262,7 @@ def main():
 
     UnlockDialog()
     Gtk.main()
-
-    # Drive is now unlocked. The photo frame starts automatically via systemd
-    # (Requires= this service). Show screen lock now so pqiv is already
-    # rendering behind it; entering the PIN reveals the frame immediately.
-    subprocess.Popen(["python3", "/usr/local/bin/dsi-lock.py"])
+    # dsi-lock.py was pre-launched inside _do_unlock before Gtk.main_quit.
 
 
 if __name__ == "__main__":
