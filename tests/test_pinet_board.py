@@ -3,8 +3,11 @@
 Defs are extracted with ast so the module's import-time side effects
 (secret key written under /etc, mkdir of /mnt/pinet-media) never run.
 """
+import hashlib
+import hmac
 import os
 import re
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -162,6 +165,63 @@ class StorageStats(unittest.TestCase):
         s = load(os_mod=fos).storage_stats()
         self.assertEqual(s["used_pct"], 0.0)
 
+    def test_cache_avoids_repeated_statvfs_within_15s(self):
+        clock = FakeClock()
+        fos, calls = self.fake_os(blocks=1024**2, bavail=256 * 1024)
+        m = load(clock=clock, os_mod=fos)
+        m._storage_cache[:] = [0.0, {}]  # ensure clean state
+        m.storage_stats()
+        self.assertEqual(len(calls), 1, "first call must hit statvfs")
+        m.storage_stats()
+        self.assertEqual(len(calls), 1, "second call within 15s must use cache")
+        clock.now += 16
+        m.storage_stats()
+        self.assertEqual(len(calls), 2, "call after cache expiry must re-query")
+
+
+
+class CheckPassword(unittest.TestCase):
+    """check_password() is the auth gate; a bug here is auth bypass or DoS."""
+
+    def _make_conf(self, password):
+        salt = os.urandom(16).hex()
+        h = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 200_000).hex()
+        tmp = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".conf")
+        tmp.write(f"{salt}:{h}\n")
+        tmp.flush()
+        tmp.close()
+        return tmp.name
+
+    def setUp(self):
+        # check_password has a default arg `conf_path=PASSWORD_CONF`, so we must
+        # inject PASSWORD_CONF (as a dummy) into the load_defs namespace.
+        self.m = load_defs(APP, ["check_password"],
+                           {"hashlib": hashlib, "hmac": hmac, "PASSWORD_CONF": ""})
+        self.conf = self._make_conf("hunter2")
+
+    def tearDown(self):
+        try:
+            os.unlink(self.conf)
+        except OSError:
+            pass
+
+    def test_correct_password_returns_true(self):
+        self.assertTrue(self.m.check_password("hunter2", self.conf))
+
+    def test_wrong_password_returns_false(self):
+        self.assertFalse(self.m.check_password("wrong", self.conf))
+
+    def test_missing_file_returns_false(self):
+        self.assertFalse(self.m.check_password("hunter2", "/nonexistent/path.conf"))
+
+    def test_malformed_conf_returns_false(self):
+        tmp = tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".conf")
+        tmp.write("no-colon-here\n")
+        tmp.close()
+        try:
+            self.assertFalse(self.m.check_password("hunter2", tmp.name))
+        finally:
+            os.unlink(tmp.name)
 
 
 class SessionValid(unittest.TestCase):
@@ -200,6 +260,9 @@ class SessionValid(unittest.TestCase):
         self.sign_in("admin")
         self.assertTrue(self.mod._session_valid())
         self.admin.write_text("a-new-password-hash\n")
+        # Advance mtime by 1s so ext4's 1s resolution sees the change.
+        m = self.admin.stat().st_mtime
+        os.utime(str(self.admin), (m + 1, m + 1))
         self.assertFalse(self.mod._session_valid())
 
     def test_guest_cookie_is_not_valid_as_admin(self):

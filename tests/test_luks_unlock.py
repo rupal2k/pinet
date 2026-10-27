@@ -7,6 +7,7 @@ Covers:
   - CalledProcessError from unlock() → "Failed", increments fails, reboot at MAX
   - blocked_until prevents further attempts
 """
+import hmac
 import subprocess
 import types
 import unittest
@@ -21,11 +22,12 @@ def _load(clock=None):
     clk = clock or FakeClock()
     m = load_defs(
         LUKS,
-        ["read_passcode", "unlock", "mount_media", "UnlockDialog", "MAX_ATTEMPTS"],
+        ["read_passcode", "unlock", "mount_media", "notify_ready", "UnlockDialog", "MAX_ATTEMPTS"],
         {
             "time": clk,
             "os": __import__("os"),
             "subprocess": subprocess,
+            "hmac": hmac,
             "Gtk": MagicMock(),
             "Gdk": MagicMock(),
             "GdkPixbuf": MagicMock(),
@@ -140,6 +142,56 @@ class BlockedUntil(unittest.TestCase):
             # While blocked, feed should be a no-op
             m.UnlockDialog.feed(d, "1")
             self.assertEqual(d.entered, "")
+
+    def test_do_unlock_cpe_sets_blocked_until_after_5_fails(self):
+        # C4 regression: _do_unlock CalledProcessError path must set blocked_until
+        # at fails >= 5, just like reject() does.
+        d, m, clk = _make_dialog("1234")
+        d.fails = 4  # next failure is the 5th
+        with patch.object(m, "unlock",
+                          side_effect=subprocess.CalledProcessError(1, "cryptsetup")), \
+             patch("subprocess.Popen"):
+            d.entered = "1234"
+            m.UnlockDialog._do_unlock(d)
+            self.assertEqual(d.fails, 5)
+            self.assertGreater(d.blocked_until, clk.now,
+                               "_do_unlock must set blocked_until on 5th CalledProcessError")
+
+
+class LastAttemptWarning(unittest.TestCase):
+    def test_fourth_failure_shows_last_attempt_title(self):
+        # Q4: "Last attempt" warning must appear on fail 4 (== MAX_ATTEMPTS - 1).
+        d, m, _ = _make_dialog("1234")
+        with patch("subprocess.Popen"):
+            for _ in range(3):
+                d.entered = "9999"
+                m.UnlockDialog._check(d)
+            d.title.set_text.reset_mock()
+            d.entered = "9999"
+            m.UnlockDialog._check(d)  # 4th failure
+            calls = [str(c) for c in d.title.set_text.call_args_list]
+            self.assertTrue(
+                any("Last attempt" in c for c in calls),
+                f"Expected 'Last attempt' title on 4th fail, got: {calls}"
+            )
+
+
+class MissingPin(unittest.TestCase):
+    def test_feed_is_noop_when_code_is_none(self):
+        # Q6: feed() must not modify entered or fail count when PIN file is missing.
+        d, m, _ = _make_dialog(code=None)
+        m.UnlockDialog.feed(d, "1")
+        self.assertEqual(d.entered, "")
+        self.assertEqual(d.fails, 0)
+
+    def test_check_is_noop_when_code_is_none(self):
+        d, m, _ = _make_dialog(code=None)
+        with patch.object(m, "unlock") as mock_unlock:
+            d.entered = "9999"
+            m.UnlockDialog._check(d)
+            mock_unlock.assert_not_called()
+            self.assertEqual(d.fails, 1,
+                             "_check calls reject() on mismatch even with code=None")
 
 
 if __name__ == "__main__":

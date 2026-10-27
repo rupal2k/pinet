@@ -283,9 +283,25 @@
     });
   }
   // ---- confirm destructive actions (admin file delete) ----
+  // window.confirm is suppressed on Android Chrome ≥92 in kiosk mode (returns
+  // true unconditionally), so we use a two-tap pattern instead.
   document.querySelectorAll("form[data-confirm]").forEach(function (f) {
+    var btn = f.querySelector("button[type=submit]");
+    var orig = btn ? btn.textContent : null;
+    var timer = null;
     f.addEventListener("submit", function (e) {
-      if (!window.confirm(f.getAttribute("data-confirm"))) e.preventDefault();
+      if (!btn) return;
+      if (!btn.dataset.confirming) {
+        e.preventDefault();
+        btn.dataset.confirming = "1";
+        btn.textContent = f.getAttribute("data-confirm") || "Tap again to confirm";
+        timer = setTimeout(function () {
+          delete btn.dataset.confirming;
+          btn.textContent = orig;
+        }, 3000);
+      } else {
+        clearTimeout(timer);
+      }
     });
   });
 

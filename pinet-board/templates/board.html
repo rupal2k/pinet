@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14161a">
 <title>PINET — Board</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -21,7 +22,7 @@
     </div>
     <div class="session-bar">
       {% if is_admin %}<span class="role-badge role-admin">Admin</span>{% else %}<span class="role-badge role-guest">Guest</span>{% endif %}
-      <form method="post" action="/logout" style="display:inline"><button type="submit" class="logout-link">Log out</button></form>
+      <form method="post" action="/logout" class="logout-form"><button type="submit" class="logout-link">Log out</button></form>
     </div>
   </header>
 

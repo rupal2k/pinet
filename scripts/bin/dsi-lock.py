@@ -28,7 +28,6 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
 
 PASSCODE_FILE = "/etc/dsi-lock/passcode"
 LOGO_FILE = "/etc/dsi-lock/logo.png"
-DEFAULT_PASSCODE = "1234"
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
 PIDFILE = os.path.join(RUNTIME, "dsi-lock.pid")
 READYFILE = os.path.join(RUNTIME, "dsi-lock.ready")
@@ -80,7 +79,7 @@ def single_instance():
     except FileExistsError:
         try:
             with open(PIDFILE) as f:
-                os.kill(int(f.read().strip() or "0"), 0)
+                os.kill(int(f.read().strip() or "-1"), 0)
             return False
         except (OSError, ValueError):
             try:
@@ -285,6 +284,8 @@ class Lock:
             self.backspace()
         elif name in ("Return", "KP_Enter"):
             if self.code is None:
+                pass
+            elif len(self.entered) < len(self.code):
                 pass
             elif self.entered == self.code:
                 self._unlock()

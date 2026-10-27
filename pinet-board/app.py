@@ -169,21 +169,28 @@ app.secret_key = _load_secret_key()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 Path("/mnt/pinet-media/tmp").mkdir(parents=True, exist_ok=True)
+_init_db()
+
+
+def _init_db():
+    db = sqlite3.connect(DB_PATH)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS messages ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL, created REAL NOT NULL)"
+    )
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS files ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, "
+        "stored_name TEXT NOT NULL, size INTEGER NOT NULL, created REAL NOT NULL)"
+    )
+    db.commit()
+    db.close()
 
 
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
-        g.db.execute("PRAGMA journal_mode=WAL")
-        g.db.execute(
-            "CREATE TABLE IF NOT EXISTS messages ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL, created REAL NOT NULL)"
-        )
-        g.db.execute(
-            "CREATE TABLE IF NOT EXISTS files ("
-            "id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, "
-            "stored_name TEXT NOT NULL, size INTEGER NOT NULL, created REAL NOT NULL)"
-        )
     return g.db
 
 
@@ -448,15 +455,20 @@ def upload_file():
     safe_name = secure_filename(f.filename) or "file"
     stored_name = f"{secrets.token_hex(8)}_{safe_name}"
     dest = UPLOAD_DIR / stored_name
-    f.save(dest)  # streams to disk in chunks, never buffers the whole file in memory
-
-    size = dest.stat().st_size
-    db = get_db()
-    db.execute(
-        "INSERT INTO files (filename, stored_name, size, created) VALUES (?, ?, ?, ?)",
-        (safe_name, stored_name, size, time.time()),
-    )
-    db.commit()
+    tmp_dest = UPLOAD_DIR / ("_tmp_" + stored_name)
+    f.save(tmp_dest)  # streams to disk in chunks, never buffers the whole file in memory
+    try:
+        size = tmp_dest.stat().st_size
+        db = get_db()
+        db.execute(
+            "INSERT INTO files (filename, stored_name, size, created) VALUES (?, ?, ?, ?)",
+            (safe_name, stored_name, size, time.time()),
+        )
+        db.commit()
+        tmp_dest.rename(dest)
+    except Exception:
+        tmp_dest.unlink(missing_ok=True)
+        raise
     return redirect(url_for("board", ok="upload"))
 
 
@@ -550,7 +562,7 @@ def security_headers(r):
     r.headers["Referrer-Policy"] = "no-referrer"
     r.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self'; "
-        "style-src 'self'; img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
         "media-src 'self' blob:; frame-ancestors 'none'"
     )
     if request.is_secure:
@@ -577,4 +589,4 @@ def start_https():
 
 if __name__ == "__main__":
     start_https()
-    app.run(host="10.10.10.1", port=80, threaded=True)
+    app.run(host="10.10.10.1", port=80, threaded=True, debug=False)

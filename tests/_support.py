@@ -47,7 +47,7 @@ def load_defs(path, names, globals_=None, modname=None):
     names the extracted code refers to (e.g. ``time``, ``os``, ``Path``).
     """
     path = Path(path)
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     wanted = set(names)
     body = []
     found = set()

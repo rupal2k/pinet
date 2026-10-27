@@ -100,7 +100,7 @@ button, .btn {
   padding: 13px 20px; font-size: 15px; font-weight: 700; border: none; border-radius: var(--radius-sm);
   cursor: pointer; color: var(--accent-contrast); background: var(--accent);
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  transition: background .15s ease, transform .05s ease;
+  transition: background .15s ease, transform .05s ease; min-height: 44px;
 }
 button:hover, .btn:hover { background: var(--accent-strong); }
 button:active, .btn:active { transform: scale(0.98); }
@@ -321,6 +321,7 @@ body.tabs-on .tab-panel.is-active { display: block; }
   font-size: 13px; font-weight: 700; color: var(--text-muted); text-decoration: none; border-radius: var(--radius-sm);
   background: none; border: none; cursor: pointer;
 }
+.logout-form { display: inline; }
 .logout-link:hover, .logout-link:focus-visible { color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent); }
 
 /* ---- wide screens (Pi kiosk 800x480, tablets, laptops): compose | list ---- */

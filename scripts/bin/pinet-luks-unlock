@@ -42,7 +42,7 @@ MAX_ATTEMPTS  = 5
 CSS = b"""
 window { background-color: #0f1114; }
 #title { color: #e8e8e8; font-size: 20px; font-weight: bold; }
-#sub   { color: #888; font-size: 13px; }
+#sub   { color: #999; font-size: 13px; }
 #dots  { color: #e8e8e8; font-size: 26px; }
 #dots.bad { color: #d24141; }
 button.key {
@@ -275,7 +275,9 @@ class UnlockDialog:
         elif name == "BackSpace":
             self.backspace()
         elif name in ("Return", "KP_Enter"):
-            if self.entered:
+            if self.code is None:
+                pass
+            elif self.entered:
                 self._check()
         return True
 
