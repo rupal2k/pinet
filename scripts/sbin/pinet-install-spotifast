@@ -38,7 +38,8 @@ tar -xzf "$tmp/$NAME.tar.gz" -C "$tmp"
 install -d /opt/spotifast
 install -m 755 "$tmp/$NAME/spotifast" /opt/spotifast/spotifast
 install -m 644 "$tmp/$NAME/LICENSE" /opt/spotifast/LICENSE
-ln -sf /opt/spotifast/spotifast /usr/local/bin/spotifast
+# Launched by path (Media Centre card, app menu); nothing goes in /usr/local/bin.
+sed -i 's|^Exec=spotifast|Exec=/opt/spotifast/spotifast|' "$tmp/$NAME/packaging/applications/spotifast.desktop"
 
 if [[ -n "$USER_HOME" && -d "$USER_HOME" ]]; then
     as_user() { sudo -u "$USER_NAME" "$@"; }
@@ -46,10 +47,11 @@ if [[ -n "$USER_HOME" && -d "$USER_HOME" ]]; then
         "$USER_HOME/.local/share/icons/hicolor/scalable/apps/spotifast.svg"
     as_user install -D -m 644 "$tmp/$NAME/packaging/icons/spotifast.svg" \
         "$USER_HOME/.local/share/icons/spotifast.svg"
-    # Executable, or pcmanfm opens the launcher in a text editor.
+    # App menu only (opened from Media Centre, so no desktop icon). Executable,
+    # or pcmanfm opens the launcher in a text editor.
     as_user install -D -m 755 "$tmp/$NAME/packaging/applications/spotifast.desktop" \
         "$USER_HOME/.local/share/applications/spotifast.desktop"
     as_user update-desktop-database "$USER_HOME/.local/share/applications" 2>/dev/null || true
 fi
 
-/usr/local/bin/spotifast --version
+/opt/spotifast/spotifast --version
