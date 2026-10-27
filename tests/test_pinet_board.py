@@ -390,3 +390,72 @@ class NeedsHttps(unittest.TestCase):
         self.assertFalse(self.f(False, "127.0.0.1", True))      # the Pi's kiosk
         self.assertFalse(self.f(False, "::1", True))
         self.assertFalse(self.f(False, "10.10.10.57", False))   # no certs: HTTP only
+
+
+class ForcedDownloadExt(unittest.TestCase):
+    """Scriptable file types must trigger a forced download, not inline rendering.
+
+    A browser that renders an uploaded .html or .js file as a same-origin page
+    can run its scripts with full cookie access -- a stored-XSS with no CSP
+    escape.  view_file() sets as_attachment=True for these types.
+    """
+
+    def setUp(self):
+        m = load_defs(APP, ["_FORCE_DOWNLOAD_EXT", "_file_ext"])
+        self.exts = m._FORCE_DOWNLOAD_EXT
+        self.file_ext = m._file_ext
+
+    def test_scriptable_types_are_forced(self):
+        for name in ("page.html", "page.htm", "page.xhtml", "page.shtml",
+                     "image.svg", "image.svgz", "data.xml", "script.js",
+                     "module.mjs"):
+            with self.subTest(name=name):
+                self.assertIn(self.file_ext(name), self.exts,
+                              f"{name!r} should be forced to download")
+
+    def test_safe_types_are_not_forced(self):
+        for name in ("photo.jpg", "photo.jpeg", "photo.png", "doc.pdf",
+                     "clip.mp4", "note.txt", "archive.zip"):
+            with self.subTest(name=name):
+                self.assertNotIn(self.file_ext(name), self.exts,
+                                 f"{name!r} should display inline")
+
+
+class OpenRedirectValidation(unittest.TestCase):
+    """The ?next= redirect after login must not bounce to an external site.
+
+    The guard in login() is:
+        if not nxt.startswith("/") or urlsplit(nxt.replace("\\\\", "/")).netloc:
+            nxt = url_for("board")
+
+    These tests pin that exact logic so a refactor can't silently remove it.
+    """
+
+    @staticmethod
+    def _is_safe(nxt):
+        from urllib.parse import urlsplit
+        return nxt.startswith("/") and not urlsplit(nxt.replace("\\", "/")).netloc
+
+    def test_local_paths_are_allowed(self):
+        self.assertTrue(self._is_safe("/"))
+        self.assertTrue(self._is_safe("/board"))
+        self.assertTrue(self._is_safe("/board?ok=file-uploaded"))
+
+    def test_external_url_is_rejected(self):
+        self.assertFalse(self._is_safe("http://evil.com"))
+        self.assertFalse(self._is_safe("https://evil.com/steal"))
+
+    def test_protocol_relative_url_is_rejected(self):
+        # "//evil.com" starts with "/" but has a netloc after urlsplit.
+        self.assertFalse(self._is_safe("//evil.com"))
+        self.assertFalse(self._is_safe("//evil.com/path"))
+
+    def test_backslash_bypass_is_rejected(self):
+        # "\\evil.com" becomes "//evil.com" after replace, giving a netloc.
+        self.assertFalse(self._is_safe("\\\\evil.com"))
+        self.assertFalse(self._is_safe("/\\evil.com"))
+
+    def test_empty_and_relative_paths_are_rejected(self):
+        self.assertFalse(self._is_safe(""))
+        self.assertFalse(self._is_safe("board"))
+        self.assertFalse(self._is_safe("../etc/passwd"))
