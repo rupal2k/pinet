@@ -14,6 +14,7 @@ Usage: [DSI_CLOSE_CORNER=left] [DSI_CLOSE_AUTOHIDE=4] dsi-close-button.py <comma
 import os
 import subprocess
 import sys
+import time
 
 import gi
 
@@ -55,19 +56,26 @@ def main():
         sys.exit(1)
     close_command = sys.argv[1:]
     autohide = float(os.environ.get("DSI_CLOSE_AUTOHIDE") or 0)
+    startup_delay = float(os.environ.get("DSI_CLOSE_DELAY") or 0)
     hide_timer = [0]
+    first_tap_at = [0.0]
 
     def hide(button):
         button.get_style_context().add_class("hidden")
         hide_timer[0] = 0
+        first_tap_at[0] = 0.0
         return False
 
     def on_close_clicked(button):
         style = button.get_style_context()
         if style.has_class("hidden"):
-            # First tap only reveals the button; close needs a second one.
+            # First tap only reveals the button; close needs a deliberate second tap.
             style.remove_class("hidden")
+            first_tap_at[0] = time.monotonic()
             hide_timer[0] = GLib.timeout_add(int(autohide * 1000), hide, button)
+            return
+        # Reject double-tap: require at least 0.8s between reveal and close.
+        if time.monotonic() - first_tap_at[0] < 0.8:
             return
         if hide_timer[0]:
             GLib.source_remove(hide_timer[0])
@@ -109,7 +117,12 @@ def main():
         button.get_style_context().add_class("hidden")
     window.add(button)
     window.connect("destroy", Gtk.main_quit)
-    window.show_all()
+
+    if startup_delay > 0:
+        # Don't accept input until the transition is fully done.
+        GLib.timeout_add(int(startup_delay * 1000), window.show_all)
+    else:
+        window.show_all()
 
     Gtk.main()
 

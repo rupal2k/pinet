@@ -191,13 +191,44 @@ class Lock:
     def refresh(self):
         self.dots.set_text("●" * len(self.entered) if self.entered else "–")
 
+    def _pqiv_running(self):
+        try:
+            for pid in os.listdir('/proc'):
+                if not pid.isdigit():
+                    continue
+                try:
+                    with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                        exe = f.read().split(b'\x00')[0]
+                        if b'pqiv' in exe:
+                            return True
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        return False
+
+    def _unlock(self):
+        """Correct PIN — exit, showing whatever is behind the lock."""
+        if self._pqiv_running():
+            Gtk.main_quit()
+            return
+        # Photo frame not running (user closed it intentionally). Just exit.
+        Gtk.main_quit()
+
+    def _wait_frame(self):
+        self._frame_ms += 400
+        if self._pqiv_running() or self._frame_ms >= 8000:
+            Gtk.main_quit()
+            return False
+        return True
+
     def feed(self, digit):
         if self.code is None or time.monotonic() < self.blocked_until:
             return
         self.dots.get_style_context().remove_class("bad")
         self.entered += digit
         if self.entered == self.code:
-            Gtk.main_quit()
+            self._unlock()
             return
         self.refresh()
         if len(self.entered) >= len(self.code):
@@ -249,7 +280,7 @@ class Lock:
             self.backspace()
         elif name in ("Return", "KP_Enter"):
             if self.entered == self.code:
-                Gtk.main_quit()
+                self._unlock()
             else:
                 self.reject()
         return True
