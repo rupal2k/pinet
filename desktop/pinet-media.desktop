@@ -3,6 +3,6 @@ Type=Application
 Name=PINET Media
 Comment=Browse uploads and media files
 Exec=pcmanfm /mnt/pinet-media/uploads
-Icon=folder-pictures
+Icon=folder
 Terminal=false
 Categories=System;

@@ -3,6 +3,6 @@ Type=Application
 Name=Slideshow Photos
 Comment=Browse and manage slideshow photos
 Exec=pcmanfm /mnt/pinet-media/slideshow
-Icon=folder-pictures
+Icon=folder
 Terminal=false
 Categories=System;
