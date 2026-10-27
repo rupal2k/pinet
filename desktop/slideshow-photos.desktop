@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Slideshow Photos
+Comment=Browse and manage slideshow photos
+Exec=pcmanfm /mnt/pinet-media/slideshow
+Icon=folder-images
+Terminal=false
+Categories=System;
