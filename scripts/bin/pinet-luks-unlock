@@ -18,18 +18,18 @@ import subprocess
 import sys
 import time
 
-# Must be set before gi/GDK loads its backend — service env may not have these
-# at early boot even with After=graphical-session.target.
+import socket as _socket
+
+# Set env vars now — before any gi import so GDK picks them up correctly.
 os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
 os.environ.setdefault("GDK_BACKEND", "wayland")
 os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
 
-import gi
-gi.require_version("Gtk", "3.0")
-gi.require_version("Gdk", "3.0")
-gi.require_version("GdkPixbuf", "2.0")
-gi.require_version("GtkLayerShell", "0.1")
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
+# GTK/GDK are imported lazily in main() after Wayland is confirmed ready.
+# Importing them at module level triggers Gtk.init() immediately; if the
+# compositor hasn't started yet, that silently fails and every subsequent
+# Gtk.Window() call raises RuntimeError even after the display is available.
+Gdk = GdkPixbuf = GLib = Gtk = GtkLayerShell = None
 
 PASSCODE_FILE = "/etc/dsi-lock/passcode"
 LOGO_FILE     = "/etc/dsi-lock/logo.png"
@@ -222,21 +222,22 @@ def already_unlocked():
 
 
 def wait_for_wayland(timeout: int = 30) -> bool:
-    """Block until a GDK Wayland display connection succeeds or timeout expires.
+    """Block until the Wayland compositor socket accepts connections.
 
-    Checking socket existence is not enough — the compositor may not yet accept
-    connections even after the socket file appears.  Opening the display confirms
-    the compositor is ready and makes Gdk.Screen.get_default() return non-None.
+    Uses a raw UNIX socket connect so no GDK/GTK init is triggered here.
+    GTK is imported in main() only after this returns True.
     """
     xdg_rt = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
     socket_path = os.path.join(xdg_rt, wayland_display)
     for _ in range(timeout):
-        if os.path.exists(socket_path):
-            d = Gdk.Display.open(wayland_display)
-            if d is not None:
-                return True  # display stays open → Gdk.Screen.get_default() works
-        time.sleep(1)
+        try:
+            s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            s.connect(socket_path)
+            s.close()
+            return True
+        except OSError:
+            time.sleep(1)
     return False
 
 
@@ -245,6 +246,16 @@ def main():
         return  # device already open and mounted — exit 0, service goes active
     if not wait_for_wayland():
         sys.exit("pinet-luks-unlock: Wayland socket not ready after 30s")
+
+    # Import GTK now — compositor is confirmed ready so Gtk.init() will succeed.
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("GdkPixbuf", "2.0")
+    gi.require_version("GtkLayerShell", "0.1")
+    global Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
+    from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, GtkLayerShell
+
     UnlockDialog()
     Gtk.main()
 
