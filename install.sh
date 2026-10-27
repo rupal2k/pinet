@@ -265,11 +265,16 @@ fi
 # ---------------------------------------------------------------------------
 # 13. Desktop launcher for PINET Portal
 # ---------------------------------------------------------------------------
-APPS_DIR="/home/rupal/.local/share/applications"
-install -d -o rupal -g rupal -m 755 "$APPS_DIR"
-install -o rupal -g rupal -m 755 "$REPO/desktop/pinet-board.desktop" "$APPS_DIR/"
-install -o rupal -g rupal -m 755 "$REPO/desktop/pinet.desktop"       "$APPS_DIR/"
-sudo -u rupal update-desktop-database "$APPS_DIR" 2>/dev/null || true
+USER_HOME="$(getent passwd "$RUNNING_USER" | cut -d: -f6)"
+if [[ -n "$USER_HOME" && -d "$USER_HOME" ]]; then
+    APPS_DIR="$USER_HOME/.local/share/applications"
+    sudo -u "$RUNNING_USER" mkdir -p "$APPS_DIR"
+    install -o "$RUNNING_USER" -g "$RUNNING_USER" -m 755 \
+        "$REPO/desktop/pinet-board.desktop" "$REPO/desktop/pinet.desktop" "$APPS_DIR/"
+    sudo -u "$RUNNING_USER" update-desktop-database "$APPS_DIR" 2>/dev/null || true
+else
+    warn "No home directory for '$RUNNING_USER' — skipping desktop launchers"
+fi
 
 # ---------------------------------------------------------------------------
 # 14. Start services

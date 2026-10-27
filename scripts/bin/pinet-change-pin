@@ -212,14 +212,8 @@ class ChangePinDialog:
         b_pin.connect("clicked", self._on_menu_changepin)
         self.menu_box.pack_start(b_pin, False, False, 0)
 
-        _unlocked = already_unlocked()
-        self._unlock_btn = Gtk.Button(
-            label="Drive Unlocked" if _unlocked else "Unlock Drive"
-        )
+        self._unlock_btn = Gtk.Button(label="Unlock Drive")
         self._unlock_btn.get_style_context().add_class("menu")
-        self._unlock_btn.set_sensitive(not _unlocked)
-        if _unlocked:
-            self._unlock_btn.get_style_context().add_class("unlocked-state")
         self._unlock_btn.connect("clicked", self._on_menu_unlock)
         self.menu_box.pack_start(self._unlock_btn, False, False, 0)
         outer.pack_start(self.menu_box, False, False, 0)
@@ -270,6 +264,11 @@ class ChangePinDialog:
             self.title.set_text("Security Tools")
             self.sub.set_text("Device security settings")
             self.dots.set_text("")
+            unlocked = already_unlocked()
+            self._unlock_btn.set_label("Drive Unlocked" if unlocked else "Unlock Drive")
+            self._unlock_btn.set_sensitive(not unlocked)
+            ctx = self._unlock_btn.get_style_context()
+            (ctx.add_class if unlocked else ctx.remove_class)("unlocked-state")
             self.menu_box.show_all()
             self.grid.hide()
             self.confirm_btn.hide()
