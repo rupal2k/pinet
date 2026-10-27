@@ -263,7 +263,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 13. Start services
+# 13. Desktop launcher for PINET Portal
+# ---------------------------------------------------------------------------
+APPS_DIR="/home/rupal/.local/share/applications"
+install -d -o rupal -g rupal -m 755 "$APPS_DIR"
+install -o rupal -g rupal -m 644 "$REPO/desktop/pinet-board.desktop" "$APPS_DIR/"
+sudo -u rupal update-desktop-database "$APPS_DIR" 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
+# 14. Start services
 # ---------------------------------------------------------------------------
 info "Starting services"
 systemctl start pinet-ap-network.service || warn "pinet-ap-network: check 'systemctl status pinet-ap-network'"
@@ -273,7 +281,7 @@ systemctl start pinet-board.service   || warn "pinet-board: check 'systemctl sta
 systemctl start pinet-captive.service || warn "pinet-captive: check 'systemctl status pinet-captive'"
 
 # ---------------------------------------------------------------------------
-# 14. Done
+# 15. Done
 # ---------------------------------------------------------------------------
 echo ""
 echo -e "${GRN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
