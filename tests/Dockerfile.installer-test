@@ -1,0 +1,28 @@
+FROM debian:bookworm-slim
+
+# Pre-install everything install.sh will apt-get so the installer's apt step
+# is a fast no-op (already satisfied) and the test doesn't time out on downloads.
+RUN apt-get update -qq && apt-get install -y --no-install-recommends \
+        bash curl git openssl ca-certificates \
+        python3 python3-flask python3-qrcode python3-pil \
+        hostapd dnsmasq nftables iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stub out everything that requires real hardware or systemd.
+COPY tests/installer-stubs/systemctl   /usr/bin/systemctl
+COPY tests/installer-stubs/hostapd     /usr/sbin/hostapd
+COPY tests/installer-stubs/dnsmasq     /usr/sbin/dnsmasq
+COPY tests/installer-stubs/nft         /usr/sbin/nft
+RUN chmod +x \
+        /usr/bin/systemctl \
+        /usr/sbin/hostapd \
+        /usr/sbin/dnsmasq \
+        /usr/sbin/nft
+
+# Stub NetworkManager as inactive so the installer skips the NM block.
+RUN mkdir -p /etc/NetworkManager/conf.d /etc/NetworkManager/dispatcher.d
+
+# Copy the entire working repo into the image — avoids bind-mount path
+# issues on Windows (spaces in path, drive letters, etc.).
+COPY . /repo
+WORKDIR /repo

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "dnsmasq $*" >> /tmp/pinet-stub-calls.log
+exit 0

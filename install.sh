@@ -27,6 +27,13 @@ SECRETS="/etc/pinet-board"      # passwords + TLS key (root-owned, 640)
 MEDIA="/mnt/pinet-media"        # uploads / photos / tmp
 SSID="${PINET_SSID:-PINET}"     # override with env var if desired
 
+# CI / non-interactive mode: set PINET_CI=1 to skip all prompts.
+# Passwords are taken from env vars (defaults generate random values).
+PINET_CI="${PINET_CI:-}"
+PINET_PIN="${PINET_PIN:-1234}"              # lock PIN used in CI mode
+PINET_ADMIN_PW="${PINET_ADMIN_PW:-}"       # empty → random in CI
+PINET_GUEST_PW="${PINET_GUEST_PW:-}"       # empty → random in CI
+
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; NC='\033[0m'
 info()  { echo -e "${GRN}[pinet]${NC} $*"; }
 warn()  { echo -e "${YLW}[pinet]${NC} $*"; }
@@ -201,27 +208,53 @@ systemctl daemon-reload
 systemctl enable pinet-ap-network.service hostapd dnsmasq pinet-board.service
 
 # ---------------------------------------------------------------------------
-# 12. Set passwords (interactive — must run from a real terminal)
+# 12. Set passwords
 # ---------------------------------------------------------------------------
-info "Setting board credentials — answer the prompts below."
-echo ""
-
-# Lock PIN (for dsi-lock.py; harmless to set even without DSI hardware)
 install -d -o root -g root -m 700 /etc/dsi-lock
-while true; do
-    printf "Enter PINET lock PIN (4–8 digits): " > "$TTY"
-    read -r PIN <"$TTY"
-    [[ "$PIN" =~ ^[0-9]{4,8}$ ]] && break
-    warn "PIN must be 4–8 digits."
-done
-printf '%s' "$PIN" > /etc/dsi-lock/passcode
-chmod 600 /etc/dsi-lock/passcode
 
-# Board passwords
-sudo python3 "$BOARD_APP/set_password.py" <"$TTY"
-echo ""
-sudo python3 "$BOARD_APP/set_guest_password.py" <"$TTY"
-echo ""
+_write_pw_hash() {
+    local conf="$1" pw="$2"
+    python3 - "$conf" "$pw" <<'PYEOF'
+import sys, secrets, hashlib
+conf, pw = sys.argv[1], sys.argv[2]
+salt = secrets.token_hex(16)
+digest = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), 200_000).hex()
+with open(conf, "w") as f:
+    f.write(f"{salt}:{digest}\n")
+import os; os.chmod(conf, 0o640)
+PYEOF
+    chown root:pinet-board "$conf"
+}
+
+if [[ -n "$PINET_CI" ]]; then
+    # Non-interactive: use env vars or generate random values.
+    info "CI mode — setting credentials from env vars (or random)"
+    printf '%s' "$PINET_PIN" > /etc/dsi-lock/passcode
+    chmod 600 /etc/dsi-lock/passcode
+
+    ADMIN_PW="${PINET_ADMIN_PW:-$(python3 -c "import secrets; print(secrets.token_hex(8))")}"
+    GUEST_PW="${PINET_GUEST_PW:-$(python3 -c "import secrets; print(secrets.token_hex(8))")}"
+    _write_pw_hash "$SECRETS/board.conf"  "$ADMIN_PW"
+    _write_pw_hash "$SECRETS/guest.conf"  "$GUEST_PW"
+    info "Admin password set (len=${#ADMIN_PW}); guest password set (len=${#GUEST_PW})"
+else
+    info "Setting board credentials — answer the prompts below."
+    echo ""
+
+    while true; do
+        printf "Enter PINET lock PIN (4–8 digits): " > "$TTY"
+        read -r PIN <"$TTY"
+        [[ "$PIN" =~ ^[0-9]{4,8}$ ]] && break
+        warn "PIN must be 4–8 digits."
+    done
+    printf '%s' "$PIN" > /etc/dsi-lock/passcode
+    chmod 600 /etc/dsi-lock/passcode
+
+    python3 "$BOARD_APP/set_password.py" <"$TTY"
+    echo ""
+    python3 "$BOARD_APP/set_guest_password.py" <"$TTY"
+    echo ""
+fi
 
 # ---------------------------------------------------------------------------
 # 13. Start services

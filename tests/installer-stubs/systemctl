@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Stub: logs every systemctl call; is-active always returns 1 (inactive)
+# so the installer skips NM-specific paths.
+LOG=/tmp/pinet-stub-calls.log
+echo "systemctl $*" >> "$LOG"
+case "${1:-}" in
+    is-active)  exit 1 ;;   # inactive — safe default for all services
+    is-enabled) exit 1 ;;
+    *)          exit 0 ;;
+esac
