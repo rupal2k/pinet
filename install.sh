@@ -214,6 +214,7 @@ systemctl enable pinet-ap-network.service hostapd dnsmasq pinet-board.service pi
 # 12. Set passwords
 # ---------------------------------------------------------------------------
 install -d -o root -g root -m 700 /etc/dsi-lock
+install -m 644 "$REPO/desktop/icons/pinet-logo.png" /etc/dsi-lock/logo.png
 
 _write_pw_hash() {
     local conf="$1" pw="$2"
