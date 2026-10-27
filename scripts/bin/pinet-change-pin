@@ -114,36 +114,38 @@ def unlock_drive(pin: str):
 
 
 def save_pin(old_pin: str, new_pin: str):
-    """Write new PIN to passcode file and rotate the LUKS key if encrypted."""
+    """Rotate LUKS key first (if encrypted), then update the passcode file.
+
+    Order matters: if luksChangeKey fails the passcode file is untouched, so
+    the two always agree. Reversing the order risks a mismatch that locks the
+    drive on next boot.
+    """
+    if os.path.exists(LUKS_MARKER):
+        old_key = os.path.join(RUNTIME, ".luks-old-key")
+        new_key = os.path.join(RUNTIME, ".luks-new-key")
+        try:
+            with open(old_key, "w") as f:
+                f.write(old_pin)
+            with open(new_key, "w") as f:
+                f.write(new_pin)
+            subprocess.run(
+                ["sudo", "cryptsetup", "luksChangeKey",
+                 "--batch-mode", "--key-file", old_key,
+                 LUKS_DEV, new_key],
+                check=True
+            )
+        finally:
+            for p in (old_key, new_key):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
     # pinet-setpin reads PIN from stdin so it never appears in argv
     subprocess.run(
         ["sudo", "/usr/local/sbin/pinet-setpin"],
         input=new_pin.encode(), check=True
     )
-
-    if not os.path.exists(LUKS_MARKER):
-        return
-
-    # Rotate LUKS key via tmpfs key files (never touch disk)
-    old_key = os.path.join(RUNTIME, ".luks-old-key")
-    new_key = os.path.join(RUNTIME, ".luks-new-key")
-    try:
-        with open(old_key, "w") as f:
-            f.write(old_pin)
-        with open(new_key, "w") as f:
-            f.write(new_pin)
-        subprocess.run(
-            ["sudo", "cryptsetup", "luksChangeKey",
-             "--batch-mode", "--key-file", old_key,
-             LUKS_DEV, new_key],
-            check=True
-        )
-    finally:
-        for p in (old_key, new_key):
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
 
 
 class ChangePinDialog:

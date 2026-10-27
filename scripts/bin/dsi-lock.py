@@ -56,7 +56,7 @@ button.off {
     border-radius: 20px;
     border: 2px solid rgba(255,255,255,0.18);
     min-width: 110px;
-    min-height: 42px;
+    min-height: 48px;
     padding: 0 6px;
 }
 button.off:active { background: #7a3c3c; }
