@@ -194,7 +194,6 @@ class ChangePinDialog:
 
         # Menu buttons (HOME step only)
         self.menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        self.menu_box.set_no_show_all(True)
         self.menu_box.set_halign(Gtk.Align.CENTER)
         for label, cb in [("Change PIN", self._on_menu_changepin),
                            ("Unlock Drive", self._on_menu_unlock)]:
@@ -206,7 +205,6 @@ class ChangePinDialog:
 
         self.grid = Gtk.Grid()
         self.grid.set_halign(Gtk.Align.CENTER)
-        self.grid.set_no_show_all(True)
         keys = [("1", 0, 0), ("2", 1, 0), ("3", 2, 0),
                 ("4", 0, 1), ("5", 1, 1), ("6", 2, 1),
                 ("7", 0, 2), ("8", 1, 2), ("9", 2, 2),

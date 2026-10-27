@@ -222,13 +222,20 @@ def already_unlocked():
 
 
 def wait_for_wayland(timeout: int = 30) -> bool:
-    """Block until the Wayland socket appears or timeout expires."""
+    """Block until a GDK Wayland display connection succeeds or timeout expires.
+
+    Checking socket existence is not enough — the compositor may not yet accept
+    connections even after the socket file appears.  Opening the display confirms
+    the compositor is ready and makes Gdk.Screen.get_default() return non-None.
+    """
     xdg_rt = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
     socket_path = os.path.join(xdg_rt, wayland_display)
     for _ in range(timeout):
         if os.path.exists(socket_path):
-            return True
+            d = Gdk.Display.open(wayland_display)
+            if d is not None:
+                return True  # display stays open → Gdk.Screen.get_default() works
         time.sleep(1)
     return False
 
