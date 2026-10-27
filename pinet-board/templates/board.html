@@ -108,11 +108,11 @@
           <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
           <span data-file-name></span>
         </div>
-        <div class="progress-wrap" data-progress>
+        <div class="progress-wrap" data-progress role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Upload progress">
           <div class="progress-track"><div class="progress-fill"></div></div>
           <div class="progress-label"><span>Uploading&hellip;</span><span data-progress-pct>0%</span></div>
         </div>
-        <div data-upload-error aria-live="polite"></div>
+        <div data-upload-error role="alert"></div>
         <button type="submit">
           <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
           Upload

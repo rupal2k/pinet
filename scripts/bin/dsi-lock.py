@@ -150,6 +150,8 @@ class Lock:
             b.connect("clicked", self.on_key, label)
             if self._pin_missing:
                 b.set_sensitive(False)
+            if label == "⌫":
+                b.get_accessible().set_name("Backspace")
             grid.attach(b, col, row, 1, 1)
         outer.pack_start(grid, False, False, 0)
 

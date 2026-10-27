@@ -252,6 +252,7 @@
         var percent = Math.round((evt.loaded / evt.total) * 100);
         if (fill) fill.style.width = percent + "%";
         if (pct) pct.textContent = percent + "%";
+        if (progressWrap) progressWrap.setAttribute("aria-valuenow", percent);
       });
       xhr.addEventListener("load", function () {
         if (xhr.status >= 200 && xhr.status < 400) {
