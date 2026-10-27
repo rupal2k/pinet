@@ -169,7 +169,6 @@ app.secret_key = _load_secret_key()
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 Path("/mnt/pinet-media/tmp").mkdir(parents=True, exist_ok=True)
-_init_db()
 
 
 def _init_db():
@@ -186,6 +185,9 @@ def _init_db():
     )
     db.commit()
     db.close()
+
+
+_init_db()
 
 
 def get_db():
