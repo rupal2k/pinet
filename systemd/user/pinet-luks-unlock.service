@@ -8,7 +8,10 @@ Wants=graphical-session.target
 Before=dsi-photo-frame.service
 
 [Service]
-Type=oneshot
+Type=notify
+NotifyAccess=all
+# Do not time out waiting for human to enter PIN
+TimeoutStartSec=0
 # Stays "active" after PIN entry so dependent units don't restart the dialog
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/pinet-luks-unlock

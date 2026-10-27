@@ -191,30 +191,13 @@ class Lock:
     def refresh(self):
         self.dots.set_text("●" * len(self.entered) if self.entered else "–")
 
-    def _unlock(self):
-        """Correct PIN — wait for pqiv before dismissing so desktop never shows."""
-        if subprocess.run(["pgrep", "-x", "pqiv"], capture_output=True).returncode == 0:
-            Gtk.main_quit()
-            return
-        self.title.set_text("Loading slideshow…")
-        self._frame_ms = 0
-        GLib.timeout_add(400, self._wait_frame)
-
-    def _wait_frame(self):
-        self._frame_ms += 400
-        if subprocess.run(["pgrep", "-x", "pqiv"], capture_output=True).returncode == 0 \
-                or self._frame_ms >= 8000:
-            Gtk.main_quit()
-            return False
-        return True
-
     def feed(self, digit):
         if self.code is None or time.monotonic() < self.blocked_until:
             return
         self.dots.get_style_context().remove_class("bad")
         self.entered += digit
         if self.entered == self.code:
-            self._unlock()
+            Gtk.main_quit()
             return
         self.refresh()
         if len(self.entered) >= len(self.code):
@@ -266,7 +249,7 @@ class Lock:
             self.backspace()
         elif name in ("Return", "KP_Enter"):
             if self.entered == self.code:
-                self._unlock()
+                Gtk.main_quit()
             else:
                 self.reject()
         return True

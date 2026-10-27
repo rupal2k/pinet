@@ -74,6 +74,14 @@ def unlock(pin: str):
     subprocess.run(["sudo", "/usr/bin/mount", MOUNT_POINT], check=True)
 
 
+def notify_ready():
+    """Notify systemd that storage is unlocked and units ordered After= can start."""
+    try:
+        subprocess.run(["systemd-notify", "--ready"], check=False)
+    except Exception:
+        pass
+
+
 class UnlockDialog:
     def __init__(self):
         self.code     = read_passcode()
@@ -159,15 +167,12 @@ class UnlockDialog:
     def _do_unlock(self):
         try:
             unlock(self.entered)
-            self.title.set_text("Storage unlocked")
-            # Kick off photo frame now (before the service exits) so pqiv has
-            # maximum time to render before the screen lock is dismissed.
-            subprocess.Popen(["systemctl", "--user", "start", "dsi-photo-frame.service"])
-            # Pre-launch screen lock while this window is still visible so it
-            # renders on top before we close — desktop never flashes through.
-            subprocess.Popen(["python3", "/usr/local/bin/dsi-lock.py"])
-            GLib.timeout_add(700, Gtk.main_quit)
-        except subprocess.CalledProcessError as e:
+            self.title.set_text("Starting slideshow…")
+            notify_ready()
+            subprocess.Popen(["systemctl", "--user", "start", "--no-block", "dsi-photo-frame.service"])
+            self._frame_ms = 0
+            GLib.timeout_add(300, self._wait_frame)
+        except subprocess.CalledProcessError:
             self.title.set_text("Failed — try again")
             self.entered = ""
             self.fails += 1
@@ -175,6 +180,31 @@ class UnlockDialog:
                 subprocess.Popen(["sudo", "reboot"])
             self._bad()
         return False
+
+    def _pqiv_running(self):
+        try:
+            for pid in os.listdir('/proc'):
+                if not pid.isdigit():
+                    continue
+                try:
+                    with open(f'/proc/{pid}/cmdline', 'rb') as f:
+                        exe = f.read().split(b'\x00')[0]
+                        if b'pqiv' in exe:
+                            return True
+                except OSError:
+                    pass
+        except OSError:
+            pass
+        return False
+
+    def _wait_frame(self):
+        self._frame_ms += 300
+        if self._pqiv_running() or self._frame_ms >= 10000:
+            Gtk.main_quit()
+            return False
+        if self._frame_ms == 6000:
+            self.title.set_text("Taking longer…")
+        return True
 
     def reject(self):
         if time.monotonic() >= self.blocked_until:
@@ -250,6 +280,7 @@ def wait_for_wayland(timeout: int = 30) -> bool:
 
 def main():
     if already_unlocked():
+        notify_ready()
         return  # device already open and mounted — exit 0, service goes active
     if not wait_for_wayland():
         sys.exit("pinet-luks-unlock: Wayland socket not ready after 30s")
