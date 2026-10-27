@@ -20,11 +20,5 @@ done
 sleep 8
 
 touch /run/dsi-boot-ready
-
-USER_ENV=(XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0)
-runuser -u rupal -- env "${USER_ENV[@]}" /usr/local/bin/dsi-wake.sh \
-    || /usr/local/bin/dsi-backlight.sh on
-
-# swayidle's 90s timer started whenever its service did; restart it so the
-# panel sleeps 90s after coming on, not at some arbitrary earlier point.
-runuser -u rupal -- env "${USER_ENV[@]}" systemctl --user restart dsi-idle-sleep.service || true
+# DSI backlight is left off — dsi-photo-frame.sh wakes it after the LUKS
+# drive is unlocked and the slideshow is ready to show.

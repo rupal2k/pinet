@@ -28,6 +28,10 @@ trap 'exit 0' TERM
 
 /usr/local/bin/dsi-photo-normalize.sh
 
+# Wake the DSI backlight now — drive is unlocked, slideshow is about to show.
+# dsi-boot-enable.sh has already set /run/dsi-boot-ready so dsi-wake.sh runs.
+/usr/local/bin/dsi-wake.sh || sudo /usr/local/bin/dsi-backlight.sh on || true
+
 # Nothing to show (empty folder or drive missing): wait instead of letting
 # pqiv exit and crash-loop. The sync watcher restarts us once photos arrive.
 until compgen -G "$CACHE/*.jpg" > /dev/null; do
