@@ -22,7 +22,8 @@ def _load(clock=None):
     clk = clock or FakeClock()
     m = load_defs(
         LUKS,
-        ["read_passcode", "unlock", "mount_media", "notify_ready", "UnlockDialog", "MAX_ATTEMPTS"],
+        ["read_passcode", "unlock", "mount_media", "notify_ready", "UnlockDialog", "MAX_ATTEMPTS",
+         "LUKS_DEV", "LUKS_NAME"],
         {
             "time": clk,
             "os": __import__("os"),
