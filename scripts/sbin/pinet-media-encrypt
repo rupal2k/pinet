@@ -146,14 +146,14 @@ fi
 info "Writing sudoers entry ..."
 cat > "$SUDOERS_FILE" << EOF
 # pinet-luks-unlock: open/close LUKS and mount/umount at boot
-rupal ALL=(root) NOPASSWD: /sbin/cryptsetup open $DEVICE $LUKS_NAME
-rupal ALL=(root) NOPASSWD: /sbin/cryptsetup close $LUKS_NAME
-rupal ALL=(root) NOPASSWD: /bin/mount $MOUNT_POINT
-rupal ALL=(root) NOPASSWD: /bin/umount $MOUNT_POINT
-rupal ALL=(root) NOPASSWD: /sbin/reboot
+rupal ALL=(root) NOPASSWD: /usr/sbin/cryptsetup open --key-file - $DEVICE $LUKS_NAME
+rupal ALL=(root) NOPASSWD: /usr/sbin/cryptsetup close $LUKS_NAME
+rupal ALL=(root) NOPASSWD: /usr/bin/mount $MOUNT_POINT
+rupal ALL=(root) NOPASSWD: /usr/bin/umount $MOUNT_POINT
+rupal ALL=(root) NOPASSWD: /usr/sbin/reboot
 # pinet-change-pin: update PIN file and rotate LUKS key
 rupal ALL=(root) NOPASSWD: /usr/local/sbin/pinet-setpin
-rupal ALL=(root) NOPASSWD: /sbin/cryptsetup luksChangeKey --batch-mode --key-file * $DEVICE *
+rupal ALL=(root) NOPASSWD: /usr/sbin/cryptsetup luksChangeKey --batch-mode --key-file * $DEVICE *
 EOF
 chmod 440 "$SUDOERS_FILE"
 visudo -c -q "$SUDOERS_FILE" || { rm "$SUDOERS_FILE"; die "sudoers syntax error — removed"; }
