@@ -61,6 +61,7 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 | Subsystem | Key Technologies | Operational Role |
 |---|---|---|
 | **Dual Displays** | 7" DSI Touchscreen (800×480) + 2.13" e-Paper (250×122) | Front GUI for desktop, kiosks & video; always-on rear panel for system telemetry & join QR. |
+| **Storage & Security** | LUKS2 (`aes-xts-plain64` 512-bit), Argon2id, GTK Layer-Shell | Boot PIN unlock pad (`pinet-luks-unlock`) with systemd `Type=notify`; seamless crossfade directly to photo frame. |
 | **Offline Hotspot** | Broadcom `wlan0` (`10.10.10.1`), hostapd, dnsmasq | Air-gapped Wi-Fi network triggering captive portal into `pinet-board` (message board + 1 GB file drop). |
 | **Media Centre** | Raspotify, VLC, UVC Video (`ffmpeg`/`ffplay`), PipeWire | Spotify Connect (Bluetooth @ 150% boost), live 576p Indian IPTV streams, and low-latency HDMI field monitor. |
 | **Wi-Fi Auditing** | `nmap`, `aircrack-ng`, `wifite`, `reaver`, `mdk4`, Vte terminal | Touch grid with embedded terminal pane; pentest mode flips `wlan1` to monitor mode & alerts e-ink. |
@@ -125,7 +126,7 @@ flowchart TD
     end
 
     subgraph Storage["💾 Mass Storage"]
-        DISK["58 GB USB 3.0 Flash Drive<br/>ext4 · Mounted at /mnt/pinet-media"]
+        DISK["58 GB USB 3.0 Flash Drive<br/>LUKS2 Encrypted · Mounted at /mnt/pinet-media"]
     end
 
     INA -->|"5V System Rail & Telemetry"| SBC
@@ -307,7 +308,7 @@ stateDiagram-v2
 | **Power Management** | Waveshare UPS HAT (D) | I²C (`0x43`) | Dual 21700 cells (8400 mAh), INA219 voltage/current sensor |
 | **Hotspot Radio** | On-board Broadcom BCM43438 | SDIO (`wlan0`) | Dedicated 2.4 GHz 802.11n AP for `PINET` (`10.10.10.1`) |
 | **Uplink / Auditing Radio** | TP-Link Archer T2U Plus (RTL8821AU) | USB (`wlan1`) | 2.4/5 GHz home uplink; monitor mode and packet injection |
-| **Mass Storage** | 58 GB USB 3.0 flash drive | USB | Mounted at `/mnt/pinet-media` (uploads, camera, slideshow) |
+| **Mass Storage** | 58 GB USB 3.0 flash drive | USB | Encrypted LUKS2 (AES-256 + Argon2id), mounted at `/mnt/pinet-media` |
 | **Camera** | Raspberry Pi Camera Module V2 (IMX219) | 15-pin CSI | 8 MP sensor for live viewer and still/video capture |
 | **Video Capture** | USB UVC HDMI Capture Dongle (MS2109) | USB | Full-screen HDMI field monitor input |
 | **Audio Output** | Bluetooth A2DP Sink (Speaker/Headphones) | Bluetooth | PipeWire / WirePlumber audio endpoint |
@@ -375,9 +376,11 @@ opening the `pinet-board` web application.
 An official Raspberry Pi 7" capacitive touchscreen (800×480) driven by `labwc`
 (Wayland) and `wf-panel-pi` under a custom PINET dark theme.
 
-- **Photo Frame Slideshow**: Runs fullscreen via `pqiv` when the device is idle.
+- **Full-Disk LUKS2 Storage Decryption**: Early in the boot cycle, `pinet-luks-unlock` acts as the primary gatekeeper before any user media mounts. Runs as a systemd user service (`Type=notify`, `TimeoutStartSec=0`) rendered via GTK layer-shell overlay. Upon entering the 4-digit PIN, it decrypts `/dev/sda` to `/mnt/pinet-media` and fires `systemd-notify --ready`, smoothly handing off to the photo frame without exposing the desktop.
+- **Photo Frame Slideshow**: Runs fullscreen via `pqiv` when the device is idle or immediately after boot unlock.
   Images from `/mnt/pinet-media/slideshow/` are normalized to 800×480 and displayed
   fit-to-screen over blurred letterboxing rather than cropped.
+- **Photo Frame Close & Desktop Transition**: The photo frame features an always-accessible touch close button (`dsi-close-button.py`). Tapping "X" executes `dsi-photo-close`, which raises `dsi-lock.py` fullscreen *before* stopping the slideshow service. Entering the screen PIN unlocks the active Wayland desktop, ensuring the desktop is never exposed on boot.
 - **Touch Sleep and Double-Tap Wake**: After 90 seconds of inactivity, `swayidle`
   blanks the DSI output and backlight. While asleep, `dsi-tap-wake.py` grabs the
   touchscreen evdev node exclusively (`EVIOCGRAB`) so stray contact cannot trigger
@@ -626,8 +629,17 @@ sudo pinet-media-encrypt
 
 The setup script: backs up all USB data to the SD card, formats the drive as
 LUKS2 (AES-256 + Argon2id KDF), restores the data, updates `/etc/fstab` and
-`/etc/crypttab`, installs the `pinet-luks-unlock` boot PIN service, and adds a
-systemd drop-in so `dsi-photo-frame` waits for the unlock before starting.
+`/etc/crypttab`, installs the `pinet-luks-unlock` boot PIN service (`Type=notify`),
+and adds a systemd drop-in so `dsi-photo-frame` starts immediately upon unlock without
+ever exposing the desktop.
+
+> **Seamless Boot Sequence:**
+> 1. E-ink dashboard initializes first (`pi-eink-dashboard.service`).
+> 2. Touchscreen backlight wakes with fullscreen PIN dialog (`pinet-luks-unlock`).
+> 3. PIN entered → LUKS decrypted & mounted → triggers `systemd-notify --ready`.
+> 4. Photo slideshow launches fullscreen (`dsi-photo-frame.service`).
+> 5. Tapping close (`X`) on slideshow brings up the screen lock (`dsi-lock.py`).
+> 6. Screen PIN entered → active Wayland desktop revealed.
 
 > **Recovery (SSH):** if the PIN dialog fails to appear:
 > ```bash

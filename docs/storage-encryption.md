@@ -24,17 +24,24 @@ device and its content.
 
 ```
 kernel loads
-  └─ systemd starts user session
-       └─ labwc (Wayland compositor) starts
-            └─ pinet-luks-unlock.service starts
-                 └─ PIN pad shown fullscreen on DSI touchscreen
-                      ↓ correct PIN
-                 └─ cryptsetup open /dev/sda pinet-media
-                 └─ mount /mnt/pinet-media
-                 └─ service exits (RemainAfterExit=yes → stays "active")
-                      ↓
-            └─ dsi-photo-frame.service starts (After=pinet-luks-unlock)
-                 └─ photos loaded from /mnt/pinet-media/slideshow-cache ✓
+  └─ e-ink dashboard initializes (pi-eink-dashboard.service)
+       └─ DSI backlight enabled after e-ink stabilizes (dsi-backlight-enable.service)
+            └─ systemd starts user session (labwc Wayland compositor)
+                 └─ pinet-luks-unlock.service starts (Type=notify, TimeoutStartSec=0)
+                      └─ PIN pad shown fullscreen on DSI touchscreen (layer-shell OVERLAY)
+                           ↓ correct PIN
+                      └─ cryptsetup open /dev/sda pinet-media
+                      └─ mount /mnt/pinet-media
+                      └─ systemd-notify --ready (unblocks After= units immediately)
+                           ↓
+                 └─ dsi-photo-frame.service starts in background while PIN pad smoothly holds
+                      └─ pqiv slideshow maps fullscreen
+                           ↓
+                 └─ pinet-luks-unlock exits cleanly (RemainAfterExit=yes)
+                      └─ seamless cross-fade to photo frame (desktop never flashes)
+                           ↓ user taps 'X' close button on photo frame
+                 └─ dsi-lock-show raises screen lock overlay (dsi-lock.py)
+                      └─ PIN entered → desktop revealed!
 ```
 
 ---
@@ -67,7 +74,7 @@ before touching the drive. It handles the entire migration:
 | File | Purpose |
 |---|---|
 | `/usr/local/bin/pinet-luks-unlock` | GTK PIN dialog; calls `cryptsetup open` + `mount` |
-| `~/.config/systemd/user/pinet-luks-unlock.service` | User service (oneshot, `RemainAfterExit=yes`) |
+| `~/.config/systemd/user/pinet-luks-unlock.service` | User service (`Type=notify`, `TimeoutStartSec=0`, `RemainAfterExit=yes`) |
 | `~/.config/systemd/user/dsi-photo-frame.service.d/10-after-luks.conf` | Ordering drop-in |
 | `/etc/sudoers.d/pinet-luks` | Allows rupal to run cryptsetup/mount/reboot without a password |
 | `/etc/pinet-luks` | Marker file — prevents re-running setup |
