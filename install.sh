@@ -82,6 +82,7 @@ apt-get update -qq
 apt-get install -y \
     hostapd dnsmasq nftables \
     python3-flask python3-qrcode python3-pil \
+    gunicorn \
     openssl ca-certificates \
     >/dev/null
 
@@ -112,12 +113,13 @@ fi
 # ---------------------------------------------------------------------------
 install -d -o root -g pinet-board -m 750 "$SECRETS"
 
-# Generate random session secret if missing
+# Generate random session secret if missing.
+# Pre-create with mode 640 before writing so the file is never world-readable.
 if [[ ! -f "$SECRETS/secret_key" ]]; then
     info "Generating session secret key"
-    python3 -c "import secrets; print(secrets.token_hex(32))" > "$SECRETS/secret_key"
-    chmod 640 "$SECRETS/secret_key"
-    chown root:pinet-board "$SECRETS/secret_key"
+    install -m 640 -o root -g pinet-board /dev/null "$SECRETS/secret_key"
+    python3 -c "import secrets, sys; sys.stdout.buffer.write(secrets.token_bytes(32))" \
+        > "$SECRETS/secret_key"
 fi
 
 # ---------------------------------------------------------------------------
@@ -199,13 +201,14 @@ chown -R "$RUNNING_USER:$RUNNING_USER" "$MEDIA/camera" "$MEDIA/slideshow" 2>/dev
 # ---------------------------------------------------------------------------
 info "Installing and enabling system services"
 cp "$REPO/systemd/pinet-board.service"        /etc/systemd/system/
+cp "$REPO/systemd/pinet-captive.service"      /etc/systemd/system/
 cp "$REPO/systemd/pinet-ap-network.service"   /etc/systemd/system/
 cp "$REPO/systemd/dsi-backlight-enable.service" /etc/systemd/system/
 cp -r "$REPO/systemd/pinet-ap-network.service.d" /etc/systemd/system/ 2>/dev/null || true
 cp -r "$REPO/systemd/raspotify.service.d"     /etc/systemd/system/    2>/dev/null || true
 cp -r "$REPO/systemd/system-shutdown"         /etc/systemd/system/    2>/dev/null || true
 systemctl daemon-reload
-systemctl enable pinet-ap-network.service hostapd dnsmasq pinet-board.service
+systemctl enable pinet-ap-network.service hostapd dnsmasq pinet-board.service pinet-captive.service
 
 # ---------------------------------------------------------------------------
 # 12. Set passwords
@@ -214,9 +217,11 @@ install -d -o root -g root -m 700 /etc/dsi-lock
 
 _write_pw_hash() {
     local conf="$1" pw="$2"
-    python3 - "$conf" "$pw" <<'PYEOF'
+    # Pass the password via stdin, not argv, so it never appears in ps/cmdline.
+    printf '%s' "$pw" | python3 - "$conf" <<'PYEOF'
 import sys, secrets, hashlib
-conf, pw = sys.argv[1], sys.argv[2]
+conf = sys.argv[1]
+pw = sys.stdin.readline().rstrip('\n')
 salt = secrets.token_hex(16)
 digest = hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(salt), 200_000).hex()
 with open(conf, "w") as f:
@@ -263,7 +268,8 @@ info "Starting services"
 systemctl start pinet-ap-network.service || warn "pinet-ap-network: check 'systemctl status pinet-ap-network'"
 systemctl start hostapd    || warn "hostapd: check 'systemctl status hostapd'"
 systemctl restart dnsmasq  || warn "dnsmasq: check 'systemctl status dnsmasq'"
-systemctl start pinet-board.service || warn "pinet-board: check 'systemctl status pinet-board'"
+systemctl start pinet-board.service   || warn "pinet-board: check 'systemctl status pinet-board'"
+systemctl start pinet-captive.service || warn "pinet-captive: check 'systemctl status pinet-captive'"
 
 # ---------------------------------------------------------------------------
 # 14. Done

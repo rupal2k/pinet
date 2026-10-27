@@ -12,7 +12,14 @@ WorkingDirectory=/opt/pinet-board
 # before the app ever sees them. Without this, any upload approaching
 # the 1GB cap fails well before reaching app.py's own disk-space check.
 Environment=TMPDIR=/mnt/pinet-media/tmp
-ExecStart=/usr/bin/python3 /opt/pinet-board/app.py
+ExecStart=/usr/bin/gunicorn \
+    --workers 2 \
+    --bind 0.0.0.0:443 \
+    --certfile /etc/pinet-board/tls-fullchain.pem \
+    --keyfile /etc/pinet-board/tls.key \
+    --timeout 30 \
+    --keep-alive 5 \
+    app:app
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 # Deliberately no CapabilityBoundingSet= override -- see the
 # pinet-captive-portal vault note on why that broke sudo for the earlier

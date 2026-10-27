@@ -153,7 +153,7 @@ rupal ALL=(root) NOPASSWD: /usr/bin/umount $MOUNT_POINT
 rupal ALL=(root) NOPASSWD: /usr/sbin/reboot
 # pinet-change-pin: update PIN file and rotate LUKS key
 rupal ALL=(root) NOPASSWD: /usr/local/sbin/pinet-setpin
-rupal ALL=(root) NOPASSWD: /usr/sbin/cryptsetup luksChangeKey --batch-mode --key-file * $DEVICE *
+rupal ALL=(root) NOPASSWD: /usr/sbin/cryptsetup luksChangeKey --batch-mode --key-file /run/user/*/.luks-old-key $DEVICE /run/user/*/.luks-new-key
 EOF
 chmod 440 "$SUDOERS_FILE"
 visudo -c -q "$SUDOERS_FILE" || { rm "$SUDOERS_FILE"; die "sudoers syntax error — removed"; }

@@ -23,6 +23,7 @@
       {% endif %}
 
       <form method="post" data-login-form>
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
         <label for="password">Portal password</label>
         <div class="field">
           <input type="password" id="password" name="password" autocomplete="off" required autofocus>

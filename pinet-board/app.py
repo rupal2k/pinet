@@ -242,11 +242,21 @@ def is_admin():
     return session.get("role") == "admin"
 
 
+@app.before_request
+def csrf_protect():
+    if request.method != "POST" or request.endpoint == "static":
+        return
+    token = session.get("_csrf")
+    if not token or not hmac.compare_digest(token, request.form.get("_csrf", "")):
+        abort(403)
+
+
 @app.context_processor
 def inject_role():
-    # Exposes `role` and `is_admin` to every template; board.html shows the
-    # delete controls only when is_admin is true.
-    return {"role": session.get("role"), "is_admin": is_admin()}
+    # Exposes `role`, `is_admin`, and `csrf_token` to every template.
+    if "_csrf" not in session:
+        session["_csrf"] = secrets.token_hex(32)
+    return {"role": session.get("role"), "is_admin": is_admin(), "csrf_token": session["_csrf"]}
 
 
 def is_locked_out(ip):
