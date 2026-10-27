@@ -49,6 +49,8 @@ ROW = '<li><span class="sha">{sha}</span><span class="msg">{msg}</span><span cla
 
 
 def git_log(repo: Path, n: int = 6):
+    if not repo.is_dir():
+        return None
     try:
         out = subprocess.check_output(
             ["git", "-C", str(repo), "log", f"-{n}",
@@ -56,6 +58,9 @@ def git_log(repo: Path, n: int = 6):
             text=True, stderr=subprocess.DEVNULL
         )
         return [line.split("\x1f", 2) for line in out.strip().splitlines() if line]
+    except subprocess.CalledProcessError:
+        # Empty repo (no commits yet) or other git error — show "No commits yet"
+        return [] if (repo / ".git").is_dir() else None
     except Exception:
         return None
 
