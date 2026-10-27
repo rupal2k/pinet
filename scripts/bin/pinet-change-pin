@@ -34,42 +34,42 @@ MAX_PIN_LEN = 8
 
 CSS = b"""
 window { background-color: #0f1114; }
-#title { color: #e8e8e8; font-size: 22px; font-weight: bold; margin-top: 2px; }
-#sub   { color: #888888; font-size: 14px; margin-bottom: 4px; }
-#dots  { color: #e8e8e8; font-size: 30px; }
+#title { color: #e8e8e8; font-size: 20px; font-weight: bold; }
+#sub   { color: #888888; font-size: 13px; }
+#dots  { color: #e8e8e8; font-size: 26px; }
 #dots.bad     { color: #d24141; }
 #dots.good    { color: #3cb371; }
 #dots.waiting { color: #888888; }
 button.key {
     background: #282c30;
     color: #e8e8e8;
-    font-size: 25px;
-    border-radius: 14px;
+    font-size: 23px;
+    border-radius: 12px;
     border: 2px solid rgba(255,255,255,0.14);
     min-width: 90px;
-    min-height: 58px;
-    margin: 4px;
+    min-height: 50px;
+    margin: 3px;
 }
 button.key:active { background: #5078b4; }
 button.confirm {
     background: #1e5c3a;
     color: #e8e8e8;
-    font-size: 18px;
-    border-radius: 12px;
+    font-size: 16px;
+    border-radius: 10px;
     border: 2px solid rgba(60,179,113,0.4);
     min-width: 120px;
-    min-height: 44px;
-    margin-top: 8px;
+    min-height: 38px;
+    margin-top: 4px;
 }
 button.confirm:active { background: #2e7a52; }
 button.off {
     background: #3c4044;
     color: #e8e8e8;
-    font-size: 15px;
-    border-radius: 20px;
+    font-size: 14px;
+    border-radius: 18px;
     border: 2px solid rgba(255,255,255,0.18);
-    min-width: 110px;
-    min-height: 42px;
+    min-width: 100px;
+    min-height: 36px;
     padding: 0 6px;
 }
 button.off:active { background: #7a3c3c; }
@@ -147,12 +147,12 @@ class ChangePinDialog:
         GtkLayerShell.set_exclusive_zone(win, -1)
         GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.set_halign(Gtk.Align.CENTER)
         outer.set_valign(Gtk.Align.CENTER)
 
         try:
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 76, True)
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 56, True)
             outer.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
         except Exception:
             pass

@@ -18,6 +18,12 @@ import subprocess
 import sys
 import time
 
+# Must be set before gi/GDK loads its backend — service env may not have these
+# at early boot even with After=graphical-session.target.
+os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
+os.environ.setdefault("GDK_BACKEND", "wayland")
+os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
@@ -34,19 +40,19 @@ MAX_ATTEMPTS  = 5
 
 CSS = b"""
 window { background-color: #0f1114; }
-#title { color: #e8e8e8; font-size: 22px; font-weight: bold; margin-top: 2px; }
-#sub   { color: #888; font-size: 14px; margin-bottom: 4px; }
-#dots  { color: #e8e8e8; font-size: 30px; }
+#title { color: #e8e8e8; font-size: 20px; font-weight: bold; }
+#sub   { color: #888; font-size: 13px; }
+#dots  { color: #e8e8e8; font-size: 26px; }
 #dots.bad { color: #d24141; }
 button.key {
     background: #282c30;
     color: #e8e8e8;
-    font-size: 25px;
-    border-radius: 14px;
+    font-size: 23px;
+    border-radius: 12px;
     border: 2px solid rgba(255,255,255,0.14);
     min-width: 90px;
-    min-height: 58px;
-    margin: 4px;
+    min-height: 50px;
+    margin: 3px;
 }
 button.key:active { background: #5078b4; }
 """
@@ -60,9 +66,12 @@ def read_passcode():
         return None
 
 
-def unlock():
-    subprocess.run(["sudo", "cryptsetup", "open", LUKS_DEV, LUKS_NAME], check=True)
-    subprocess.run(["sudo", "mount", MOUNT_POINT], check=True)
+def unlock(pin: str):
+    subprocess.run(
+        ["sudo", "/usr/sbin/cryptsetup", "open", "--key-file", "-", LUKS_DEV, LUKS_NAME],
+        input=pin.encode(), check=True
+    )
+    subprocess.run(["sudo", "/usr/bin/mount", MOUNT_POINT], check=True)
 
 
 class UnlockDialog:
@@ -88,12 +97,12 @@ class UnlockDialog:
         GtkLayerShell.set_exclusive_zone(win, -1)
         GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.set_halign(Gtk.Align.CENTER)
         outer.set_valign(Gtk.Align.CENTER)
 
         try:
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 76, True)
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 56, True)
             outer.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
         except Exception:
             pass
@@ -149,7 +158,7 @@ class UnlockDialog:
 
     def _do_unlock(self):
         try:
-            unlock()
+            unlock(self.entered)
             Gtk.main_quit()
         except subprocess.CalledProcessError as e:
             self.title.set_text("Failed — try again")
@@ -212,9 +221,23 @@ def already_unlocked():
             os.path.ismount(MOUNT_POINT))
 
 
+def wait_for_wayland(timeout: int = 30) -> bool:
+    """Block until the Wayland socket appears or timeout expires."""
+    xdg_rt = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    wayland_display = os.environ.get("WAYLAND_DISPLAY", "wayland-0")
+    socket_path = os.path.join(xdg_rt, wayland_display)
+    for _ in range(timeout):
+        if os.path.exists(socket_path):
+            return True
+        time.sleep(1)
+    return False
+
+
 def main():
     if already_unlocked():
         return  # device already open and mounted — exit 0, service goes active
+    if not wait_for_wayland():
+        sys.exit("pinet-luks-unlock: Wayland socket not ready after 30s")
     UnlockDialog()
     Gtk.main()
 
