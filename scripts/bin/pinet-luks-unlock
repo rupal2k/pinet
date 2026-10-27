@@ -52,7 +52,7 @@ button.key {
     border-radius: 12px;
     border: 2px solid rgba(255,255,255,0.14);
     min-width: 90px;
-    min-height: 64px;
+    min-height: 54px;
     margin: 3px;
 }
 button.key:active { background: #5078b4; }
@@ -116,7 +116,7 @@ class UnlockDialog:
         outer.set_valign(Gtk.Align.CENTER)
 
         try:
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 56, True)
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 48, True)
             outer.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
         except Exception:
             pass
