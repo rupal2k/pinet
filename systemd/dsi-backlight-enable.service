@@ -1,6 +1,6 @@
 [Unit]
-Description=Enable DSI screen last: after lightdm/wayvnc settle and the e-ink dashboard is live
-After=lightdm.service wayvnc.service pi-eink-dashboard.service
+Description=Enable DSI screen last: after lightdm settle and the e-ink dashboard is live
+After=lightdm.service pi-eink-dashboard.service
 Wants=lightdm.service
 
 [Service]
