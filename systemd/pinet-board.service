@@ -1,6 +1,8 @@
 [Unit]
 Description=PINET anonymous message board + file drop
-After=network.target hostapd.service dnsmasq.service
+After=network.target hostapd.service dnsmasq.service mnt-pinet\x2dmedia.mount
+# mnt-pinet\x2dmedia.mount: wait for the LUKS USB before starting — /mnt/pinet-media/uploads
+# and /mnt/pinet-media/tmp must exist before gunicorn boots or the first start crashes.
 
 [Service]
 Type=simple
