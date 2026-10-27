@@ -539,18 +539,66 @@ Positioned on the rear of the cyberdeck enclosure and driven over SPI bus 0 by `
 
 ## Getting Started
 
+### One-line install (stock Raspberry Pi OS / Debian)
+
+Run this on any Pi with a fresh Raspberry Pi OS or Debian install. It sets up
+the captive-portal hotspot (SSID: `PINET`), the message board + file drop
+at `https://10.10.10.1`, and all supporting scripts and services in one shot:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/rupal2k/pinet/main/install.sh)
+```
+
+The installer will prompt you for the board admin password, guest password, and
+lock PIN before it finishes. Everything else is automatic.
+
+After it completes:
+
+| | |
+|---|---|
+| **Hotspot SSID** | `PINET` (open, no Wi-Fi password) |
+| **Portal (HTTPS)** | `https://10.10.10.1` |
+| **Portal (HTTP)** | `http://pinet.local` (auto-redirect via captive DNS) |
+| **Repo cloned to** | `/opt/pinet` (if not already on disk) |
+| **App installed at** | `/opt/pinet-board` |
+
+> **CA certificate**: the self-signed TLS cert is at
+> `https://10.10.10.1/static/pinet-ca.crt`. Install it once on each client
+> to make the browser padlock green. On Android: Settings → Security →
+> Install from storage.
+
+> **Customise the SSID** before running: `PINET_SSID=MyHotspot bash <(curl ...)`
+
+---
+
 ### Prerequisites
 
-- A Raspberry Pi 3B with Debian 13 "trixie" (or Raspberry Pi OS 64-bit).
-- Hardware assembled per the [Hackster.io build guide](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3).
-- Passwordless `sudo` configured for the primary user.
-- I²C and SPI enabled in `/boot/firmware/config.txt`.
+- Raspberry Pi (any model) running **Raspberry Pi OS** (bookworm / bullseye) or Debian.
+- Internet access on the Pi during install (for `apt-get`).
+- `sudo` access (run the command as your normal user or as root).
+- For the **cyberdeck build**: hardware assembled per the
+  [Hackster.io guide](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3),
+  I²C and SPI enabled in `/boot/firmware/config.txt`.
 
-### Step 1: E-ink Dashboard Installation
+---
 
-The e-ink status dashboard includes an automated setup script that enables the
-hardware interfaces, fetches the Waveshare driver, installs Python dependencies,
-and sets up systemd services:
+### Re-deploy / update from an existing clone
+
+```bash
+cd /opt/pinet        # or wherever you cloned it
+git pull origin main
+sudo bash install.sh
+```
+
+---
+
+<details>
+<summary><b>Manual step-by-step install (cyberdeck / advanced)</b></summary>
+
+The one-liner covers the captive portal. These extra steps are for the full
+DSI touchscreen cyberdeck build.
+
+#### E-ink Dashboard
 
 ```bash
 git clone https://github.com/rupal2k/pinet.git
@@ -559,36 +607,24 @@ chmod +x scripts/install.sh
 ./scripts/install.sh
 ```
 
-Verify service status:
+Verify:
 
 ```bash
 sudo systemctl status pi-eink-dashboard.service
 journalctl -u pi-eink-dashboard.service -f
 ```
 
-### Step 2: Deploying System Files
-
-Install the remaining system scripts, services, and configurations to their
-expected filesystem locations:
+#### Deploy all system files
 
 ```bash
-# Core user-facing scripts and background daemons
 sudo install -m 755 scripts/bin/* /usr/local/bin/
 sudo install -m 755 scripts/sbin/* /usr/local/sbin/
-
-# Systemd services and drop-ins
 sudo cp -r systemd/* /etc/systemd/system/
 sudo systemctl daemon-reload
-
-# Network and hardware configuration files
 sudo cp -r etc/* /etc/
-
-# Captive portal web application
 sudo mkdir -p /opt/pinet-board
 sudo cp -r pinet-board/* /opt/pinet-board/
 sudo chown -R pinet-board:pinet-board /opt/pinet-board
-
-# Desktop shortcuts and icons
 mkdir -p ~/.config ~/.local/share/icons ~/Desktop
 cp -r config/* ~/.config/
 cp -r desktop/icons/* ~/.local/share/icons/
@@ -596,84 +632,60 @@ cp desktop/*.desktop ~/Desktop/
 chmod +x ~/Desktop/*.desktop
 ```
 
-### Step 3: Media Storage Setup
-
-Attach an external USB flash drive formatted as ext4, create the required
-directory structure, and configure `/etc/fstab`:
+#### Media storage
 
 ```bash
 sudo mkdir -p /mnt/pinet-media/{uploads,camera,slideshow}
-sudo chown -R rupal:rupal /mnt/pinet-media/slideshow /mnt/pinet-media/camera
+sudo chown -R "$USER:$USER" /mnt/pinet-media/slideshow /mnt/pinet-media/camera
 sudo chown -R pinet-board:pinet-board /mnt/pinet-media/uploads
 ```
 
-### Step 3b: USB Storage Encryption (Optional)
+#### USB Storage Encryption (optional)
 
-Encrypt the USB flash drive with LUKS2 so all photos, uploads, and backup data
-are encrypted at rest. A PIN screen appears before the photo frame on each boot.
+Encrypt the USB flash drive with LUKS2 so all photos and uploads are encrypted
+at rest. A PIN screen appears before the photo frame on each boot.
 
-**Prerequisites**: complete Steps 1–3 and set the DSI passcode (Step 4) first,
-since the same PIN is used for both the lock screen and the disk unlock screen.
+**Prerequisite**: set the DSI lock PIN first (below), since the same PIN is
+used for both the lock screen and the disk unlock screen.
 
 ```bash
-# Install cryptsetup if not present
 sudo apt install cryptsetup
-
-# Set your DSI lock PIN (Step 4) BEFORE running this
+# Set your DSI lock PIN BEFORE running this:
 echo -n "YOUR_PIN" | sudo tee /etc/dsi-lock/passcode > /dev/null
 sudo chmod 600 /etc/dsi-lock/passcode
-
-# Run the interactive encryption setup (erases and re-encrypts the USB drive)
+# Interactive setup (backs up USB data, formats LUKS2, restores, updates fstab):
 sudo pinet-media-encrypt
 ```
 
-The setup script: backs up all USB data to the SD card, formats the drive as
-LUKS2 (AES-256 + Argon2id KDF), restores the data, updates `/etc/fstab` and
-`/etc/crypttab`, installs the `pinet-luks-unlock` boot PIN service (`Type=notify`),
-and adds a systemd drop-in so `dsi-photo-frame` starts immediately upon unlock without
-ever exposing the desktop.
-
 > **Seamless Boot Sequence:**
-> 1. E-ink dashboard initializes first (`pi-eink-dashboard.service`).
-> 2. Touchscreen backlight wakes with fullscreen PIN dialog (`pinet-luks-unlock`).
-> 3. PIN entered → LUKS decrypted & mounted → triggers `systemd-notify --ready`.
+> 1. E-ink dashboard initializes (`pi-eink-dashboard.service`).
+> 2. Touchscreen shows fullscreen PIN dialog (`pinet-luks-unlock`).
+> 3. PIN → LUKS decrypted & mounted → `systemd-notify --ready`.
 > 4. Photo slideshow launches fullscreen (`dsi-photo-frame.service`).
-> 5. Tapping close (`X`) on slideshow brings up the screen lock (`dsi-lock.py`).
-> 6. Screen PIN entered → active Wayland desktop revealed.
+> 5. Tap close (`X`) → screen lock (`dsi-lock.py`).
+> 6. PIN → Wayland desktop.
 
-> **Recovery (SSH):** if the PIN dialog fails to appear:
-> ```bash
-> sudo cryptsetup open /dev/sda pinet-media && sudo mount /mnt/pinet-media
-> ```
+> **Recovery (SSH):** `sudo cryptsetup open /dev/sda pinet-media && sudo mount /mnt/pinet-media`
 
-See [`docs/storage-encryption.md`](docs/storage-encryption.md) for full details
-and the restore procedure.
+See [`docs/storage-encryption.md`](docs/storage-encryption.md) for full details.
 
----
-
-### Step 4: Passwords and Credentials
-
-Set authentication keys and passwords. No default credentials exist in the
-repository:
+#### Passwords and credentials
 
 ```bash
-# Set PINET portal admin and guest passwords
 sudo python3 /opt/pinet-board/set_password.py
 sudo python3 /opt/pinet-board/set_guest_password.py
-
-# Set DSI touchscreen passcode (numeric PIN)
-echo -n "1234" | sudo tee /etc/dsi-lock/passcode > /dev/null
+echo -n "YOUR_PIN" | sudo tee /etc/dsi-lock/passcode > /dev/null
 sudo chmod 600 /etc/dsi-lock/passcode
 ```
 
-### Step 5: Plymouth Boot Splash
-
-Install the custom animated boot theme:
+#### Plymouth boot splash
 
 ```bash
 sudo install -D -m 644 -t /usr/share/plymouth/themes/pinet plymouth/pinet/*
 sudo plymouth-set-default-theme -R pinet
 ```
+
+</details>
 
 ---
 
