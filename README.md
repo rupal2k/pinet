@@ -741,6 +741,14 @@ vcgencmd get_throttled
 - **Upload Hardening**: User uploads are stripped of path traversals, prepended
   with random tokens, and stored outside web roots. Scriptable MIME types are forced
   to download with `nosniff` headers to block stored XSS attacks.
+- **Timing-Safe Auth**: PIN comparison uses `hmac.compare_digest` to resist
+  timing-based side-channel attacks. Password hashing uses PBKDF2-SHA256 with 200,000
+  iterations via `hashlib.pbkdf2_hmac`.
+- **HSTS and CSP**: The Flask board sets `Strict-Transport-Security`, `Content-Security-Policy`,
+  and `X-Frame-Options` headers on every response when running over HTTPS.
+- **Security Audit**: A full static security audit (OWASP Top 10, access control,
+  cryptography, injection, logging) was completed against commit `671dc21`. All 34
+  findings were resolved. No open security issues.
 - **Legal Compliance**: Wi-Fi auditing utilities (`kali-launcher`) are intended solely
   for authorized security assessments on networks you own or have explicit written
   permission to test.
@@ -803,6 +811,9 @@ python3 -B -m unittest discover -s tests
   parsing, playlist caching, and configuration parsers to be tested in CI environments.
 - **Power and Battery Math**: Validates battery percentage interpolation, resting
   voltage formulas, and load-shedding sequencing.
+- **Auth and Security**: Covers PIN hashing (PBKDF2-SHA256 200 k rounds), timing-safe
+  comparison, lockout countdown, last-attempt warnings, and disabled-account blocking.
+  Hardware-specific tests (SPI/I²C, GTK display server) skip automatically on CI.
 
 ---
 
