@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""Change the DSI device PIN and (if LUKS is set up) update the disk key.
+"""Security Tools — PIN management and manual LUKS unlock for the DSI device.
 
-Three-step flow:
-  1. Verify current PIN
-  2. Enter new PIN  (4 digits)
-  3. Confirm new PIN
-On confirmation match:
-  - writes new PIN to /etc/dsi-lock/passcode  (via sudo tee)
-  - if /etc/pinet-luks exists, also rotates the LUKS key on /dev/sda
+Home menu offers:
+  - Change PIN  → verify old → enter new → confirm
+  - Unlock Drive → enter PIN → cryptsetup open + mount
 
 Recovery: sudo sh -c 'echo -n "NEWPIN" > /etc/dsi-lock/passcode'
 """
@@ -27,6 +23,8 @@ PASSCODE_FILE = "/etc/dsi-lock/passcode"
 LOGO_FILE     = "/etc/dsi-lock/logo.png"
 LUKS_MARKER   = "/etc/pinet-luks"
 LUKS_DEV      = "/dev/sda"
+LUKS_NAME     = "pinet-media"
+MOUNT_POINT   = "/mnt/pinet-media"
 RUNTIME       = os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid())
 
 MIN_PIN_LEN = 4
@@ -73,12 +71,25 @@ button.off {
     padding: 0 6px;
 }
 button.off:active { background: #7a3c3c; }
+button.menu {
+    background: #1c2028;
+    color: #e8e8e8;
+    font-size: 18px;
+    border-radius: 14px;
+    border: 2px solid rgba(255,255,255,0.18);
+    min-width: 240px;
+    min-height: 52px;
+    margin: 5px;
+}
+button.menu:active { background: #5078b4; }
 """
 
 # Steps
+HOME        = "home"
 VERIFY_OLD  = "verify"
 ENTER_NEW   = "new"
 CONFIRM_NEW = "confirm"
+UNLOCK_DRIVE = "unlock"
 
 
 def read_passcode():
@@ -87,6 +98,19 @@ def read_passcode():
             return f.readline().strip() or None
     except OSError:
         return None
+
+
+def already_unlocked():
+    return (os.path.exists(f"/dev/mapper/{LUKS_NAME}") and
+            os.path.ismount(MOUNT_POINT))
+
+
+def unlock_drive(pin: str):
+    subprocess.run(
+        ["sudo", "/usr/sbin/cryptsetup", "open", "--key-file", "-", LUKS_DEV, LUKS_NAME],
+        input=pin.encode(), check=True
+    )
+    subprocess.run(["sudo", "/usr/bin/mount", MOUNT_POINT], check=True)
 
 
 def save_pin(old_pin: str, new_pin: str):
@@ -125,7 +149,7 @@ def save_pin(old_pin: str, new_pin: str):
 class ChangePinDialog:
     def __init__(self):
         self.current_code = read_passcode()
-        self.step         = VERIFY_OLD
+        self.step         = HOME
         self.entered      = ""
         self.new_pin      = ""
         self.fails        = 0
@@ -168,8 +192,21 @@ class ChangePinDialog:
         outer.pack_start(self.sub,   False, False, 0)
         outer.pack_start(self.dots,  False, False, 0)
 
-        grid = Gtk.Grid()
-        grid.set_halign(Gtk.Align.CENTER)
+        # Menu buttons (HOME step only)
+        self.menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.menu_box.set_no_show_all(True)
+        self.menu_box.set_halign(Gtk.Align.CENTER)
+        for label, cb in [("Change PIN", self._on_menu_changepin),
+                           ("Unlock Drive", self._on_menu_unlock)]:
+            b = Gtk.Button(label=label)
+            b.get_style_context().add_class("menu")
+            b.connect("clicked", cb)
+            self.menu_box.pack_start(b, False, False, 0)
+        outer.pack_start(self.menu_box, False, False, 0)
+
+        self.grid = Gtk.Grid()
+        self.grid.set_halign(Gtk.Align.CENTER)
+        self.grid.set_no_show_all(True)
         keys = [("1", 0, 0), ("2", 1, 0), ("3", 2, 0),
                 ("4", 0, 1), ("5", 1, 1), ("6", 2, 1),
                 ("7", 0, 2), ("8", 1, 2), ("9", 2, 2),
@@ -178,8 +215,8 @@ class ChangePinDialog:
             b = Gtk.Button(label=label)
             b.get_style_context().add_class("key")
             b.connect("clicked", self.on_key, label)
-            grid.attach(b, col, row, 1, 1)
-        outer.pack_start(grid, False, False, 0)
+            self.grid.attach(b, col, row, 1, 1)
+        outer.pack_start(self.grid, False, False, 0)
 
         # Confirm button — shown only for ENTER_NEW step when >= MIN_PIN_LEN digits
         self.confirm_btn = Gtk.Button(label="✓  Confirm PIN")
@@ -188,17 +225,17 @@ class ChangePinDialog:
         self.confirm_btn.set_no_show_all(True)
         outer.pack_start(self.confirm_btn, False, False, 0)
 
-        # Cancel / close (top-right)
+        # Cancel / back (top-right) — goes back to HOME if not already there
         overlay = Gtk.Overlay()
         overlay.add(outer)
-        cancel_btn = Gtk.Button(label="Cancel")
-        cancel_btn.get_style_context().add_class("off")
-        cancel_btn.set_halign(Gtk.Align.END)
-        cancel_btn.set_valign(Gtk.Align.START)
-        cancel_btn.set_margin_top(6)
-        cancel_btn.set_margin_end(8)
-        cancel_btn.connect("clicked", lambda _: Gtk.main_quit())
-        overlay.add_overlay(cancel_btn)
+        self.cancel_btn = Gtk.Button(label="Cancel")
+        self.cancel_btn.get_style_context().add_class("off")
+        self.cancel_btn.set_halign(Gtk.Align.END)
+        self.cancel_btn.set_valign(Gtk.Align.START)
+        self.cancel_btn.set_margin_top(6)
+        self.cancel_btn.set_margin_end(8)
+        self.cancel_btn.connect("clicked", self._on_cancel)
+        overlay.add_overlay(self.cancel_btn)
 
         win.add(overlay)
         win.connect("destroy", Gtk.main_quit)
@@ -209,6 +246,20 @@ class ChangePinDialog:
     # --- UI helpers ---
 
     def _update_ui(self):
+        self.entered = ""
+        if self.step == HOME:
+            self.title.set_text("Security Tools")
+            self.sub.set_text("Device security settings")
+            self.dots.set_text("")
+            self.menu_box.show_all()
+            self.grid.hide()
+            self.confirm_btn.hide()
+            self.cancel_btn.set_label("Close")
+            return
+        # PIN-entry steps
+        self.menu_box.hide()
+        self.grid.show_all()
+        self.cancel_btn.set_label("Back")
         if self.step == VERIFY_OLD:
             self.title.set_text("Change device PIN")
             self.sub.set_text("Enter your current PIN")
@@ -221,7 +272,18 @@ class ChangePinDialog:
             self.title.set_text("Confirm new PIN")
             self.sub.set_text("Re-enter the new PIN to confirm")
             self.confirm_btn.hide()
-        self.entered = ""
+        elif self.step == UNLOCK_DRIVE:
+            if already_unlocked():
+                self.title.set_text("Already unlocked")
+                self.sub.set_text("USB storage is already mounted")
+                self.dots.set_text("✓")
+                self.dots.get_style_context().add_class("good")
+                self.grid.hide()
+                GLib.timeout_add(2000, lambda: (Gtk.main_quit(), False)[1])
+                return
+            self.title.set_text("Unlock Drive")
+            self.sub.set_text("Enter PIN to unlock USB storage")
+            self.confirm_btn.hide()
         self.refresh()
 
     def _refresh_confirm_btn(self):
@@ -247,8 +309,9 @@ class ChangePinDialog:
         self.entered += digit
         self.refresh()
 
-        # For VERIFY_OLD and CONFIRM_NEW: auto-submit once length matches
-        if self.step == VERIFY_OLD and len(self.entered) == len(self.current_code or ""):
+        # Auto-submit when length matches expected
+        code_len = len(self.current_code or "")
+        if self.step in (VERIFY_OLD, UNLOCK_DRIVE) and len(self.entered) == code_len:
             GLib.timeout_add(80, self._auto_submit)
         elif self.step == CONFIRM_NEW and len(self.entered) == len(self.new_pin):
             GLib.timeout_add(80, self._auto_submit)
@@ -268,6 +331,11 @@ class ChangePinDialog:
             if self.entered == self.current_code:
                 self.step = ENTER_NEW
                 self._update_ui()
+            else:
+                self._reject_old()
+        elif self.step == UNLOCK_DRIVE:
+            if self.entered == self.current_code:
+                self._do_unlock_drive()
             else:
                 self._reject_old()
         elif self.step == CONFIRM_NEW:
@@ -322,6 +390,41 @@ class ChangePinDialog:
             GLib.timeout_add(2000, Gtk.main_quit)
         return False
 
+    def _do_unlock_drive(self):
+        self.title.set_text("Unlocking…")
+        self.dots.set_text("●" * len(self.entered))
+        self.dots.get_style_context().remove_class("bad")
+        GLib.timeout_add(50, self._run_unlock)
+
+    def _run_unlock(self):
+        try:
+            unlock_drive(self.entered)
+            self.title.set_text("Drive unlocked")
+            self.dots.set_text("✓")
+            self.dots.get_style_context().add_class("good")
+            self.sub.set_text("USB storage is now mounted")
+            GLib.timeout_add(2000, lambda: (Gtk.main_quit(), False)[1])
+        except subprocess.CalledProcessError:
+            self.title.set_text("Unlock failed")
+            self.sub.set_text("Incorrect PIN or drive unavailable")
+            self._reject_old()
+        return False
+
+    def _on_menu_changepin(self, _btn):
+        self.step = VERIFY_OLD
+        self._update_ui()
+
+    def _on_menu_unlock(self, _btn):
+        self.step = UNLOCK_DRIVE
+        self._update_ui()
+
+    def _on_cancel(self, _btn):
+        if self.step == HOME:
+            Gtk.main_quit()
+        else:
+            self.step = HOME
+            self._update_ui()
+
     def backspace(self):
         self.entered = self.entered[:-1]
         self.refresh()
@@ -349,7 +452,7 @@ class ChangePinDialog:
             elif self.entered:
                 self._submit()
         elif name == "Escape":
-            Gtk.main_quit()
+            self._on_cancel(None)
         return True
 
 

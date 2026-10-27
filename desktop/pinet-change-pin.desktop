@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Change PIN
-Comment=Change the device PIN (lock screen and disk encryption)
+Name=Security Tools
+Comment=Change PIN or manually unlock USB drive storage
 Exec=/usr/local/bin/pinet-change-pin
 Icon=/home/rupal/.local/share/icons/pinet-change-pin.svg
 Terminal=false
