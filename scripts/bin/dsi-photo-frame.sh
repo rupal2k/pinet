@@ -45,7 +45,7 @@ done
 # than the wait below (seen after a big apt run) -- the wake-time
 # toggle_fullscreen(1) is what guarantees fullscreen.
 output_was_off=no
-wlopm | grep -q "DSI-1 off" && output_was_off=yes
+wlopm 2>/dev/null | grep -q "DSI-1 off" && output_was_off=yes || true
 wlopm --on DSI-1 || true
 
 DSI_CLOSE_AUTOHIDE=4 DSI_CLOSE_DELAY=10 python3 /usr/local/bin/dsi-close-button.py /usr/local/bin/dsi-photo-close &

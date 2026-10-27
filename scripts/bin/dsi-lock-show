@@ -5,7 +5,7 @@
 # being stopped by the close button, and a restart of the tap-wake daemon.
 # Idempotent: returns at once if the lock is already up. Does NOT touch the
 # backlight (callers manage that).
-set -uo pipefail
+set -euo pipefail
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 PID="$XDG_RUNTIME_DIR/dsi-lock.pid"

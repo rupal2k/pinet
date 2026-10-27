@@ -20,13 +20,14 @@ import mimetypes
 import os
 import secrets
 import sqlite3
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from flask import (
-    Flask, g, redirect, render_template, request,
+    Flask, abort, g, redirect, render_template, request,
     send_from_directory, session, url_for,
 )
 from flask.sessions import SecureCookieSessionInterface
@@ -152,8 +153,12 @@ def _load_secret_key():
         return Path(SECRET_KEY_PATH).read_bytes()
     except Exception:
         key = secrets.token_bytes(32)
-        Path(SECRET_KEY_PATH).write_bytes(key)
-        os.chmod(SECRET_KEY_PATH, 0o640)
+        parent = Path(SECRET_KEY_PATH).parent
+        with tempfile.NamedTemporaryFile(dir=parent, delete=False, mode="wb") as f:
+            f.write(key)
+            tmp = f.name
+        os.chmod(tmp, 0o640)
+        os.replace(tmp, SECRET_KEY_PATH)
         return key
 
 
@@ -165,6 +170,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
+        g.db.execute("PRAGMA journal_mode=WAL")
         g.db.execute(
             "CREATE TABLE IF NOT EXISTS messages ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL, created REAL NOT NULL)"
@@ -243,7 +249,7 @@ def record_attempt(ip, success):
     count, _ = _attempts.get(ip, (0, 0))
     count += 1
     locked_until = time.monotonic() + LOCKOUT_SECONDS if count >= MAX_ATTEMPTS else 0
-    _attempts[ip] = (count if count < MAX_ATTEMPTS else 0, locked_until)
+    _attempts[ip] = (count, locked_until)
 
 
 def free_disk_bytes():
@@ -306,8 +312,12 @@ def require_login():
     # upload to a temp file (now on real disk, see TMPDIR) and this app
     # then copies it again into UPLOAD_DIR -- briefly needing roughly 2x
     # the file's size free, not just 1x.
-    if request.endpoint == "upload_file" and request.content_length:
-        needed = request.content_length * 2 + MIN_FREE_BYTES
+    if request.endpoint == "upload_file":
+        cl = request.content_length
+        if cl is None:
+            # Chunked transfer sends no Content-Length; check disk conservatively.
+            cl = MAX_CONTENT_LENGTH
+        needed = cl * 2 + MIN_FREE_BYTES
         if free_disk_bytes() < needed:
             return render_template(
                 "board.html", messages=[], files=[], now=time.time(), **storage_stats(),
@@ -388,13 +398,13 @@ def api_state():
     return {
         "now": time.time(),
         "messages": {
-            "total": db.execute("SELECT COUNT(*) FROM messages").fetchone()[0],
+            "total": db.execute("SELECT COALESCE(MAX(id), 0) FROM messages").fetchone()[0],
             "newest": msgs[0][0] if msgs else since,
             "html": "".join(render_template("_message.html", mid=mid, body=body, created=created)
                             for mid, body, created in msgs),
         },
         "files": {
-            "total": db.execute("SELECT COUNT(*) FROM files").fetchone()[0],
+            "total": db.execute("SELECT COALESCE(MAX(id), 0) FROM files").fetchone()[0],
             "newest": files[0][0] if files else since_file,
             "html": "".join(render_template("_file.html", f=_file_row(*row)) for row in files),
         },
@@ -477,7 +487,7 @@ def delete_file(file_id):
     # Admin-only: remove an uploaded file (DB row + the file on disk). POST-only
     # so it can't be triggered by a GET/prefetch or a plain link.
     if not is_admin():
-        return redirect(url_for("board"))
+        abort(403)
     db = get_db()
     row = db.execute("SELECT stored_name FROM files WHERE id=?", (file_id,)).fetchone()
     if row:
@@ -495,7 +505,7 @@ def delete_message(msg_id):
     # Admin-only moderation for the anonymous board, mirroring delete_file:
     # POST-only so a GET or a prefetch can never remove a message.
     if not is_admin():
-        return redirect(url_for("board"))
+        abort(403)
     db = get_db()
     db.execute("DELETE FROM messages WHERE id=?", (msg_id,))
     db.commit()
@@ -516,6 +526,21 @@ def catch_all(path):
     return redirect(url_for("board" if session.get("authed") else "login"))
 
 
+@app.after_request
+def security_headers(r):
+    r.headers["X-Frame-Options"] = "DENY"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    r.headers["Referrer-Policy"] = "no-referrer"
+    r.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; "
+        "style-src 'self'; img-src 'self' data: blob:; "
+        "media-src 'self' blob:; frame-ancestors 'none'"
+    )
+    if request.is_secure:
+        r.headers["Strict-Transport-Security"] = "max-age=31536000"
+    return r
+
+
 def start_https():
     """Serve HTTPS on 443 next to the plain-HTTP listener. Missing or
     unreadable certs leave HTTPS off, so the board still works (over HTTP)."""
@@ -525,7 +550,7 @@ def start_https():
     try:
         ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ctx.load_cert_chain(TLS_CERT, TLS_KEY)
-        server = make_server("0.0.0.0", HTTPS_PORT, app, threaded=True, ssl_context=ctx)
+        server = make_server("10.10.10.1", HTTPS_PORT, app, threaded=True, ssl_context=ctx)
     except (OSError, ssl.SSLError) as exc:
         print(f"pinet-board: HTTPS off ({exc}); serving HTTP only", flush=True)
         return
@@ -535,4 +560,4 @@ def start_https():
 
 if __name__ == "__main__":
     start_https()
-    app.run(host="0.0.0.0", port=80, threaded=True)
+    app.run(host="10.10.10.1", port=80, threaded=True)

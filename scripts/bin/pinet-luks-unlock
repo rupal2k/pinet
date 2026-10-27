@@ -13,6 +13,7 @@ Flow:
 Recovery (SSH): sudo cryptsetup open /dev/sda pinet-media && sudo mount /mnt/pinet-media
                 then: systemctl --user start pinet-luks-unlock.service
 """
+import hmac
 import os
 import subprocess
 import sys
@@ -69,8 +70,11 @@ def read_passcode():
 def unlock(pin: str):
     subprocess.run(
         ["sudo", "/usr/sbin/cryptsetup", "open", "--key-file", "-", LUKS_DEV, LUKS_NAME],
-        input=pin.encode(), check=True
+        input=(pin + "\n").encode(), check=True
     )
+
+
+def mount_media():
     subprocess.run(["sudo", "/usr/bin/mount", MOUNT_POINT], check=True)
 
 
@@ -157,7 +161,9 @@ class UnlockDialog:
             self.refresh()
 
     def _check(self):
-        if self.entered == self.code:
+        match = (self.code is not None and
+                 hmac.compare_digest(self.entered.encode(), self.code.encode()))
+        if match:
             self.title.set_text("Unlocking…")
             self.dots.set_text("●" * len(self.entered))
             GLib.timeout_add(50, self._do_unlock)
@@ -167,11 +173,6 @@ class UnlockDialog:
     def _do_unlock(self):
         try:
             unlock(self.entered)
-            self.title.set_text("Starting slideshow…")
-            notify_ready()
-            subprocess.Popen(["systemctl", "--user", "start", "--no-block", "dsi-photo-frame.service"])
-            self._frame_ms = 0
-            GLib.timeout_add(300, self._wait_frame)
         except subprocess.CalledProcessError:
             self.title.set_text("Failed — try again")
             self.entered = ""
@@ -179,6 +180,22 @@ class UnlockDialog:
             if self.fails >= MAX_ATTEMPTS:
                 subprocess.Popen(["sudo", "reboot"])
             self._bad()
+            return False
+        try:
+            mount_media()
+        except subprocess.CalledProcessError:
+            # Cryptsetup succeeded — LUKS is open — but mount failed (bad fstab,
+            # filesystem corruption, etc.). Do NOT treat as a wrong PIN: don't
+            # increment fails or reboot. Just show an error and quit so systemd
+            # can show the journal; the operator recovers over SSH.
+            self.title.set_text("Mount failed — check drive")
+            GLib.timeout_add(2000, Gtk.main_quit)
+            return False
+        self.title.set_text("Starting slideshow…")
+        notify_ready()
+        subprocess.Popen(["systemctl", "--user", "start", "--no-block", "dsi-photo-frame.service"])
+        self._frame_ms = 0
+        GLib.timeout_add(300, self._wait_frame)
         return False
 
     def _pqiv_running(self):

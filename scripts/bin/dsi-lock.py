@@ -45,7 +45,7 @@ button.key {
     border-radius: 14px;
     border: 2px solid rgba(255,255,255,0.14);
     min-width: 90px;
-    min-height: 58px;
+    min-height: 70px;
     margin: 4px;
 }
 button.key:active { background: #5078b4; }
@@ -56,7 +56,7 @@ button.off {
     border-radius: 20px;
     border: 2px solid rgba(255,255,255,0.18);
     min-width: 110px;
-    min-height: 48px;
+    min-height: 64px;
     padding: 0 6px;
 }
 button.off:active { background: #7a3c3c; }
@@ -99,6 +99,7 @@ class Lock:
         self.entered = ""
         self.fails = 0
         self.blocked_until = 0.0
+        self._pin_missing = self.code is None
 
         prov = Gtk.CssProvider()
         prov.load_from_data(CSS)
@@ -131,7 +132,7 @@ class Lock:
         except Exception:
             pass
 
-        self.title = Gtk.Label(label="Enter passcode")
+        self.title = Gtk.Label(label="PIN unavailable — recover via SSH" if self._pin_missing else "Enter passcode")
         self.title.set_name("title")
         self.dots = Gtk.Label(label="–")
         self.dots.set_name("dots")
@@ -148,6 +149,8 @@ class Lock:
             b = Gtk.Button(label=label)
             b.get_style_context().add_class("key")
             b.connect("clicked", self.on_key, label)
+            if self._pin_missing:
+                b.set_sensitive(False)
             grid.attach(b, col, row, 1, 1)
         outer.pack_start(grid, False, False, 0)
 
@@ -210,8 +213,21 @@ class Lock:
     def _unlock(self):
         Gtk.main_quit()
 
+    def _start_countdown(self):
+        def _tick():
+            from math import ceil
+            remaining = self.blocked_until - time.monotonic()
+            if remaining <= 0:
+                self.title.set_text("Enter passcode")
+                return False
+            self.title.set_text(f"Try again in {ceil(remaining)}s")
+            return True
+        GLib.timeout_add(1000, _tick)
+
     def feed(self, digit):
-        if self.code is None or time.monotonic() < self.blocked_until:
+        if self.code is None:
+            return
+        if time.monotonic() < self.blocked_until:
             return
         self.dots.get_style_context().remove_class("bad")
         self.entered += digit
@@ -229,6 +245,7 @@ class Lock:
             self.fails += 1
             if self.fails >= 5:
                 self.blocked_until = time.monotonic() + min(30 << (self.fails - 5), 3600)
+                self._start_countdown()
         self.dots.set_text("✕")
         self.dots.get_style_context().add_class("bad")
         self.entered = ""

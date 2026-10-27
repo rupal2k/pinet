@@ -34,9 +34,13 @@ button {
     border: 2px solid rgba(255, 255, 255, 0.45);
     font-size: 22px;
     font-weight: bold;
-    min-width: 56px;
-    min-height: 56px;
+    min-width: 72px;
+    min-height: 72px;
     padding: 0;
+}
+button.pulse {
+    border-color: rgba(255, 200, 0, 0.9);
+    background-color: rgba(80, 60, 0, 0.5);
 }
 button:active {
     background-color: rgba(200, 40, 40, 0.6);
@@ -76,6 +80,8 @@ def main():
             return
         # Reject double-tap: require at least 0.8s between reveal and close.
         if time.monotonic() - first_tap_at[0] < 0.8:
+            style.add_class("pulse")
+            GLib.timeout_add(300, lambda: (style.remove_class("pulse"), False)[1])
             return
         if hide_timer[0]:
             GLib.source_remove(hide_timer[0])
@@ -92,7 +98,7 @@ def main():
 
     window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
     window.set_decorated(False)
-    window.set_default_size(56, 56)
+    window.set_default_size(72, 72)
     window.set_app_paintable(True)
 
     screen = window.get_screen()

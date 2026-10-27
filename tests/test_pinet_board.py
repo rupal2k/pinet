@@ -109,12 +109,15 @@ class Lockout(unittest.TestCase):
         self.clock.now += 1
         self.assertEqual(self.m.is_locked_out(self.IP), (False, 0))
 
-    def test_counter_resets_when_lock_is_set(self):
+    def test_counter_persists_after_lockout_expiry(self):
+        # After lockout expires the count is remembered: any new failure
+        # immediately re-triggers the lockout (count 6 >= MAX_ATTEMPTS).
         self.fail_n(5)
         self.clock.now += 61
-        self.fail_n(1)  # 6th failure after expiry counts as 1, not 6
-        self.assertEqual(self.m.is_locked_out(self.IP), (False, 0))
-        self.assertEqual(self.m._attempts[self.IP][0], 1)
+        self.fail_n(1)
+        locked, remaining = self.m.is_locked_out(self.IP)
+        self.assertTrue(locked)
+        self.assertEqual(self.m._attempts[self.IP][0], 6)
 
     def test_success_clears(self):
         self.fail_n(4)
@@ -246,6 +249,7 @@ class BoardTemplate(unittest.TestCase):
             self.assertIn("{% if is_admin %}", before.rsplit("{% endif %}", 1)[-1],
                           f"{marker} is not inside an is_admin block")
         self.assertEqual(self.src.count("if not is_admin():"), 2)
+        self.assertEqual(self.src.count("abort(403)"), 2)
 
 
 class LiveMessages(unittest.TestCase):
