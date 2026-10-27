@@ -34,28 +34,28 @@ READYFILE = os.path.join(RUNTIME, "dsi-lock.ready")
 
 CSS = b"""
 window { background-color: #0f1114; }
-#title { color: #e8e8e8; font-size: 22px; font-weight: bold; margin-top: 2px; }
-#dots  { color: #e8e8e8; font-size: 30px; }
+#title { color: #e8e8e8; font-size: 18px; font-weight: bold; margin-top: 0; }
+#dots  { color: #e8e8e8; font-size: 24px; }
 #dots.bad { color: #d24141; }
 button.key {
     background: #282c30;
     color: #e8e8e8;
-    font-size: 25px;
-    border-radius: 14px;
+    font-size: 22px;
+    border-radius: 12px;
     border: 2px solid rgba(255,255,255,0.14);
-    min-width: 90px;
-    min-height: 70px;
-    margin: 4px;
+    min-width: 88px;
+    min-height: 60px;
+    margin: 3px;
 }
 button.key:active { background: #5078b4; }
 button.off {
     background: #3c4044;
     color: #e8e8e8;
-    font-size: 15px;
-    border-radius: 20px;
+    font-size: 13px;
+    border-radius: 16px;
     border: 2px solid rgba(255,255,255,0.18);
-    min-width: 110px;
-    min-height: 64px;
+    min-width: 96px;
+    min-height: 48px;
     padding: 0 6px;
 }
 button.off:active { background: #7a3c3c; }
@@ -120,13 +120,13 @@ class Lock:
         GtkLayerShell.set_exclusive_zone(win, -1)
         GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.EXCLUSIVE)
 
-        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         outer.set_halign(Gtk.Align.CENTER)
         outer.set_valign(Gtk.Align.CENTER)
 
         # PINET logo (optional -- skip cleanly if the asset is missing).
         try:
-            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 76, True)
+            pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(LOGO_FILE, -1, 52, True)
             outer.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
         except Exception:
             pass
