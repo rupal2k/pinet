@@ -267,8 +267,8 @@ fi
 # ---------------------------------------------------------------------------
 APPS_DIR="/home/rupal/.local/share/applications"
 install -d -o rupal -g rupal -m 755 "$APPS_DIR"
-install -o rupal -g rupal -m 644 "$REPO/desktop/pinet-board.desktop" "$APPS_DIR/"
-install -o rupal -g rupal -m 644 "$REPO/desktop/pinet.desktop"       "$APPS_DIR/"
+install -o rupal -g rupal -m 755 "$REPO/desktop/pinet-board.desktop" "$APPS_DIR/"
+install -o rupal -g rupal -m 755 "$REPO/desktop/pinet.desktop"       "$APPS_DIR/"
 sudo -u rupal update-desktop-database "$APPS_DIR" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
