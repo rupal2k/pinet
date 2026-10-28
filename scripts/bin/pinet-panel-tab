@@ -5,8 +5,15 @@ wf-panel-pi's auto-hide only reveals the taskbar when a mouse pointer reaches
 the bottom edge, which a finger can't do reliably. This small tab sits at the
 bottom-centre edge instead: tap it to show the taskbar (the tab rides up on top
 of it), tap again to hide it, or leave it and it re-hides after SHOW_SECONDS.
-It works by flipping `autohide` in the panel config, which wf-panel-pi applies
-live. SIGUSR1 toggles too (for scripts and testing).
+SIGUSR1 toggles too (for scripts and testing).
+
+Show = `autohide=false` in the panel config (applied live; the taskbar takes its
+own strip instead of covering apps). Hide = `autohide=true` plus moving the
+pointer off the taskbar: the panel only hides once the pointer *leaves* it, and
+on this touchscreen the (invisible) pointer stays wherever the finger last was
+-- usually on the taskbar or this tab -- so it would otherwise stay stuck over
+the apps. The pointer is moved with wlrctl (wlr virtual-pointer); without
+wlrctl the panel is restarted instead (lwrespawn relaunches it, hidden).
 
 Layer TOP: above normal and maximized windows, below the lock screen, the photo
 frame (overlay layer) and true fullscreen apps. On exit the taskbar is left
@@ -14,12 +21,14 @@ visible, so stopping the tab can never strand you without it.
 """
 import fcntl
 import os
+import shutil
 import signal
+import subprocess
 import sys
 
 INI = os.path.expanduser("~/.config/wf-panel-pi/wf-panel-pi.ini")
 PANEL_HEIGHT = 30   # px, icon_size=24 taskbar; the tab stands on its top edge
-SHOW_SECONDS = 15
+SHOW_SECONDS = 30
 
 
 def with_autohide(text, on):
@@ -48,6 +57,14 @@ def set_autohide(on):
         with open(tmp, "w") as f:
             f.write(new)
         os.replace(tmp, INI)   # atomic: the panel never reads a half-written file
+
+
+def release_pointer():
+    """Get the parked pointer off the taskbar so the auto-hiding panel can hide."""
+    if shutil.which("wlrctl"):
+        subprocess.run(["wlrctl", "pointer", "move", "0", "-150"], check=False, timeout=5)
+    else:
+        subprocess.run(["pkill", "-x", "wf-panel-pi"], check=False)
 
 
 def main():
@@ -108,6 +125,7 @@ def main():
     def hide(*_):
         cancel_timer()
         set_autohide(True)
+        release_pointer()
         state["shown"] = False
         GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 0)
         btn.set_label("︿")   # pull the taskbar up
@@ -135,7 +153,7 @@ def main():
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, toggle)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, quit_showing)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, quit_showing)
-    hide()
+    hide()   # the panel may already be stuck visible from an earlier touch
     win.show_all()
     Gtk.main()
 

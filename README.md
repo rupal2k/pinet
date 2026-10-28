@@ -392,7 +392,7 @@ An official Raspberry Pi 7" capacitive touchscreen (800×480) driven by `labwc`
   window geometry when active so input fields remain visible.
 - **Auto-hiding Taskbar**: The taskbar tucks away so apps get the full 800×480. A small
   pull-tab at the bottom centre (`pinet-panel-tab`, user service) shows it with a tap and
-  hides it again on a second tap or after 15 seconds; the tab stays below the lock screen,
+  hides it again on a second tap or after 30 seconds; the tab stays below the lock screen,
   photo frame and fullscreen apps, and leaves the taskbar visible if it ever stops.
 - **Lightweight Kiosks**: On-demand shortcuts launch the Pi Camera (`dsi-cam-server.py`
   providing 640×480 MJPEG at 10 fps with upright photo/video capture), the Ezykam

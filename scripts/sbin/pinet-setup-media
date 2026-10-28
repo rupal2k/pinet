@@ -31,7 +31,8 @@ say() { echo "[pinet-setup-media] $*"; }
 
 # --- 1. Packages ----------------------------------------------------------
 want=()
-for p in audacious wtype; do dpkg -s "$p" >/dev/null 2>&1 || want+=("$p"); done
+# wlrctl: pinet-panel-tab moves the parked touch pointer off the taskbar.
+for p in audacious wtype wlrctl; do dpkg -s "$p" >/dev/null 2>&1 || want+=("$p"); done
 if ((${#want[@]})); then
     say "installing ${want[*]}"
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${want[@]}" >/dev/null
