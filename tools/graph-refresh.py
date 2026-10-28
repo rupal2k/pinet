@@ -74,7 +74,7 @@ def apply_labels():
     from graphify.analyze import god_nodes, suggest_questions, surprising_connections
     from graphify.detect import detect
     from graphify.cluster import community_member_sigs, score_all
-    from graphify.export import to_html, to_json
+    from graphify.export import to_json
 
     curated = json.loads(LABELS.read_text())
     graph = json.loads((OUT / "graph.json").read_text())
@@ -100,10 +100,10 @@ def apply_labels():
         named += hub in curated or hub_label in curated
 
     (OUT / ".graphify_labels.json").write_text(
-        json.dumps({str(k): v for k, v in labels.items()}, ensure_ascii=False))
+        json.dumps({str(k): v for k, v in labels.items()}, ensure_ascii=False), encoding="utf-8")
     (OUT / ".graphify_labels.json.sig").write_text(
         json.dumps({str(k): v for k, v in community_member_sigs(communities).items()},
-                   ensure_ascii=False))
+                   ensure_ascii=False), encoding="utf-8")
 
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO,
                             capture_output=True, text=True).stdout.strip() or None
@@ -116,8 +116,12 @@ def apply_labels():
         # report.generate only takes the title from this path's last component.
         str(REPO.parent / repo_name()), suggested_questions=questions,
         built_at_commit=commit)
-    (OUT / "GRAPH_REPORT.md").write_text(text)
-    to_html(G, communities, str(OUT / "graph.html"), community_labels=labels)
+    (OUT / "GRAPH_REPORT.md").write_text(text, encoding="utf-8")
+    # The CLI export (unlike to_html) falls back to the aggregated community
+    # view once the graph passes graphify's 5000-node HTML limit.
+    subprocess.run([sys.executable, "-m", "graphify", "export", "html",
+                    "--graph", str(OUT / "graph.json"),
+                    "--labels", str(OUT / ".graphify_labels.json")], cwd=REPO, check=True)
     print(f"named {named}/{len(communities)} communities from {LABELS.name}"
           f" ({len(curated) - named} curated names unused)")
 

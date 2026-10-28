@@ -1,15 +1,15 @@
-# Graph Report - pinet  (2026-10-27)
+# Graph Report - pinet  (2026-10-28)
 
 ## Corpus Check
-- Large corpus: 430 files · ~537,373 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder.
+- Large corpus: 460 files · ~793,447 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder.
 
 ## Summary
-- 5625 nodes · 7504 edges · 450 communities (376 shown, 74 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 393 edges (avg confidence: 0.9)
+- 6269 nodes · 8345 edges · 464 communities (376 shown, 88 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 405 edges (avg confidence: 0.9)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c86cfc3`
+- Built from commit: `73de091`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -21,70 +21,76 @@
 - Tests · UPS low-battery guard
 - .calls()
 - Tests · Board templates & fakes
+- test_dsi_close_button.py
 - Lock
 - Tests · e-ink passwords
-- tool()
 - e-ink · QR & offline test
 - Tests · Kali power shed
+- run_gui()
 - Tests · Network change & now-playing
 - Tests · On-screen keyboard
-- StartGuard
+- LockLogic
+- load_defs()
 - Tests · Shared test support
-- DarkMode
 - FakeEPD
-- PowerStatus
-- Tests · Board sessions
+- StartGuard
 - HdmiMonitorSingleInstance
 - DSI · Camera server
 - FakeImage
-- Tests · Live board state
+- SetGrab
+- DoubleTapConstants
+- HdmiMonitorDevice
+- ShutdownHook
+- CheckPassword
 - Tests · Shell harness
 - _PerSchemeCookieSession
 - Tests · Power shed & restore
 - Power · Power manager service
+- LockRunning
+- OpenRedirectValidation
 - Tests · Repo consistency
 - test_eink_dashboard.py
 - .run()
-- Path
 - e-ink · Network detection
-- Tests · e-ink main loop
+- MainLoop
 - Tests · Media Centre
 - Tests · Spotify speaker guard
-- unittest
+- test_luks_unlock.py
 - Tests · Desktop icon state
+- subprocess
 - statusline.cjs
 - e-ink · Dashboard core
-- pinet tests
-- time
-- require_login()
+- board()
+- DSI · Lock screen & tap wake
+- is_admin()
 - consolidate()
 - session.cjs
 - DSI touchscreen — photo frame, kiosks, power manager (2026-09-14/15)
 - make_block_diagram.py
 - ruflo-hook.cjs
-- PINET Architecture
+- needs_https()
 - storage_stats()
 - hook-handler.cjs
-- Board · Password setters
+- e-ink · Text layout & tiles
 - e-ink · Icon drawing
 - getContextDetailed()
 - router.cjs
+- get_db()
+- hashlib
+- ref_fs
 - Tooling · Desktop icon generator
-- make_showcase_gif.py
 - Board · Portal app & templates
 - buildEdges()
 - intelligence.cjs
 - auto-memory-hook.mjs
-- e-ink · Text layout & tiles
 - os
 - Rendering
 - eth-share
 - dsi-cam-controls.py
 - AgentDB Memory Patterns
-- subprocess
 - pinet-ups-guard
 - metrics-db.mjs
-- ref_path
+- memory.cjs
 - statusline.js
 - e-ink · Hotspot screen
 - Swarm Issue - Issue-Based Swarm Coordination
@@ -118,6 +124,7 @@
 - Backup Setup
 - Docs · Under-voltage investigation
 - Mesh Network Swarm Coordinator
+- main.rs
 - Technical Implementation
 - Technical Implementation
 - Agent Pool Command
@@ -160,7 +167,7 @@
 - Complete Guide
 - Most common use case (80% of users)
 - SPARC Methodology - Comprehensive Development Framework
-- PINET Variables
+- PINET Architecture
 - swarm-hooks.sh
 - Docs · Session 09-16: Kali & camera
 - PINET — Dual-Screen Raspberry Pi 3B Cyber-Deck
@@ -203,7 +210,6 @@
 - Available Modes
 - Advanced Swarm Orchestration
 - AgentDB Vector Search
-- Code-enforced checks
 - Docs · Captive portal history
 - Shipping Packet — PINET
 - Agent List Command
@@ -237,10 +243,8 @@
 - 3. Sprint Planning & Tracking
 - Pair Programming
 - swarm/README.md
-- README.md
+- Contributing to PINET
 - Docs · e-ink dashboard overview
-- Subsystems
-- Getting Started
 - workflows
 - Adaptive Swarm Coordinator
 - security-scanner.sh
@@ -269,12 +273,11 @@
 - Development Phases
 - Orchestration Patterns
 - Best Practices
-- Contributing to PINET
 - bottleneck detect
 - `src/icons.py`
 - Docs · systemd service
 - contact_links
-- Display 1: Front 7" DSI Touchscreen (800×480)
+- Graph Report - pinet  (2026-10-27)
 - routing
 - Agents Commands
 - 🎓 Advanced Features
@@ -303,23 +306,20 @@
 - Available Pipelines
 - Advanced Use Cases
 - Real-World Examples
-- Performance Audit — PINET
 - dsi-photo-frame.sh
 - memory
 - swarm
 - auto agent
 - Automation Features
 - Core Features
-- Best Practices
 - Board Commands
-- Troubleshooting
+- Best Practices
 - Workflow Integration
 - Core Features
+- Troubleshooting
 - Examples
-- Integration Examples
-- Best Practices
 - ReasoningBank with AgentDB
-- Action Commands
+- Integration Examples
 - health-monitor.sh
 - pattern-consolidator.sh
 - Memory Patterns
@@ -355,13 +355,13 @@
 - Examples Repository
 - Integration with Claude Flow
 - pull_request_template.md
-- Usage and Operation
+- Best Practices
+- Action Commands
 - dsi-kiosk.sh
 - Multi-Repo Swarm - Cross-Repository Swarm Orchestration
 - dsi-sleep.sh
 - dsi-wake.sh
 - fill
-- Matrix Strategies
 - statusline-hook.sh
 - 💬 Intelligent Comment Generation
 - 🔐 Security Considerations
@@ -389,11 +389,18 @@
 - guidance-hooks.sh
 - quick-start.sh
 - setup-mcp.sh
-- install.sh
+- scripts/install.sh
 - dsi-backlight.sh
 - dsi-boot-enable.sh
 - dsi-photo-demo.sh
 - DSI · Photo sync
+- Matrix Strategies
+- build.sh
+- pinet-browser
+- Communities (450 total, 74 thin omitted)
+- install.sh
+- assert_installer.sh
+- test_installer.sh
 - GitHub Repository Architect
 - GitHub Sync Coordinator
 - Workflow Automation - GitHub Actions Integration
@@ -429,24 +436,24 @@
 - 🧠 Claude-Flow Memory System
 
 ## God Nodes (most connected - your core abstractions)
-1. `ShellHarness` - 34 edges
-2. `main()` - 31 edges
-3. `MainLoop` - 27 edges
-4. `repo_path()` - 27 edges
-5. `render_hotspot_screen()` - 23 edges
-6. `Agent Types Reference` - 23 edges
-7. `PinetConfirm` - 22 edges
-8. `RaspotifyGuard` - 22 edges
-9. `GitHub Code Review Skill` - 22 edges
-10. `JsonFileBackend` - 21 edges
+1. `Communities (450 total, 74 thin omitted)` - 377 edges
+2. `ShellHarness` - 37 edges
+3. `repo_path()` - 32 edges
+4. `main()` - 31 edges
+5. `MainLoop` - 28 edges
+6. `FakeClock` - 24 edges
+7. `render_hotspot_screen()` - 24 edges
+8. `JsonFileBackend` - 23 edges
+9. `PinetConfirm` - 23 edges
+10. `RaspotifyGuard` - 23 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `ShellHarness` --references--> `Tests`  [INFERRED]
   tests/_support.py → CONTRIBUTING.md
-- `_session_valid()` --references--> `Session validity (`_session_valid()`)`  [INFERRED]
+- `_file_kind()` --references--> `Gaps — documented rules with no verification`  [INFERRED]
+  pinet-board/app.py → docs/tests.md
+- `is_admin()` --references--> `Admin gate (`is_admin()`)`  [INFERRED]
   pinet-board/app.py → docs/permissions.md
-- `statvfs()` --references--> ``storage_stats()` — `os.statvfs()` called on every board page load and every API poll`  [INFERRED]
-  tests/test_pinet_board.py → reports/performance_audit_2026-10-26.md
 - `wired()` --references--> `Restyle (this session)`  [INFERRED]
   eink-dashboard/src/icons.py → docs/icons.py.md
 - `get_db()` --references--> `What needs runtime profiling to confirm`  [INFERRED]
@@ -455,7 +462,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (450 total, 74 thin omitted)
+## Communities (464 total, 88 thin omitted)
 
 ### Community 3 - "LearningService"
 Cohesion: 0.08
@@ -463,11 +470,11 @@ Nodes (12): LearningService, EmbeddingService, HNSWIndex, initializeDatabase(), 
 
 ### Community 13 - "Tests · Board templates & fakes"
 Cohesion: 0.07
-Nodes (8): FakeClock, BoardTemplate, FileKind, FileSizeStr, Lockout, StorageStats, load(), statvfs()
+Nodes (7): FakeClock, BoardTemplate, FileKind, FileSizeStr, Lockout, StorageStats, load()
 
-### Community 143 - "tool()"
-Cohesion: 0.21
-Nodes (3): Argv, Registry, tool()
+### Community 135 - "test_dsi_close_button.py"
+Cohesion: 0.13
+Nodes (6): AutohideReveal, PqivRunning, stub_modules(), _load_callbacks(), _gtk_stubs(), load()
 
 ### Community 168 - "e-ink · QR & offline test"
 Cohesion: 0.18
@@ -477,9 +484,17 @@ Nodes (7): FakeEPD, _centre_block(), render_qr_screen(), exclamation(), main(), 
 Cohesion: 0.08
 Nodes (6): DsiBacklight, DsiInstallGuard, HarnessCase, KaliPowerShed, PinetSplashGuard, WifiPentestStop
 
+### Community 18 - "run_gui()"
+Cohesion: 0.09
+Nodes (3): Argv, Registry, tool()
+
+### Community 235 - "load_defs()"
+Cohesion: 0.07
+Nodes (9): AdFree, CountLeases, Dig, GuiStatusLines, ParseKV, ForcedDownloadExt, NeedsHttps, SessionValid (+1 more)
+
 ### Community 25 - "Tests · Shared test support"
-Cohesion: 0.10
-Nodes (7): MonitorState, StopLoop, Syntax, bash_scripts(), _first_line(), python_files(), _load()
+Cohesion: 0.06
+Nodes (13): FakeFont, MonitorState, WithAutohide, StopLoop, Levels, Syntax, bash_scripts(), dashboard_stubs() (+5 more)
 
 ### Community 29 - "DSI · Camera server"
 Cohesion: 0.09
@@ -490,24 +505,20 @@ Cohesion: 0.29
 Nodes (3): FakeImage, recorder(), render()
 
 ### Community 38 - "Tests · Shell harness"
-Cohesion: 0.11
-Nodes (4): ShellHarness, DsiSleepStaysAwake, NowPlayingHook, SpotifyConfirm
+Cohesion: 0.12
+Nodes (5): ShellHarness, DsiSleepStaysAwake, NowPlayingHook, _load_secret_key(), Suggested Questions
 
 ### Community 41 - "Tests · Power shed & restore"
 Cohesion: 0.09
 Nodes (5): FakeSystemd, PowerManagerCase, ShedRestore, load_script(), on_start()
 
 ### Community 48 - "Tests · Repo consistency"
-Cohesion: 0.14
-Nodes (9): Consistency, LiveMessages, Stylesheet, repo_path(), desktop_entries(), referenced_units(), repo_file_for(), shipped_units() (+1 more)
+Cohesion: 0.11
+Nodes (10): Consistency, LiveMessages, LiveState, Stylesheet, repo_path(), desktop_entries(), referenced_units(), repo_file_for() (+2 more)
 
 ### Community 5 - "test_eink_dashboard.py"
-Cohesion: 0.07
-Nodes (16): FakeDraw, FakeFont, Config, EthShareFlag, FitText, KioskFlag, MonitorFlag, RefreshPolicy (+8 more)
-
-### Community 55 - "Path"
-Cohesion: 0.10
-Nodes (6): NeedsHttps, Levels, ShutdownHook, HdmiMonitorDevice, _load_secret_key(), load_defs()
+Cohesion: 0.06
+Nodes (15): FakeDraw, Config, DarkMode, EthShareFlag, FitText, KioskFlag, MonitorFlag, PowerStatus (+7 more)
 
 ### Community 63 - "e-ink · Network detection"
 Cohesion: 0.15
@@ -517,9 +528,13 @@ Nodes (16): FakeEPD, get_active_interface(), get_ip_address(), get_network_finge
 Cohesion: 0.09
 Nodes (6): ControlTest, FollowSpeakerTest, ParseTest, PickTest, SpeakerTest, VolumeTest
 
-### Community 95 - "unittest"
+### Community 95 - "test_luks_unlock.py"
 Cohesion: 0.13
-Nodes (5): AdFree, CountLeases, Dig, GuiStatusLines, ParseKV
+Nodes (8): BlockedUntil, LastAttemptWarning, MissingPin, PinCheck, RebootGuard, UnlockKeyBytes, _load(), _make_dialog()
+
+### Community 79 - "subprocess"
+Cohesion: 0.12
+Nodes (9): prepare_bundle(), apply_labels(), deploy_map(), main(), repo_name(), run(), log(), main() (+1 more)
 
 ### Community 0 - "statusline.cjs"
 Cohesion: 0.06
@@ -529,17 +544,17 @@ Nodes (54): applyLocalOverlays(), buildLocalFallback(), generateJSON(), generate
 Cohesion: 0.06
 Nodes (27): battery_animates(), battery_fill(), battery_is_low(), draw_monitor_banner(), draw_spotify_battery(), _drop_battery(), get_battery(), get_kiosk_mode() (+19 more)
 
-### Community 112 - "pinet tests"
-Cohesion: 0.18
-Nodes (12): _file_ext(), _file_kind(), filesize_str(), timestamp_str(), 13. PINET board -- view uploaded files in the browser + responsive tabbed UI, Update 2026-09-12 -- in-browser file viewing + responsive tabbed UI, Gaps — documented rules with no verification, Gate (+4 more)
+### Community 112 - "board()"
+Cohesion: 0.19
+Nodes (12): board(), _file_ext(), _file_kind(), _file_row(), filesize_str(), timestamp_str(), view_file(), 13. PINET board -- view uploaded files in the browser + responsive tabbed UI (+4 more)
 
-### Community 113 - "time"
-Cohesion: 0.24
-Nodes (8): find_touchscreen(), is_asleep(), _lock_running(), _log(), main(), _output_on(), set_grab(), wake_and_lock()
+### Community 113 - "DSI · Lock screen & tap wake"
+Cohesion: 0.16
+Nodes (11): find_touchscreen(), is_asleep(), _lock_running(), _log(), main(), _output_on(), set_grab(), wake_and_lock() (+3 more)
 
-### Community 117 - "require_login()"
-Cohesion: 0.21
-Nodes (13): _cred_tag(), free_disk_bytes(), https_only_on_the_air(), require_login(), _session_valid(), Auth and session flow (pinet-board), Battery guard / clean shutdown, Pentest mode transition (+5 more)
+### Community 117 - "is_admin()"
+Cohesion: 0.20
+Nodes (11): check_password(), delete_message(), is_admin(), 13b. PINET board -- guest/admin roles + admin-only file delete, Battery guard / clean shutdown, Pentest mode transition, pinet-board file delete (admin-only), pinet-board file upload (+3 more)
 
 ### Community 122 - "consolidate()"
 Cohesion: 0.29
@@ -561,21 +576,21 @@ Nodes (5): create_background(), draw_arrow(), draw_card(), draw_pill(), main()
 Cohesion: 0.29
 Nodes (11): done(), envValue(), escapeCmdArg(), invokeHook(), main(), resolveCommandPath(), resolveInvocation(), resolveNpmShim() (+3 more)
 
-### Community 167 - "PINET Architecture"
-Cohesion: 0.17
-Nodes (11): needs_https(), Five subsystems, Known risks and assumptions, PINET Architecture, Related documents, Repository layout, Stack, System overview (+3 more)
+### Community 167 - "needs_https()"
+Cohesion: 0.13
+Nodes (14): needs_https(), Trust boundaries, Admin gate (`is_admin()`), Brute-force lockout, Code-enforced checks, HTTPS enforcement, Network isolation (nftables), pinet-board: resource × operation × role matrix (+6 more)
 
 ### Community 170 - "storage_stats()"
-Cohesion: 0.27
-Nodes (11): api_state(), board(), _file_row(), storage_stats(), too_large(), Existing coverage, `/api/state` — two COUNT(*) queries on every live poll, Findings (+3 more)
+Cohesion: 0.12
+Nodes (15): api_state(), storage_stats(), too_large(), Existing coverage, Gaps — documented rules with no verification, Gate, Test Coverage — PINET, `/api/state` — two COUNT(*) queries on every live poll (+7 more)
 
 ### Community 2 - "hook-handler.cjs"
 Cohesion: 0.06
 Nodes (47): cliInPackage(), cliSpawnArgs(), cliUnderPrefix(), isKnownPackageRoot(), isRunnableCli(), main(), hasRootDelete(), npmGlobalPrefix() (+39 more)
 
-### Community 232 - "Board · Password setters"
-Cohesion: 0.38
-Nodes (3): upload_file(), main(), main()
+### Community 230 - "e-ink · Text layout & tiles"
+Cohesion: 0.12
+Nodes (20): draw_mini_stat(), draw_stat_box(), fit_text(), render(), _text_width(), cpu_chip(), moon(), offline() (+12 more)
 
 ### Community 24 - "e-ink · Icon drawing"
 Cohesion: 0.09
@@ -589,17 +604,25 @@ Nodes (9): boostConfidence(), feedback(), getContext(), getContextDetailed(), pr
 Cohesion: 0.32
 Nodes (5): buildPattern(), escapeRegex(), AGENT_CAPABILITIES, COMPILED_PATTERNS, TASK_PATTERNS
 
-### Community 291 - "Tooling · Desktop icon generator"
+### Community 272 - "get_db()"
+Cohesion: 0.22
+Nodes (12): catch_all(), delete_file(), download_file(), get_db(), logout(), post_message(), upload_file(), statvfs() (+4 more)
+
+### Community 273 - "hashlib"
+Cohesion: 0.33
+Nodes (3): inject_role(), main(), main()
+
+### Community 276 - "ref_fs"
+Cohesion: 0.32
+Nodes (4): firstRunAutoEnableIfEligible(), args, GITHUB_SAFE_VERSION, ADR-0127
+
+### Community 313 - "Tooling · Desktop icon generator"
 Cohesion: 0.38
 Nodes (3): dot(), neon(), toggle()
 
-### Community 316 - "make_showcase_gif.py"
-Cohesion: 0.47
-Nodes (3): blend(), main(), render_scene()
-
 ### Community 32 - "Board · Portal app & templates"
-Cohesion: 0.11
-Nodes (20): catch_all(), check_password(), close_db(), _conf_for(), delete_file(), delete_message(), download_file(), get_db() (+12 more)
+Cohesion: 0.13
+Nodes (16): close_db(), _conf_for(), _cred_tag(), csrf_protect(), free_disk_bytes(), https_only_on_the_air(), _init_db(), is_locked_out() (+8 more)
 
 ### Community 362 - "buildEdges()"
 Cohesion: 0.50
@@ -610,15 +633,11 @@ Cohesion: 0.08
 Nodes (26): appendRecall(), bootstrapFromMemoryFiles(), clip(), maskToken(), parseMemoryDir(), recallLogEnabled(), rotateRecallLog(), crypto (+18 more)
 
 ### Community 45 - "auto-memory-hook.mjs"
-Cohesion: 0.13
+Cohesion: 0.12
 Nodes (21): dim(), doImport(), doStatus(), doSync(), loadMemoryPackage(), log(), mainCheckoutRoot(), readConfig() (+13 more)
 
-### Community 46 - "e-ink · Text layout & tiles"
-Cohesion: 0.12
-Nodes (20): draw_mini_stat(), draw_stat_box(), fit_text(), render(), _text_width(), cpu_chip(), moon(), offline() (+12 more)
-
 ### Community 47 - "os"
-Cohesion: 0.11
+Cohesion: 0.13
 Nodes (5): main(), hide(), on_close_clicked(), main(), single_instance()
 
 ### Community 52 - "Rendering"
@@ -630,28 +649,24 @@ Cohesion: 0.08
 Nodes (8): Ethernet sharing, eth-share (defends `flows.md` — ethernet sharing), Findings, OWASP Top 10 coverage, `pinet-board/app.py`, Security Audit — PINET, What could not be verified, What is well-built
 
 ### Community 64 - "dsi-cam-controls.py"
-Cohesion: 0.17
+Cohesion: 0.15
 Nodes (17): draw_files(), draw_photo(), draw_rec(), icon_button(), _ink(), main(), on_files(), on_photo() (+9 more)
 
 ### Community 76 - "AgentDB Memory Patterns"
 Cohesion: 0.10
 Nodes (20): stats(), Advanced Patterns, AgentDB Memory Patterns, Available Algorithms (9 Total), Best Practices, Create Learning Plugin, Hierarchical Memory, Initialize AgentDB (+12 more)
 
-### Community 79 - "subprocess"
-Cohesion: 0.17
-Nodes (5): apply_labels(), deploy_map(), main(), repo_name(), run()
-
 ### Community 83 - "pinet-ups-guard"
 Cohesion: 0.15
 Nodes (4): Battery guard (defends `flows.md` — battery guard flow), pinet-board: file handling (defends `flows.md` — upload, `permissions.md`), Power manager (defends `flows.md` — power shedding), Proposed tests
 
 ### Community 85 - "metrics-db.mjs"
-Cohesion: 0.17
+Cohesion: 0.18
 Nodes (16): calculateModuleProgress(), checkSecurityFile(), countFilesAndLines(), walk(), countProcesses(), exportToJSON(), getMetricsJSON(), initDatabase() (+8 more)
 
-### Community 92 - "ref_path"
-Cohesion: 0.14
-Nodes (10): firstRunAutoEnableIfEligible(), args, GITHUB_SAFE_VERSION, commands, fs, MEMORY_DIR, MEMORY_FILE, path (+2 more)
+### Community 92 - "memory.cjs"
+Cohesion: 0.22
+Nodes (6): commands, fs, MEMORY_DIR, MEMORY_FILE, path, value
 
 ### Community 96 - "statusline.js"
 Cohesion: 0.21
@@ -784,6 +799,10 @@ Nodes (13): Boot-sequencing tests (2026-09-06, all negative), Diagnostic dead en
 ### Community 14 - "Mesh Network Swarm Coordinator"
 Cohesion: 0.05
 Nodes (40): 1. Decentralized Coordination, 1. Dynamic Work Distribution, 1. Practical Byzantine Fault Tolerance (pBFT), 1. Work Stealing, 2. Capability-Based Routing, 2. Distributed Hash Table (DHT), 2. Fault Tolerance & Resilience, 2. Raft Consensus (+32 more)
+
+### Community 143 - "main.rs"
+Cohesion: 0.05
+Nodes (30): APP_ICON, APP_NAME, bookmarks_file(), BROWSER_CSS, build_ui(), data_dir(), downloads_dir(), HISTORY_MAX (+22 more)
 
 ### Community 144 - "Technical Implementation"
 Cohesion: 0.17
@@ -953,9 +972,9 @@ Nodes (11): 🛠️ Adding Scripts and Resources, 🔗 File References and Navig
 Cohesion: 0.18
 Nodes (10): Complete TDD Workflow, Core Philosophy, Key Principles, Overview, Performance Benefits, Red-Green-Refactor Cycle, SPARC Methodology - Comprehensive Development Framework, Support and Resources (+2 more)
 
-### Community 189 - "PINET Variables"
-Cohesion: 0.18
-Nodes (7): eth-share environment variables, Gitignored secrets (NEVER commit), pinet-board Flask config (set in code, not env), pinet-ups-guard environment variables, PINET Variables, Pre-deploy checklist, /run tmpfs coordination flags
+### Community 189 - "PINET Architecture"
+Cohesion: 0.11
+Nodes (14): Five subsystems, Known risks and assumptions, PINET Architecture, Related documents, Repository layout, Stack, System overview, eth-share environment variables (+6 more)
 
 ### Community 19 - "swarm-hooks.sh"
 Cohesion: 0.15
@@ -1125,17 +1144,13 @@ Nodes (9): Advanced Swarm Orchestration, Analysis Workflow, Architecture, Common
 Cohesion: 0.06
 Nodes (35): 1. Vector Storage, 2. Similarity Search, 3. Hybrid Search (Vector + Metadata), Advanced Features, Advanced Usage, AgentDB Vector Search, Batch Operations, Binary Quantization (32x reduction) (+27 more)
 
-### Community 230 - "Code-enforced checks"
-Cohesion: 0.20
-Nodes (10): Admin gate (`is_admin()`), Brute-force lockout, Code-enforced checks, Network isolation (nftables), pinet-board: resource × operation × role matrix, PINET Permissions, Roles, Session validity (`_session_valid()`) (+2 more)
-
 ### Community 231 - "Docs · Captive portal history"
 Cohesion: 0.20
 Nodes (10): Architecture, Concurrent build collision (2026-09-06, ~17:10-17:25), Dashboard integration — **INCORRECT, see correction at top of note**, Default state, Operational notes, Original design history (still accurate for the bridge-toggle half), PINET captive portal (2026-09-06 REMOVED→REBUILT, 2026-09-07 REMOVED FOR GOOD), Shelved: BitChat relay via the portal (2026-09-06) (+2 more)
 
 ### Community 233 - "Shipping Packet — PINET"
 Cohesion: 0.20
-Nodes (9): Agent Context, Audit Provenance, Correctness Summary, Documentation Inventory, Independent Review, Launch Blockers, Recommended Next Actions, Security Summary (+1 more)
+Nodes (9): Agent Context, Audit Provenance, Correctness Summary, Documentation Inventory, Independent Review, Launch Blockers, Security Summary, Shipping Packet — PINET (+1 more)
 
 ### Community 236 - "Agent List Command"
 Cohesion: 0.22
@@ -1257,21 +1272,13 @@ Nodes (7): Basic Session, How Claude Code Uses This, Pair Programming, Prerequis
 Cohesion: 0.06
 Nodes (24): Available Commands, Swarm Commands, 📋 Agent Types by Task, swarm-analysis, swarm-background, ✅ CORRECT Spawn Pattern, 🚨 CRITICAL: Background Execution Pattern, ❌ DO NOT (+16 more)
 
-### Community 270 - "README.md"
-Cohesion: 0.32
-Nodes (4): Reporting a vulnerability, Scope, Security policy, Supported versions
+### Community 270 - "Contributing to PINET"
+Cohesion: 0.16
+Nodes (10): Contributing to PINET, Ground rules for the device, License, Making a change, Reporting a bug, Tests, Reporting a vulnerability, Scope (+2 more)
 
 ### Community 271 - "Docs · e-ink dashboard overview"
 Cohesion: 0.25
 Nodes (8): 2026-09-12 session (pointer), 2026-09-15 session (pointer), Adding a DSI display alongside the e-ink panel (DONE 2026-09-14/15), Architecture, Housekeeping (resolved 2026-09-06), Module notes, Pi e-Ink Status Dashboard, Where it lives
-
-### Community 272 - "Subsystems"
-Cohesion: 0.25
-Nodes (8): E-ink Status Dashboard, Ethernet Share, Media Centre, PINET Hotspot and Message Board, Power Management and Battery Guard, Subsystems, Touchscreen Photo Frame and Kiosks, Wi-Fi Auditing Toolkit
-
-### Community 273 - "Getting Started"
-Cohesion: 0.25
-Nodes (8): Getting Started, Prerequisites, Step 1: E-ink Dashboard Installation, Step 2: Deploying System Files, Step 3: Media Storage Setup, Step 3b: USB Storage Encryption (Optional), Step 4: Passwords and Credentials, Step 5: Plymouth Boot Splash
 
 ### Community 278 - "workflows"
 Cohesion: 0.29
@@ -1385,10 +1392,6 @@ Nodes (6): Orchestration Patterns, Pattern 1: Hierarchical Coordination, Pattern
 Cohesion: 0.33
 Nodes (6): 1. Clear and Specific Prompts, 2. Logical Progression, 3. Appropriate Timeouts, 4. Verification Steps, 5. Iterative Refinement, Best Practices
 
-### Community 309 - "Contributing to PINET"
-Cohesion: 0.33
-Nodes (6): Contributing to PINET, Ground rules for the device, License, Making a change, Reporting a bug, Tests
-
 ### Community 31 - "bottleneck detect"
 Cohesion: 0.06
 Nodes (28): Analyze specific swarm, Auto-fix detected issues, Automatic Fixes, Basic bottleneck detection, bottleneck detect, Communication Bottlenecks, Examples, Integration with Claude Code (+20 more)
@@ -1405,9 +1408,9 @@ Nodes (6): Operating it, `systemd/pi-eink-dashboard.service`, ⚠️ The repo co
 Cohesion: 0.33
 Nodes (5): blank_issues_enabled, contact_links, about, name, url
 
-### Community 313 - "Display 1: Front 7" DSI Touchscreen (800×480)"
-Cohesion: 0.33
-Nodes (6): Desktop Shell & System Utilities, Display 1: Front 7" DSI Touchscreen (800×480), Display 2: Rear 2.13" Waveshare e-Paper HAT (250×122), Hotspot, Captive Portal & Network Auditing, Media Centre & External Video Capture, Screenshots
+### Community 316 - "Graph Report - pinet  (2026-10-27)"
+Cohesion: 0.25
+Nodes (8): Community Hubs (Navigation), Corpus Check, God Nodes (most connected - your core abstractions), Graph Freshness, Graph Report - pinet  (2026-10-27), Import Cycles, Knowledge Gaps, Summary
 
 ### Community 317 - "routing"
 Cohesion: 0.40
@@ -1521,10 +1524,6 @@ Nodes (5): Advanced Use Cases, Code Migration Workflow, Data Transformation Pipe
 Cohesion: 0.40
 Nodes (5): Example 1: AI Research Project, Example 2: Full-Stack Application, Example 3: Security Audit, Example 4: Performance Optimization, Real-World Examples
 
-### Community 343 - "Performance Audit — PINET"
-Cohesion: 0.40
-Nodes (4): Overview, Performance Audit — PINET, What is already efficient, What needs runtime profiling to confirm
-
 ### Community 344 - "dsi-photo-frame.sh"
 Cohesion: 0.40
 Nodes (4): GDK_BACKEND, dsi-photo-frame.sh script, WAYLAND_DISPLAY, XDG_RUNTIME_DIR
@@ -1545,21 +1544,17 @@ Nodes (26): Agent Types Selected, Analysis only, auto agent, Balanced, Basic aut
 Cohesion: 0.50
 Nodes (4): 1. Auto-Assignment, 2. Progress Tracking, 3. Smart Card Movement, Automation Features
 
-### Community 351 - "Core Features"
+### Community 352 - "Core Features"
 Cohesion: 0.50
 Nodes (4): 1. Board Initialization, 2. Task Synchronization, 3. Real-time Updates, Core Features
-
-### Community 352 - "Best Practices"
-Cohesion: 0.50
-Nodes (4): 1. Board Organization, 2. Data Integrity, 3. Team Adoption, Best Practices
 
 ### Community 353 - "Board Commands"
 Cohesion: 0.50
 Nodes (4): Board Commands, Bulk Operations, Card Templates, Create Cards from Issues
 
-### Community 354 - "Troubleshooting"
+### Community 354 - "Best Practices"
 Cohesion: 0.50
-Nodes (4): Data Recovery, Performance, Sync Issues, Troubleshooting
+Nodes (4): 1. Board Organization, 2. Data Integrity, 3. Team Adoption, Best Practices
 
 ### Community 355 - "Workflow Integration"
 Cohesion: 0.50
@@ -1569,25 +1564,21 @@ Nodes (4): Milestone Tracking, Release Planning, Sprint Management, Workflow Int
 Cohesion: 0.50
 Nodes (4): 1. PR-Based Swarm Creation, 2. PR Comment Commands, 3. Automated PR Workflows, Core Features
 
-### Community 357 - "Examples"
+### Community 357 - "Troubleshooting"
+Cohesion: 0.50
+Nodes (4): Data Recovery, Performance, Sync Issues, Troubleshooting
+
+### Community 359 - "Examples"
 Cohesion: 0.50
 Nodes (4): Bug Fix PR, Documentation PR, Examples, Feature Development PR
-
-### Community 358 - "Integration Examples"
-Cohesion: 0.50
-Nodes (4): 1. PR Validation Swarm, 2. Release Automation, 3. Documentation Updates, Integration Examples
-
-### Community 359 - "Best Practices"
-Cohesion: 0.50
-Nodes (4): 1. Workflow Organization, 2. Security, 3. Performance, Best Practices
 
 ### Community 36 - "ReasoningBank with AgentDB"
 Cohesion: 0.07
 Nodes (29): 1. PatternMatcher, 1. Trajectory Tracking, 2. ContextSynthesizer, 2. Verdict Judgment, 3. Memory Distillation, 3. MemoryOptimizer, 4. ExperienceCurator, Advanced Patterns (+21 more)
 
-### Community 360 - "Action Commands"
+### Community 360 - "Integration Examples"
 Cohesion: 0.50
-Nodes (4): Action Commands, Failure Analysis, Pipeline Optimization, Resource Management
+Nodes (4): 1. PR Validation Swarm, 2. Release Automation, 3. Documentation Updates, Integration Examples
 
 ### Community 361 - "health-monitor.sh"
 Cohesion: 0.83
@@ -1729,9 +1720,13 @@ Nodes (4): Combine with Swarm Coordination, Integration with Claude Flow, Memory
 Cohesion: 0.50
 Nodes (3): Checklist, How it was tested, What and why
 
-### Community 397 - "Usage and Operation"
+### Community 396 - "Best Practices"
 Cohesion: 0.50
-Nodes (4): Command-Line Utilities, Service Management and Diagnostic Logs, Touchscreen Desktop, Usage and Operation
+Nodes (4): 1. Workflow Organization, 2. Security, 3. Performance, Best Practices
+
+### Community 397 - "Action Commands"
+Cohesion: 0.50
+Nodes (4): Action Commands, Failure Analysis, Pipeline Optimization, Resource Management
 
 ### Community 398 - "dsi-kiosk.sh"
 Cohesion: 0.83
@@ -1752,10 +1747,6 @@ Nodes (3): dsi-wake.sh script, WAYLAND_DISPLAY, XDG_RUNTIME_DIR
 ### Community 404 - "fill"
 Cohesion: 0.67
 Nodes (3): target, value, fill
-
-### Community 405 - "Matrix Strategies"
-Cohesion: 0.67
-Nodes (3): Dynamic Test Matrix, Intelligent Parallelization, Matrix Strategies
 
 ### Community 407 - "💬 Intelligent Comment Generation"
 Cohesion: 0.67
@@ -1828,6 +1819,22 @@ Nodes (3): Agent Strategies, Core Concepts, Swarm Topologies
 ### Community 423 - "Quick Start"
 Cohesion: 0.67
 Nodes (3): Basic Pattern, Prerequisites, Quick Start
+
+### Community 451 - "Matrix Strategies"
+Cohesion: 0.67
+Nodes (3): Dynamic Test Matrix, Intelligent Parallelization, Matrix Strategies
+
+### Community 46 - "Communities (450 total, 74 thin omitted)"
+Cohesion: 0.01
+Nodes (376): Communities (450 total, 74 thin omitted), Community 0 - "statusline.cjs", Community 100 - "hook post-edit", Community 101 - "hook post-task", Community 102 - "hook pre-edit", Community 103 - "hook pre-task", Community 104 - "hook session-end", Community 105 - "SPARC Orchestrator Mode" (+368 more)
+
+### Community 464 - "install.sh"
+Cohesion: 0.60
+Nodes (5): die(), info(), install.sh script, warn(), _write_pw_hash()
+
+### Community 466 - "assert_installer.sh"
+Cohesion: 0.70
+Nodes (4): check(), fail(), pass(), assert_installer.sh script
 
 ### Community 49 - "GitHub Repository Architect"
 Cohesion: 0.08
@@ -1954,32 +1961,32 @@ Cohesion: 0.11
 Nodes (17): Additional Resources, Board Integration Workflow, Complete Workflow Example, Data Recovery, Full-Stack Feature Development, GitHub Actions for Issue Management, GitHub Project Management, Integration with Other Skills (+9 more)
 
 ### Community 94 - "📟 PINET"
-Cohesion: 0.11
-Nodes (18): Acknowledgements, Component Bill of Materials, Contributing, Core Design Principles, Dual-Screen Raspberry Pi 3B Cyber-Deck, Feature Highlights, Hardware Architecture, Known Limitations (+10 more)
+Cohesion: 0.04
+Nodes (49): Acknowledgements, Command-Line Utilities, Component Bill of Materials, Contributing, Core Design Principles, Deploy all system files, Desktop Shell & System Utilities, Display 1: Front 7" DSI Touchscreen (800×480) (+41 more)
 
 ### Community 99 - "🧠 Claude-Flow Memory System"
 Cohesion: 0.12
 Nodes (15): Backup project memory:, 🎯 Best Practices, 🧠 Claude-Flow Memory System, Cleanup Operations, Examples, Export/Import, Maintenance, Memory Statistics (+7 more)
 
 ## Knowledge Gaps
-- **31 isolated node(s):** `ADR-0088`, `ADR-0137`, `ADR-0301`, `ADR-0311`, `ADR-0174` (+26 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 3257 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **74 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **32 isolated node(s):** `ADR-0088`, `ADR-0137`, `ADR-0301`, `ADR-0311`, `ADR-0174` (+27 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 3737 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **88 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ShellHarness` connect `Tests · Shell harness` to `Tests · Network change & now-playing`, `Tests · On-screen keyboard`, `Tests · Desktop icon state`, `Tests · Spotify speaker guard`, `Tests · Kali power shed`, `.run()`, `Contributing to PINET`, `HdmiMonitorSingleInstance`, `Tests · Shared test support`, `.calls()`?**
-  _High betweenness centrality (0.013) - this node is a cross-community bridge._
-- **Are the 12 inferred relationships involving `ShellHarness` (e.g. with `Tests` and `DsiSleepStaysAwake`) actually correct?**
-  _`ShellHarness` has 12 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `Communities (450 total, 74 thin omitted)` connect `Communities (450 total, 74 thin omitted)` to `Graph Report - pinet  (2026-10-27)`, `is_admin()`?**
+  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+- **Are the 15 inferred relationships involving `ShellHarness` (e.g. with `Tests` and `Suggested Questions`) actually correct?**
+  _`ShellHarness` has 15 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `ADR-0088`, `ADR-0137`, `ADR-0301` to the rest of the system?**
-  _31 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _32 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `LearningService` be split into smaller, more focused modules?**
-  _Cohesion score 0.07918367346938776 - nodes in this community are weakly interconnected._
-- **Why does `_load_secret_key()` connect `Path` to `Board · Password setters`, `Board · Portal app & templates`, `os`?**
-  _High betweenness centrality (0.010) - this node is a cross-community bridge._
+  _Cohesion score 0.07686274509803921 - nodes in this community are weakly interconnected._
+- **Why does `God Nodes (most connected - your core abstractions)` connect `Graph Report - pinet  (2026-10-27)` to `e-ink · Hotspot screen`, `Tests · Shell harness`, `MainLoop`, `Tests · Spotify speaker guard`, `Tests · Repo consistency`, `JsonFileBackend`, `.run()`?**
+  _High betweenness centrality (0.044) - this node is a cross-community bridge._
 - **Should `JsonFileBackend` be split into smaller, more focused modules?**
   _Cohesion score 0.13157894736842105 - nodes in this community are weakly interconnected._
-- **Why does `Contributing to PINET` connect `Contributing to PINET` to `README.md`?**
-  _High betweenness centrality (0.008) - this node is a cross-community bridge._
+- **Why does `Graph Report - pinet  (2026-10-27)` connect `Graph Report - pinet  (2026-10-27)` to `Tests · Shell harness`, `Communities (450 total, 74 thin omitted)`, `Device Overview.md`, `get_db()`?**
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
