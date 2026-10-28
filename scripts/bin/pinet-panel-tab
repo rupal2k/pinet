@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Touch pull-tab for the auto-hiding PINET taskbar (GTK3 + wlr layer-shell).
+
+wf-panel-pi's auto-hide only reveals the taskbar when a mouse pointer reaches
+the bottom edge, which a finger can't do reliably. This small tab sits at the
+bottom-centre edge instead: tap it to show the taskbar (the tab rides up on top
+of it), tap again to hide it, or leave it and it re-hides after SHOW_SECONDS.
+It works by flipping `autohide` in the panel config, which wf-panel-pi applies
+live. SIGUSR1 toggles too (for scripts and testing).
+
+Layer TOP: above normal and maximized windows, below the lock screen, the photo
+frame (overlay layer) and true fullscreen apps. On exit the taskbar is left
+visible, so stopping the tab can never strand you without it.
+"""
+import fcntl
+import os
+import signal
+import sys
+
+INI = os.path.expanduser("~/.config/wf-panel-pi/wf-panel-pi.ini")
+PANEL_HEIGHT = 30   # px, icon_size=24 taskbar; the tab stands on its top edge
+SHOW_SECONDS = 15
+
+
+def with_autohide(text, on):
+    """Return panel-config `text` with autohide set to `on` (added under [panel] if absent)."""
+    value = "autohide=" + ("true" if on else "false")
+    lines = text.splitlines()
+    if any(l.startswith("autohide=") for l in lines):
+        lines = [value if l.startswith("autohide=") else l for l in lines]
+    else:
+        at = next((i + 1 for i, l in enumerate(lines) if l.strip() == "[panel]"), None)
+        if at is None:
+            lines = ["[panel]", value] + lines
+        else:
+            lines.insert(at, value)
+    return "\n".join(lines) + "\n"
+
+
+def set_autohide(on):
+    try:
+        text = open(INI).read()
+    except OSError:
+        text = "[panel]\n"
+    new = with_autohide(text, on)
+    if new != text:
+        tmp = INI + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(new)
+        os.replace(tmp, INI)   # atomic: the panel never reads a half-written file
+
+
+def main():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
+
+    lock_path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/%d" % os.getuid()),
+                             "pinet-panel-tab.lock")
+    lock = open(lock_path, "a+")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit(0)   # already running
+
+    css = b"""
+    window { background: transparent; }
+    button {
+      background: #1e2128;
+      color: #eef0f3;
+      border: 1px solid #2c303a;
+      border-bottom: none;
+      border-radius: 10px 10px 0 0;
+      box-shadow: none;
+      margin: 0; padding: 0;
+      font-size: 16px;
+      font-weight: bold;
+      opacity: 0.9;
+    }
+    button:active { background: #f2c14e; color: #14161a; }
+    """
+    prov = Gtk.CssProvider()
+    prov.load_from_data(css)
+    Gtk.StyleContext.add_provider_for_screen(
+        Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    win = Gtk.Window()
+    win.set_decorated(False)
+    GtkLayerShell.init_for_window(win)
+    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.TOP)
+    GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.BOTTOM, True)   # centred horizontally
+    GtkLayerShell.set_exclusive_zone(win, -1)   # measure from the screen edge
+    GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.NONE)
+    GtkLayerShell.set_namespace(win, "pinet-panel-tab")
+
+    btn = Gtk.Button()
+    btn.set_size_request(72, 20)
+    win.add(btn)
+    state = {"shown": False, "timer": 0}
+
+    def cancel_timer():
+        if state["timer"]:
+            GLib.source_remove(state["timer"])
+            state["timer"] = 0
+
+    def hide(*_):
+        cancel_timer()
+        set_autohide(True)
+        state["shown"] = False
+        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 0)
+        btn.set_label("︿")   # pull the taskbar up
+        return False
+
+    def show():
+        cancel_timer()
+        set_autohide(False)
+        state["shown"] = True
+        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, PANEL_HEIGHT)
+        btn.set_label("﹀")   # push it back down
+        state["timer"] = GLib.timeout_add_seconds(SHOW_SECONDS, hide)
+
+    def toggle(*_):
+        hide() if state["shown"] else show()
+        return True
+
+    def quit_showing(*_):
+        cancel_timer()
+        set_autohide(False)
+        Gtk.main_quit()
+        return False
+
+    btn.connect("clicked", toggle)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, toggle)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, quit_showing)
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, quit_showing)
+    hide()
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

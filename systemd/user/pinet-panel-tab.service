@@ -1,0 +1,14 @@
+[Unit]
+Description=Touch pull-tab to show/hide the auto-hiding PINET taskbar
+After=graphical-session.target
+PartOf=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/pinet-panel-tab
+# Before the compositor is up GTK can't open the display; retry until it is.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
