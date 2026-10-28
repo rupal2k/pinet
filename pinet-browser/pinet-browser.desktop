@@ -1,10 +1,10 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Web
+Name=PINET Browser
 GenericName=Web Browser
-Comment=Ultra-lightweight browser with Epiphany Dark UI
-Icon=org.gnome.Epiphany
+Comment=Lightweight touch browser for the PINET touchscreen
+Icon=pinet-browser
 Exec=/usr/local/bin/pinet-browser %u
 Terminal=false
 Categories=Network;WebBrowser;GTK;
