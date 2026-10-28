@@ -1,0 +1,21 @@
+[package]
+name = "pinet-browser"
+version = "0.1.0"
+edition = "2021"
+authors = ["PINET Project"]
+description = "Ultra-lightweight Rust browser with Epiphany Dark UI for Raspberry Pi touchscreen"
+
+[dependencies]
+gtk = "0.18"
+glib = "0.18"
+gio = "0.18"
+gdk = "0.18"
+webkit2gtk = { version = "2.0", features = ["v2_40"] }
+urlencoding = "2.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,3 @@
+# Cross-compiled aarch64 binary (built in Docker, installed to /usr/local/bin)
+/pinet-browser
+/target/
