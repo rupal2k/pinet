@@ -8,7 +8,7 @@
 Three things a plain `graphify update` doesn't do:
 
 * the deploy map -- scripts reference each other by installed path
-  (/usr/local/bin/x, /opt/pinet-board/...), so graphify-link is handed the
+  (/usr/local/bin/x, /opt/pinet-board/...), so tools/graphify-link.py is handed the
   repo->installed mapping. It is read from tests/test_consistency.py's
   INSTALL_MAP, so that stays the one copy of it;
 * community names -- Leiden is not deterministic, so community ids shuffle on
@@ -128,14 +128,18 @@ def apply_labels():
 
 def main():
     OUT.mkdir(exist_ok=True)
+    # `python -m graphify` rather than the graphify launcher: it works the same on
+    # Linux and on Windows, where application control can block the .exe.
+    graphify = (sys.executable, "-m", "graphify")
     if "--labels-only" not in sys.argv:
         print(f"deploy map: {deploy_map()} paths")
-        run("graphify", "update", ".")
-        run("graphify-link", ".", "--map", str(OUT / "deploy-map.txt"))
-        run("graphify", "cluster-only", ".")
+        run(*graphify, "update", ".")
+        run(sys.executable, str(REPO / "tools" / "graphify-link.py"), ".",
+            "--map", str(OUT / "deploy-map.txt"))
+        run(*graphify, "cluster-only", ".", "--no-label", "--no-viz")
     apply_labels()
     if "--send" in sys.argv:
-        run("graphify-to-pi", str(REPO), repo_name())
+        run(sys.executable, str(REPO / "tools" / "push_all_graphs_to_pi.py"))
 
 
 if __name__ == "__main__":
