@@ -12,7 +12,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi%203B-c51a4a.svg?style=flat-square)](https://www.raspberrypi.com/)
 [![OS](https://img.shields.io/badge/OS-Debian%2013%20trixie%20(64--bit)-a80030.svg?style=flat-square)](https://www.debian.org/)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776ab.svg?style=flat-square)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/Tests-301%20passing-brightgreen.svg?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-354%20passing-brightgreen.svg?style=flat-square)](tests/)
 [![Displays](https://img.shields.io/badge/Displays-7%22%20DSI%20%2B%202.13%22%20e--Paper-blueviolet.svg?style=flat-square)](#hardware-architecture)
 [![Compositor](https://img.shields.io/badge/Compositor-labwc%20(Wayland)-informational.svg?style=flat-square)](#subsystems)
 [![Battery](https://img.shields.io/badge/Battery-8400%20mAh%20(2%C3%9721700)-f59e0b.svg?style=flat-square)](#power-management-and-battery-guard)
@@ -63,7 +63,8 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 | **Dual Displays** | 7" DSI Touchscreen (800×480) + 2.13" e-Paper (250×122) | Front GUI for desktop, kiosks & video; always-on rear panel for system telemetry & join QR. |
 | **Storage & Security** | LUKS2 (`aes-xts-plain64` 512-bit), Argon2id, GTK Layer-Shell | Boot PIN unlock pad (`pinet-luks-unlock`) with systemd `Type=notify`; seamless crossfade directly to photo frame. |
 | **Offline Hotspot** | Broadcom `wlan0` (`10.10.10.1`), hostapd, dnsmasq | Air-gapped Wi-Fi network triggering captive portal into `pinet-board` (message board + 1 GB file drop). |
-| **Media Centre** | Raspotify, VLC, UVC Video (`ffmpeg`/`ffplay`), PipeWire | Spotify Connect (Bluetooth @ 150% boost), live 576p Indian IPTV streams, and low-latency HDMI field monitor. |
+| **Media Centre** | Raspotify, Spotifast, Audacious, VLC, UVC Video (`ffmpeg`/`ffplay`), PipeWire | Spotify Connect (Bluetooth @ 150% boost), Spotifast player, Winamp-style local audio, live 576p Indian IPTV, and low-latency HDMI field monitor. |
+| **PINET Browser** | Rust, GTK3, WebKitGTK 4.1 | Default touch browser: slim always-visible scrollbar, find, bookmarks, download notices, on-screen keyboard; ~184 MB on a heavy page. |
 | **Wi-Fi Auditing** | `nmap`, `aircrack-ng`, `wifite`, `reaver`, `mdk4`, Vte terminal | Touch grid with embedded terminal pane; pentest mode flips `wlan1` to monitor mode & alerts e-ink. |
 | **Ethernet Share** | `eth0` (`10.42.0.1/24`), dnsmasq DHCP, nftables NAT | Routes `wlan1` internet uplink out through Ethernet with optional Pi-hole ad-blocking DNS. |
 | **Power & Battery** | Waveshare UPS HAT (D), INA219 (I²C `0x43`), 8400 mAh | Real-time voltage/current monitoring, calibrated OCV math, auto-shutdown guard, and load shedding. |
@@ -402,14 +403,26 @@ An official Raspberry Pi 7" capacitive touchscreen (800×480) driven by `labwc`
 <summary><b>Click to expand architecture & operational details</b></summary>
 <br />
 
-A unified touch interface (`media-centre`) providing three dedicated entertainment
-modes behind one desktop launcher:
+A unified touch interface (`media-centre`) providing four entertainment modes behind
+one desktop launcher, shown as a 2×2 grid of wide cards in the black-on-white PINET
+theme (the Spotify card carries a live ON/OFF pill):
 
 - **Spotify Connect**: Runs `raspotify` as a background receiver. Sound routes to
   connected Bluetooth speakers via PipeWire. If no speaker is currently connected,
   it attempts reconnection with paired devices (prioritizing the last-used speaker).
   Forces speaker volume to 150% so the source phone's volume slider controls the
   full audible range.
+- **Spotifast Player**: [Spotifast](https://github.com/crmne/spotifast), a native
+  Rust Spotify client (~100 MB RAM, OpenGL ES 2.0 on the Pi's VC4) with library,
+  search and a Winamp-style mini player. The card connects a Bluetooth speaker first,
+  then opens it. Install or update with `sudo pinet-install-spotifast` (latest
+  aarch64 release, verified against the release checksums). Needs Spotify Premium and
+  your own Spotify developer app Client ID; its taskbar and tray icon follow the PINET
+  panel style.
+- **Winamp Player (local audio)**: Every local audio type (110 MIME types and aliases)
+  opens in Audacious with its *Winamp Classic* interface at double size. A
+  `~/.local/bin/audacious` wrapper runs it through XWayland, which both the skin and
+  Audacious's GTK UI need under labwc.
 - **IPTV Player**: Plays live Indian broadcast streams in English, Bengali, and
   Hindi from `iptv-org`. Automatically filters playlists to 576p streams (avoiding
   Pi 3B hardware decoding bottlenecks) and pre-probes stream endpoints when the list
@@ -419,6 +432,41 @@ modes behind one desktop launcher:
   MacroSilicon MS2109) to convert the touchscreen into an external HDMI field monitor
   for laptops or cameras. Streams video through low-latency `ffmpeg` and `ffplay`
   pipelines with automatic recovery if the USB bus resets.
+
+</details>
+
+### PINET Browser
+
+<details>
+<summary><b>Click to expand architecture & operational details</b></summary>
+<br />
+
+`pinet-browser` is the device's default web browser (links, `xdg-open`, HTML files): a
+small Rust + GTK3 + WebKitGTK 4.1 app built for finger use on the 800×480 panel.
+
+- **Touch-first controls**: 44 px buttons, a clear close button, and a slim scrollbar
+  that is always visible at the screen edge (styled WebKit scrollbars are not overlay,
+  so they show without mouse movement).
+- **Fullscreen without a trap**: the header hides in fullscreen, so a floating exit
+  button appears (Esc/F11 work too).
+- **Address bar**: opens and closes the PINET on-screen keyboard (`pinet-kbd`). Enter,
+  Backspace and Ctrl+A are handled by key name, because virtual keyboards swap the
+  keymap at runtime and GTK's keycode-based bindings could silently miss them.
+- **Page tools**: find in page with match count, zoom with a tap-to-reset percentage,
+  and a start page with search, bookmarks and this session's history.
+- **Links and downloads**: `target=_blank` / `window.open` links open in the current
+  view; downloads go to `~/Downloads` with a "Saved to Downloads/…" notice.
+- **Privacy**: no cookies or history are written to disk; only bookmarks (when you tap
+  the star) are saved.
+- **Lightweight**: graphics acceleration *on demand* keeps a heavy page (Wikipedia)
+  around 184 MB, against ~283 MB with acceleration forced on.
+
+Build and deploy from a PC with Docker (cross-compiles for aarch64 and installs the
+binary, desktop entry, icon, and default-browser settings):
+
+```bash
+pinet-browser/build.sh --deploy pi@<pi-address>
+```
 
 </details>
 
@@ -514,9 +562,17 @@ Driven by `labwc` (Wayland compositor) with `wf-panel-pi` under a custom dark th
 
 | | |
 |---|---|
-| <a href="docs/images/media-centre.png" target="_blank"><img src="docs/images/media-centre.png" alt="Media Centre Mode Selector" width="100%" /></a><br>**Media Centre Home.** Unified mode launcher for Spotify Connect, IPTV, and HDMI input with live status indicator. | <a href="docs/images/spotify-confirm.png" target="_blank"><img src="docs/images/spotify-confirm.png" alt="Spotify Connect Launch Dialog" width="100%" /></a><br>**Spotify Connect Launcher.** Confirmation prompt before spawning raspotify receiver and auto-reconnecting Bluetooth speaker. |
+| <a href="docs/images/media-centre.png" target="_blank"><img src="docs/images/media-centre.png" alt="Media Centre Mode Selector" width="100%" /></a><br>**Media Centre Home.** 2×2 card chooser for Spotify Connect (live ON/OFF pill), Spotifast, IPTV and HDMI input. | <a href="docs/images/spotify-confirm.png" target="_blank"><img src="docs/images/spotify-confirm.png" alt="Spotify Connect Launch Dialog" width="100%" /></a><br>**Spotify Connect Launcher.** Confirmation prompt before spawning raspotify receiver and auto-reconnecting Bluetooth speaker. |
+| <a href="docs/images/spotifast.png" target="_blank"><img src="docs/images/spotifast.png" alt="Spotifast Spotify Client" width="100%" /></a><br>**Spotifast Player.** Lightweight native Spotify client (~100 MB RAM) with library, search and a Winamp-style mini player; first run asks for your own Spotify app Client ID. | <a href="docs/images/winamp-player.png" target="_blank"><img src="docs/images/winamp-player.png" alt="Winamp Player for Local Audio" width="100%" /></a><br>**Winamp Player.** Local audio files open in Audacious's Winamp Classic interface at double size, playing to the Bluetooth speaker. |
 | <a href="docs/images/media-centre-iptv.png" target="_blank"><img src="docs/images/media-centre-iptv.png" alt="IPTV Channel Guide" width="100%" /></a><br>**IPTV Channel Guide.** Filtered Indian broadcasts in English, Bengali, and Hindi, pre-probed for live HLS streams. | <a href="docs/images/media-centre-video.png" target="_blank"><img src="docs/images/media-centre-video.png" alt="Full-Screen IPTV Playback" width="100%" /></a><br>**Full-Screen Playback.** Stream playback with auto-hiding corner touch controls (Back, Play/Pause, Close). |
 | <a href="docs/images/hdmi-monitor.png" target="_blank"><img src="docs/images/hdmi-monitor.png" alt="HDMI Field Monitor" width="100%" /></a><br>**HDMI Field Monitor.** Full-screen low-latency preview feed from an external laptop or camera via USB UVC capture dongle. | **HDMI Capture Pipeline**<br>Receives 1080p/720p 60Hz HDMI video via MacroSilicon MS2109 dongle, rendered with sub-120ms latency through an optimized `ffplay` pipeline with automatic USB bus recovery. |
+
+#### PINET Browser
+
+| | |
+|---|---|
+| <a href="docs/images/browser-home.png" target="_blank"><img src="docs/images/browser-home.png" alt="PINET Browser Start Page" width="100%" /></a><br>**Start Page.** Search, bookmarks and this session's history, with 44 px touch controls and a single close button. | <a href="docs/images/browser-page.png" target="_blank"><img src="docs/images/browser-page.png" alt="PINET Browser Page View" width="100%" /></a><br>**Browsing.** Slim, always-visible scrollbar at the screen edge; zoom level shown and tap-to-reset. |
+| <a href="docs/images/browser-find.png" target="_blank"><img src="docs/images/browser-find.png" alt="PINET Browser Find in Page" width="100%" /></a><br>**Find in Page.** Live match count with previous/next buttons. | <a href="docs/images/browser-download.png" target="_blank"><img src="docs/images/browser-download.png" alt="PINET Browser Download Notice" width="100%" /></a><br>**Downloads.** Files land in `~/Downloads` with a "Saved to Downloads/…" notice. |
 
 #### Hotspot, Captive Portal & Network Auditing
 
@@ -796,12 +852,13 @@ To report security issues, refer to [SECURITY.md](SECURITY.md).
 ├── eink-dashboard/      # E-ink status dashboard (SPI driver, carousel src, systemd units)
 ├── etc/                 # System configuration: hostapd, dnsmasq, nftables, NetworkManager
 ├── pinet-board/         # Captive portal Flask application (message board and file drop)
+├── pinet-browser/       # Rust/WebKitGTK touch browser + Docker cross-build (build.sh)
 ├── plymouth/            # PINET custom boot splash theme
 ├── scripts/
 │   ├── bin/             # /usr/local/bin: Touchscreen apps, media centre, kali launcher
 │   └── sbin/            # /usr/local/sbin: Power manager, ups guard, pentest scripts
 ├── systemd/             # Systemd service units, timers, and drop-in configurations
-├── tests/               # Standalone unit test suite (301 tests, Python standard library)
+├── tests/               # Standalone unit test suite (354 tests, Python standard library)
 └── tools/               # Developer utilities: icon generators, code-graph refreshers
 ```
 
