@@ -1,0 +1,183 @@
+#!/bin/bash
+# Recreate the PINET media/desktop setup that lives outside the installers:
+#   - Winamp Player: Audacious with the Winamp Classic skin (double size, main
+#     window only) for every local audio type, run through XWayland
+#   - Spotifast (latest release, via pinet-install-spotifast)
+#   - PINET Browser as the default browser (when /usr/local/bin has it), and
+#     its WebKitGTK 4.1 libraries pinned so autoremove keeps them
+#   - Epiphany removed; only Chocolate Doom kept (Heretic/Hexen/Strife files
+#     are dropped and kept out by a dpkg path-exclude)
+#   - optional: a password-less default keyring (--plain-keyring)
+#
+# Usage: sudo pinet-setup-media [--plain-keyring]
+# Safe to re-run: every step checks the current state first.
+set -euo pipefail
+
+PLAIN_KEYRING=no
+for a in "$@"; do
+    case "$a" in
+        --plain-keyring) PLAIN_KEYRING=yes ;;
+        -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown option: $a" >&2; exit 2 ;;
+    esac
+done
+
+[[ "$(id -u)" -eq 0 ]] || { echo "Run with sudo" >&2; exit 1; }
+U="${SUDO_USER:-$(logname 2>/dev/null || echo pi)}"
+H="$(getent passwd "$U" | cut -d: -f6)"
+[[ -n "$H" && -d "$H" ]] || { echo "No home directory for $U" >&2; exit 1; }
+as_user() { sudo -u "$U" env HOME="$H" XDG_CONFIG_HOME="$H/.config" XDG_DATA_HOME="$H/.local/share" "$@"; }
+say() { echo "[pinet-setup-media] $*"; }
+
+# --- 1. Packages ----------------------------------------------------------
+want=()
+for p in audacious wtype; do dpkg -s "$p" >/dev/null 2>&1 || want+=("$p"); done
+if ((${#want[@]})); then
+    say "installing ${want[*]}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${want[@]}" >/dev/null
+fi
+# PINET Browser links against WebKitGTK 4.1; removing Epiphany would otherwise
+# leave these marked auto-removable.
+for p in libwebkit2gtk-4.1-0 libjavascriptcoregtk-4.1-0; do
+    dpkg -s "$p" >/dev/null 2>&1 && apt-mark manual "$p" >/dev/null
+done
+if dpkg -s epiphany-browser >/dev/null 2>&1; then
+    say "removing Epiphany"
+    DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq epiphany-browser epiphany-browser-data >/dev/null
+fi
+
+# --- 2. Only Chocolate Doom -----------------------------------------------
+cat > /etc/dpkg/dpkg.cfg.d/pinet-doom-only <<'EOF'
+# Only Chocolate Doom is wanted; skip Heretic/Hexen/Strife files on install/upgrade.
+path-exclude=/usr/games/chocolate-heretic*
+path-exclude=/usr/games/chocolate-hexen*
+path-exclude=/usr/games/chocolate-strife*
+path-exclude=/usr/share/applications/org.chocolate_doom.Heretic*
+path-exclude=/usr/share/applications/org.chocolate_doom.Hexen*
+path-exclude=/usr/share/applications/org.chocolate_doom.Strife*
+path-exclude=/usr/share/metainfo/org.chocolate_doom.Heretic*
+path-exclude=/usr/share/metainfo/org.chocolate_doom.Hexen*
+path-exclude=/usr/share/metainfo/org.chocolate_doom.Strife*
+path-exclude=/usr/share/man/man*/chocolate-heretic*
+path-exclude=/usr/share/man/man*/chocolate-hexen*
+path-exclude=/usr/share/man/man*/chocolate-strife*
+path-exclude=/usr/share/man/man*/heretic*
+path-exclude=/usr/share/man/man*/hexen*
+path-exclude=/usr/share/man/man*/strife*
+EOF
+rm -f /usr/games/chocolate-{heretic,hexen,strife}{,-setup} \
+      /usr/share/applications/org.chocolate_doom.{Heretic,Hexen,Strife}.desktop \
+      /usr/share/metainfo/org.chocolate_doom.{Heretic,Hexen,Strife}* \
+      /usr/share/man/man*/chocolate-{heretic,hexen,strife}* \
+      /usr/share/man/man*/{heretic,hexen,strife}*
+
+# --- 3. Spotifast ---------------------------------------------------------
+if [[ -x /usr/local/sbin/pinet-install-spotifast ]]; then
+    /usr/local/sbin/pinet-install-spotifast || say "Spotifast install failed (offline?) - re-run later"
+fi
+
+# --- 4. Winamp Player (Audacious) ------------------------------------------
+as_user mkdir -p "$H/.local/bin" "$H/.local/share/applications" "$H/.config/audacious"
+as_user tee "$H/.local/bin/audacious" >/dev/null <<'EOF'
+#!/bin/sh
+# Audacious GTK UI hangs on native Wayland and the Winamp skin needs X11:
+# always run it through XWayland (labwc starts it on demand at :0).
+export GDK_BACKEND=x11 DISPLAY="${DISPLAY:-:0}"
+exec /usr/bin/audacious -G "$@"
+EOF
+chmod 755 "$H/.local/bin/audacious"
+
+# Every audio MIME type and alias the system knows -> Winamp Player.
+types=$( { grep -E '^audio/' /usr/share/mime/types
+           awk '$1 ~ /^audio\// {print $1}' /usr/share/mime/aliases
+           grep '^MimeType=' /usr/share/applications/audacious.desktop | cut -d= -f2 | tr ';' '\n' | grep '^audio/'
+         } | sort -u )
+as_user tee "$H/.local/share/applications/audacious.desktop" >/dev/null <<EOF
+[Desktop Entry]
+Type=Application
+Name=Winamp Player
+GenericName=Music Player
+Comment=Play local music in the classic Winamp look (Audacious)
+Exec=audacious %U
+TryExec=audacious
+Icon=audacious
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+MimeType=$(echo "$types" | tr '\n' ';')
+EOF
+chmod 755 "$H/.local/share/applications/audacious.desktop"
+as_user update-desktop-database -q "$H/.local/share/applications" 2>/dev/null || true
+# shellcheck disable=SC2086
+as_user xdg-mime default audacious.desktop $types
+say "Winamp Player handles $(echo "$types" | wc -l) audio types"
+
+# Skin settings. The interface switch lives in plugin-registry, which Audacious
+# writes on its first clean exit.
+cfg="$H/.config/audacious/config"
+as_user touch "$cfg"
+as_user python3 - "$cfg" <<'PYEOF'
+import sys
+path = sys.argv[1]
+want = {"double_size": "TRUE", "equalizer_visible": "FALSE", "playlist_visible": "FALSE"}
+lines = open(path).read().splitlines()
+out, in_skins, done = [], False, set()
+for line in lines:
+    if line.startswith("["):
+        if in_skins:
+            out += [f"{k}={v}" for k, v in want.items() if k not in done]
+        in_skins = line.strip() == "[skins]"
+    elif in_skins and "=" in line and line.split("=", 1)[0] in want:
+        k = line.split("=", 1)[0]
+        if k in done:
+            continue
+        line = f"{k}={want[k]}"
+        done.add(k)
+    out.append(line)
+if in_skins:
+    out += [f"{k}={v}" for k, v in want.items() if k not in done]
+if not any(l.strip() == "[skins]" for l in out):
+    out += ["", "[skins]"] + [f"{k}={v}" for k, v in want.items()]
+open(path, "w").write("\n".join(out) + "\n")
+PYEOF
+reg="$H/.config/audacious/plugin-registry"
+if [[ -f "$reg" ]]; then
+    awk '/^iface /{cur=$2} /^enabled /&&cur!=""{ if(cur~/gtkui\.so$/) $0="enabled 0"; if(cur~/\/skins\.so$/) $0="enabled 1" } /^(general|output|input|effect|vis|transport|playlist) /{cur=""} {print}' \
+        "$reg" > "$reg.new" && chown "$U:$U" "$reg.new" && mv "$reg.new" "$reg"
+    say "Winamp Classic interface enabled"
+else
+    say "open Winamp Player once and close it, then re-run to switch on the Winamp skin"
+fi
+
+# --- 5. Default browser -----------------------------------------------------
+if command -v pinet-browser >/dev/null && [[ -f /usr/share/applications/pinet-browser.desktop ]]; then
+    as_user xdg-settings set default-web-browser pinet-browser.desktop 2>/dev/null || true
+    as_user xdg-mime default pinet-browser.desktop \
+        x-scheme-handler/http x-scheme-handler/https text/html application/xhtml+xml
+    say "PINET Browser is the default browser"
+else
+    say "PINET Browser not installed (pinet-browser/build.sh --deploy) - default browser unchanged"
+fi
+
+# --- 6. Optional: password-less keyring --------------------------------------
+# Lets apps (Spotifast) remember sign-ins under autologin, which can't unlock a
+# password-protected keyring. Its contents are stored UNENCRYPTED on the SD card.
+if [[ "$PLAIN_KEYRING" == yes ]]; then
+    kr="$H/.local/share/keyrings"
+    as_user mkdir -p "$kr"
+    chmod 700 "$kr"
+    if [[ ! -f "$kr/Default_keyring.keyring" ]]; then
+        as_user tee "$kr/Default_keyring.keyring" >/dev/null <<'EOF'
+[keyring]
+display-name=Default keyring
+ctime=0
+mtime=0
+lock-on-idle=false
+lock-after=false
+EOF
+        chmod 600 "$kr/Default_keyring.keyring"
+    fi
+    as_user sh -c "printf 'Default_keyring' > '$kr/default'"
+    say "password-less default keyring set (takes effect at next login)"
+fi
+
+say "done"

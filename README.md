@@ -636,6 +636,20 @@ After it completes:
   [Hackster.io guide](https://www.hackster.io/rupal2k/pinet-dual-screen-pi-cyber-deck-7a8dd3),
   I²C and SPI enabled in `/boot/firmware/config.txt`.
 
+### Media and desktop extras
+
+After `install.sh`, one idempotent command (as the desktop user, via `sudo`) sets up Winamp
+Player for local audio, Spotifast, PINET Browser as the default browser (once deployed with
+`pinet-browser/build.sh --deploy`), and removes Epiphany and the extra Doom engines:
+
+```bash
+sudo pinet-setup-media                  # add --plain-keyring to let apps remember sign-ins
+```
+
+`--plain-keyring` creates a password-less default keyring so Spotifast stays signed in under
+autologin; its contents are stored unencrypted on the SD card. Knowledge graphs for the Graphs
+kiosk are pushed from the PC with `python tools/push_all_graphs_to_pi.py`.
+
 ---
 
 ### Re-deploy / update from an existing clone
