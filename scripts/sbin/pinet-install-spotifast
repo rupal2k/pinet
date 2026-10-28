@@ -43,8 +43,13 @@ sed -i 's|^Exec=spotifast|Exec=/opt/spotifast/spotifast|' "$tmp/$NAME/packaging/
 
 if [[ -n "$USER_HOME" && -d "$USER_HOME" ]]; then
     as_user() { sudo -u "$USER_NAME" "$@"; }
-    as_user install -D -m 644 "$tmp/$NAME/packaging/icons/spotifast.svg" \
-        "$USER_HOME/.local/share/icons/hicolor/scalable/apps/spotifast.svg"
+    # Theme icon (taskbar button, tray, menu): PINET panel style, light outline
+    # on the dark panel (same as desktop/icons/spotifast-panel.svg).
+    as_user mkdir -p "$USER_HOME/.local/share/icons/hicolor/scalable/apps"
+    as_user tee "$USER_HOME/.local/share/icons/hicolor/scalable/apps/spotifast.svg" >/dev/null <<'EOF'
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="19.5" fill="none" stroke="#e8e8e8" stroke-width="3"/><path d="M19.5 15.5 L33 24 L19.5 32.5 Z" fill="#e8e8e8" stroke="#e8e8e8" stroke-width="2" stroke-linejoin="round"/></svg>
+EOF
+    # Media Centre card icon (white card, desaturated there): the original art.
     as_user install -D -m 644 "$tmp/$NAME/packaging/icons/spotifast.svg" \
         "$USER_HOME/.local/share/icons/spotifast.svg"
     # App menu only (opened from Media Centre, so no desktop icon). Executable,
