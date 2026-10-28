@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Touch pull-tab for the auto-hiding PINET taskbar (GTK3 + wlr layer-shell).
+"""Taskbar visibility + touch pull-tab for PINET (GTK3 + wlr layer-shell).
 
-wf-panel-pi's auto-hide only reveals the taskbar when a mouse pointer reaches
-the bottom edge, which a finger can't do reliably. This small tab sits at the
-bottom-centre edge instead: tap it to show the taskbar (the tab rides up on top
-of it), tap again to hide it, or leave it and it re-hides after SHOW_SECONDS.
-SIGUSR1 toggles too (for scripts and testing).
+On the desktop (no app window open, or all minimized) the taskbar is shown and
+this tab is hidden. While an app window is open -- on the 800x480 panel apps
+fill the screen -- the taskbar is hidden so the app gets the whole display, and
+a small tab sits at the bottom-centre edge: tap it to show the taskbar (the tab
+rides up on top of it), tap again to hide it, or leave it and it re-hides after
+SHOW_SECONDS. Open windows are polled with `wlrctl toplevel find`. SIGUSR1
+toggles like a tap (for scripts and testing).
+
+wf-panel-pi's own auto-hide can't do this by itself: it only reveals on a
+mouse pointer at the bottom edge, which a finger can't do reliably.
 
 Show = `autohide=false` in the panel config (applied live; the taskbar takes its
 own strip instead of covering apps). Hide = `autohide=true` plus moving the
@@ -29,6 +34,7 @@ import sys
 INI = os.path.expanduser("~/.config/wf-panel-pi/wf-panel-pi.ini")
 PANEL_HEIGHT = 30   # px, icon_size=24 taskbar; the tab stands on its top edge
 SHOW_SECONDS = 30
+POLL_MS = 1000      # one wlrctl query (~20 ms on the Pi 3B) per second
 
 
 def with_autohide(text, on):
@@ -57,6 +63,18 @@ def set_autohide(on):
         with open(tmp, "w") as f:
             f.write(new)
         os.replace(tmp, INI)   # atomic: the panel never reads a half-written file
+
+
+def app_open():
+    """True while any app window is open and not minimized (desktop otherwise)."""
+    if not shutil.which("wlrctl"):
+        return True   # can't tell: keep the auto-hide + tab behaviour
+    try:
+        r = subprocess.run(["wlrctl", "toplevel", "find", "state:unminimized"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+    except subprocess.TimeoutExpired:
+        return True
+    return r.returncode == 0
 
 
 def release_pointer():
@@ -115,32 +133,54 @@ def main():
     btn = Gtk.Button()
     btn.set_size_request(72, 20)
     win.add(btn)
-    state = {"shown": False, "timer": 0}
+    # app: an app window is open; pulled: the tab has pulled the taskbar up over it
+    state = {"app": None, "pulled": False, "timer": 0}
 
     def cancel_timer():
         if state["timer"]:
             GLib.source_remove(state["timer"])
             state["timer"] = 0
 
-    def hide(*_):
-        cancel_timer()
-        set_autohide(True)
-        release_pointer()
-        state["shown"] = False
-        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 0)
-        btn.set_label("︿")   # pull the taskbar up
+    def apply():
+        if not state["app"]:                    # desktop: taskbar up, no tab needed
+            cancel_timer()
+            state["pulled"] = False
+            set_autohide(False)
+            win.hide()
+        elif state["pulled"]:                   # app open, taskbar pulled up by the tab
+            set_autohide(False)
+            GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, PANEL_HEIGHT)
+            btn.set_label("﹀")   # push it back down
+            win.show_all()
+        else:                                   # app open: taskbar tucked away
+            cancel_timer()
+            set_autohide(True)
+            release_pointer()
+            GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 0)
+            btn.set_label("︿")   # pull the taskbar up
+            win.show_all()
+
+    def push_down(*_):
+        state["timer"] = 0
+        state["pulled"] = False
+        apply()
         return False
 
-    def show():
-        cancel_timer()
-        set_autohide(False)
-        state["shown"] = True
-        GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, PANEL_HEIGHT)
-        btn.set_label("﹀")   # push it back down
-        state["timer"] = GLib.timeout_add_seconds(SHOW_SECONDS, hide)
-
     def toggle(*_):
-        hide() if state["shown"] else show()
+        if state["app"]:                        # on the desktop the taskbar is already up
+            cancel_timer()
+            state["pulled"] = not state["pulled"]
+            if state["pulled"]:
+                state["timer"] = GLib.timeout_add_seconds(SHOW_SECONDS, push_down)
+            apply()
+        return True
+
+    def poll():
+        now = app_open()
+        if now != state["app"]:
+            state["app"] = now
+            state["pulled"] = False
+            apply()
         return True
 
     def quit_showing(*_):
@@ -153,8 +193,8 @@ def main():
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, toggle)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, quit_showing)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, quit_showing)
-    hide()   # the panel may already be stuck visible from an earlier touch
-    win.show_all()
+    poll()
+    GLib.timeout_add(POLL_MS, poll)
     Gtk.main()
 
 
