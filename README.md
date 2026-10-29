@@ -28,6 +28,9 @@
 
 <br />
 
+<a href="docs/images/pinet-hardware.jpg" target="_blank"><img src="docs/images/pinet-hardware.jpg" alt="PINET hardware: the 7-inch touchscreen and keyboard on the front, the 2.13-inch e-paper telemetry panel on the back" width="100%" style="border-radius: 10px; border: 1px solid #30363d;" /></a>
+<p align="center"><sub>Front: 7" touchscreen and keyboard · Back: 2.13" e-paper telemetry panel</sub></p>
+
 <img src="docs/images/pinet-showcase.gif" alt="PINET Interface Walkthrough" width="100%" style="border-radius: 10px; border: 1px solid #30363d;" />
 
 </div>
@@ -72,6 +75,13 @@ design write-up, see [`docs/Device Overview.md`](docs/Device%20Overview.md).
 ---
 
 ## Hardware Architecture
+
+### The Device
+
+| Front | Back | Side |
+|:---:|:---:|:---:|
+| <a href="docs/images/pinet-front.jpg" target="_blank"><img src="docs/images/pinet-front.jpg" alt="PINET front: 7-inch DSI touchscreen on its stand with the split keyboard" width="100%" /></a> | <a href="docs/images/pinet-back.jpg" target="_blank"><img src="docs/images/pinet-back.jpg" alt="PINET back: 2.13-inch e-paper panel showing date, battery, CPU, RAM, weather and network" width="100%" /></a> | <a href="docs/images/pinet-side.jpg" target="_blank"><img src="docs/images/pinet-side.jpg" alt="PINET side view: the wrapped case with the e-paper panel showing the low-voltage battery card" width="100%" /></a> |
+| 7" DSI touchscreen (800×480) with the keyboard | 2.13" e-paper (250×122) telemetry card | Wrapped case; e-paper on the battery card |
 
 ### Schematic & Interconnect Topology
 
