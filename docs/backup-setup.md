@@ -89,6 +89,8 @@ ln -s /mnt/pinet-media/agentic-data/graphs ~/graphs
 ### `backup-status-index` script
 Installed at `/usr/local/bin/backup-status-index`. Generates `~/backup-status/index.html` — a dark-themed page showing the last 6 commits from each repo.
 
+The page opens with a **Radicle Mirror** section: one row per GitHub repo mirrored into Radicle (result, public/private, head commit), plus node state and time of the last run. It reads `/mnt/pinet-media/radicle/status.tsv`, which the hourly `gh2rad` mirror job rewrites on every run (tab-separated: name, visibility, `ok`/`FAILED`, short SHA). If the file is missing the section says so instead of failing.
+
 Deploy:
 ```bash
 scp scripts/bin/backup-status-index rupal@192.168.29.125:~/backup-status-index
