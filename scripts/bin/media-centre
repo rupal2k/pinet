@@ -55,6 +55,8 @@ ALL = "All categories"
 LAST_SPEAKER = os.path.join(CACHE_DIR, "last-speaker")
 AUDIO_SINK_UUID = "0000110b"   # Bluetooth A2DP Audio Sink: a speaker/headphones
 CONNECT_TIMEOUT = 8
+VOLUME_STEP = "10%"
+VOLUME_LIMIT = "1.5"   # the ceiling spotify-audio-route boosts the speaker to (its BOOST)
 # The only per-stream options iptv-org uses. Anything else in a remote
 # playlist (e.g. :sout=... which writes files) is dropped, not passed to VLC.
 SAFE_VLC_OPTS = ("http-referrer=", "http-user-agent=")
@@ -89,6 +91,8 @@ treeview.view:selected { background-color: #000000; color: #ffffff; }
               font-size: 20px; font-weight: bold; min-width: 56px; min-height: 56px;
               padding: 0; }
 .osd button:active { background-color: rgba(200, 40, 40, 0.6); }
+.osd .level { color: rgba(255, 255, 255, 0.95); font-size: 18px; font-weight: bold;
+              text-shadow: 0 0 4px rgba(0, 0, 0, 0.9); }
 /* Hidden: fully transparent, but its corner still takes the tap. */
 .osd button.hidden, .osd button.hidden:active, .osd button.hidden:hover { background-color: rgba(0, 0, 0, 0);
               border-color: rgba(0, 0, 0, 0); color: rgba(0, 0, 0, 0); }
@@ -266,6 +270,16 @@ def vlc_stream_ids(wpctl_status):
             if num.isdigit():
                 ids.append(num)
     return ids
+
+
+def parse_volume(wpctl_get_volume):
+    """Percent from `wpctl get-volume` ("Volume: 0.80", "Volume: 0.80 [MUTED]"),
+    or None when it can't be read. Pure."""
+    parts = wpctl_get_volume.split()
+    try:
+        return round(float(parts[1]) * 100)
+    except (IndexError, ValueError):
+        return None
 
 
 def vlc_command(cmd, sock=RC_SOCK):
@@ -723,9 +737,9 @@ def run_gui():
         # -- corner controls over the video --
         def _build_osd(self):
             """Layer-shell bar in the top-left corner, above the full-screen
-            VLC: Back (to the channel list), Play/Pause and Close (leave Media
-            Centre). Invisible until its corner is tapped, hidden again
-            AUTOHIDE_MS after the last tap."""
+            VLC: Back (to the channel list), Play/Pause, Volume down/up and
+            Close (leave Media Centre). Invisible until its corner is tapped,
+            hidden again AUTOHIDE_MS after the last tap."""
             gi.require_version("GtkLayerShell", "0.1")
             from gi.repository import GtkLayerShell
             win = self._cls(Gtk.Window(), "osd")
@@ -748,9 +762,17 @@ def run_gui():
             self.osd_back.connect("clicked", self._back_to_list)
             self.osd_pause = Gtk.Button(label="❚❚")
             self.osd_pause.connect("clicked", self._toggle_pause)
+            self.osd_vol_down = Gtk.Button(label="−")
+            self.osd_vol_down.connect("clicked", lambda *_: self._volume("-"))
+            # The level between − and +: empty until one of them is tapped.
+            self.osd_vol = self._cls(Gtk.Label(label=""), "level")
+            self.osd_vol_up = Gtk.Button(label="+")
+            self.osd_vol_up.connect("clicked", lambda *_: self._volume("+"))
             self.osd_close = Gtk.Button(label="✕")
             self.osd_close.connect("clicked", lambda *_: self.destroy())
-            for b in (self.osd_reveal, self.osd_back, self.osd_pause, self.osd_close):
+            self.osd_controls = (self.osd_back, self.osd_pause, self.osd_vol_down,
+                                 self.osd_vol, self.osd_vol_up, self.osd_close)
+            for b in (self.osd_reveal,) + self.osd_controls:
                 row.pack_start(b, False, False, 0)
             win.add(row)
             self.osd = win
@@ -761,7 +783,7 @@ def run_gui():
                 GLib.source_remove(self.osd_timer)
                 self.osd_timer = 0
             self.osd_reveal.set_visible(not show)
-            for b in (self.osd_back, self.osd_pause, self.osd_close):
+            for b in self.osd_controls:
                 b.set_visible(show)
             if show:
                 self.osd_timer = GLib.timeout_add(AUTOHIDE_MS, self._osd_autohide)
@@ -775,6 +797,23 @@ def run_gui():
             vlc_command("pause")
             self.paused = not self.paused
             self.osd_pause.set_label("▶" if self.paused else "❚❚")
+            self._osd_show_controls(True)   # a tap keeps the bar up
+
+        def _volume(self, sign):
+            """One step up or down on whatever is playing the sound (the
+            Bluetooth speaker, else the Pi's own output). Up also unmutes."""
+            sink = "@DEFAULT_AUDIO_SINK@"
+            try:
+                subprocess.run(["wpctl", "set-volume", "-l", VOLUME_LIMIT, sink, VOLUME_STEP + sign],
+                               timeout=5, check=False)
+                if sign == "+":
+                    subprocess.run(["wpctl", "set-mute", sink, "0"], timeout=5, check=False)
+                out = subprocess.run(["wpctl", "get-volume", sink], capture_output=True,
+                                     text=True, timeout=5, check=False).stdout
+            except (OSError, subprocess.SubprocessError):
+                out = ""
+            pct = parse_volume(out)
+            self.osd_vol.set_label("" if pct is None else f"{pct}%")
             self._osd_show_controls(True)   # a tap keeps the bar up
 
         def _quit(self, *_):

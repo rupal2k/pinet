@@ -131,6 +131,13 @@ class ControlTest(unittest.TestCase):
     def test_only_audio_streams_are_unmuted(self):
         self.assertEqual(mc.vlc_stream_ids(WPCTL), ["103"])
 
+    def test_volume_is_read_as_a_percentage(self):
+        self.assertEqual(mc.parse_volume("Volume: 0.80\n"), 80)
+        self.assertEqual(mc.parse_volume("Volume: 1.50 [MUTED]\n"), 150)
+        self.assertEqual(mc.parse_volume("Volume: 0.00"), 0)
+        self.assertIsNone(mc.parse_volume(""))            # wpctl failed
+        self.assertIsNone(mc.parse_volume("Volume: n/a"))
+
 
 if __name__ == "__main__":
     unittest.main()

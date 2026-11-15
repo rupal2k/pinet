@@ -443,7 +443,8 @@ theme (the Spotify card carries a live ON/OFF pill):
   Hindi from `iptv-org`. Automatically filters playlists to 576p streams (avoiding
   Pi 3B hardware decoding bottlenecks) and pre-probes stream endpoints when the list
   opens. VLC plays full-screen while a media flag suppresses screen blanking.
-  Corner touch controls (Back, Play/Pause, Close) auto-hide after 4 seconds.
+  Corner touch controls (Back, Play/Pause, Volume −/+, Close) auto-hide after 4 seconds.
+  Volume moves the speaker in 10% steps, up to the 150% boost ceiling, and shows the level.
 - **HDMI Field Monitor**: Connects to a USB UVC HDMI capture card (tested with
   MacroSilicon MS2109) to convert the touchscreen into an external HDMI field monitor
   for laptops or cameras. Streams video through low-latency `ffmpeg` and `ffplay`
