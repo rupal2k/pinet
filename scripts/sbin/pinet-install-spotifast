@@ -29,6 +29,7 @@ USER_HOME="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 [[ "$(uname -m)" == aarch64 ]] || { echo "Needs a 64-bit (aarch64) OS" >&2; exit 1; }
 
 tmp="$(mktemp -d)"
+chmod 755 "$tmp"   # the icon and menu entry are installed as the user, who must be able to read it (public release files)
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL -o "$tmp/$NAME.tar.gz" "$BASE/$NAME.tar.gz"
 curl -fsSL -o "$tmp/checksums.txt" "$BASE/checksums.txt"
