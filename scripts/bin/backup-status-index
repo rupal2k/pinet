@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path.home() / "backup-status"
 LOGO = Path.home() / ".local/share/icons/pinet-logo.png"
+RAD = Path("/mnt/pinet-media/radicle")
 REPOS = [
     ("Skills & Config", Path.home() / "agentic-skills-backup"),
     ("Memory & Graphs", Path.home() / "agentic-memory-backup"),
@@ -40,6 +41,17 @@ PAGE = """\
   .msg {{ color:#d0d0d0; flex:1; }}
   .age {{ color:#666; font-size:12px; flex:0 0 auto; }}
   .err {{ padding:12px 14px; color:#e05c5c; font-size:14px; }}
+  .sum {{ padding:9px 14px; font-size:13px; color:#999; border-bottom:1px solid #222; }}
+  .good {{ color:#5cc37a; }} .bad {{ color:#e05c5c; }}
+  .grid {{ display:grid; grid-template-columns:1fr 1fr; }}
+  .repo {{ padding:8px 14px; border-bottom:1px solid #222; font-size:14px;
+           display:flex; gap:8px; align-items:baseline; min-width:0; }}
+  .repo:nth-child(odd) {{ border-right:1px solid #222; }}
+  .dot {{ flex:0 0 8px; height:8px; border-radius:50%; background:#5cc37a; align-self:center; }}
+  .dot.bad {{ background:#e05c5c; }}
+  .name {{ flex:1; color:#d0d0d0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  .vis {{ color:#666; font-size:12px; flex:0 0 auto; }}
+  .vis.public {{ color:#4e9cff; }}
 </style></head>
 <body>
 <div class="hdr">
@@ -86,9 +98,50 @@ def render_section(title: str, repo: Path) -> str:
     return f'<section><h2>{html.escape(title)}</h2>{body}</section>'
 
 
+def ago(ts: float) -> str:
+    m = int((datetime.now().timestamp() - ts) // 60)
+    if m < 1:
+        return "just now"
+    if m < 60:
+        return f"{m} min ago"
+    return f"{m // 60} h ago" if m < 2880 else f"{m // 1440} days ago"
+
+
+def render_radicle() -> str:
+    """GitHub -> Radicle mirror: one row per repo, from the status file gh2rad writes each run."""
+    status = RAD / "status.tsv"
+    try:
+        rows = [l.split("\t") for l in status.read_text().splitlines() if l.count("\t") == 3]
+        mtime = status.stat().st_mtime
+    except OSError:
+        return ('<section><h2>Radicle Mirror</h2><div class="err">No mirror status '
+                '(drive locked, or the mirror has not run yet).</div></section>')
+    node = subprocess.run(["systemctl", "is-active", "radicle-node"],
+                          capture_output=True, text=True).stdout.strip() or "unknown"
+    failed = sum(r[2] != "ok" for r in rows)
+    public = sum(r[1] == "public" for r in rows)
+    # The mirror runs hourly, so a status older than 3 h means runs are failing.
+    stale = datetime.now().timestamp() - mtime > 3 * 3600
+    summary = " · ".join([
+        f"{len(rows)} repos ({public} public, {len(rows) - public} private)",
+        f'<span class="{"bad" if failed else "good"}">{failed} failed</span>',
+        f'node <span class="{"good" if node == "active" else "bad"}">{html.escape(node)}</span>',
+        f'<span class="{"bad" if stale else ""}">last run {ago(mtime)}</span>',
+    ])
+    cells = "".join(
+        '<div class="repo"><span class="dot{bad}"></span><span class="name">{name}</span>'
+        '<span class="vis {vis}">{vis}</span><span class="sha">{sha}</span></div>'.format(
+            bad="" if res == "ok" else " bad", name=html.escape(name),
+            vis=html.escape(vis), sha=html.escape(sha or "-"))
+        for name, vis, res, sha in sorted(rows, key=lambda r: (r[2] == "ok", r[0].lower()))
+    )
+    return (f'<section><h2>Radicle Mirror</h2><div class="sum">{summary}</div>'
+            f'<div class="grid">{cells}</div></section>')
+
+
 def main():
     ROOT.mkdir(parents=True, exist_ok=True)
-    sections = "\n".join(render_section(t, r) for t, r in REPOS)
+    sections = "\n".join([render_radicle()] + [render_section(t, r) for t, r in REPOS])
     ts = datetime.now().strftime("%d %b %Y %H:%M")
     tmp = ROOT / ".index.html.tmp"
     tmp.write_text(PAGE.format(ts=ts, sections=sections, logo=LOGO))
