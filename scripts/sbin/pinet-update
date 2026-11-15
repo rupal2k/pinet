@@ -82,6 +82,16 @@ case "${1:-}" in
     ;;
   pihole)
     command -v pihole >/dev/null || { echo "Pi-hole is not installed" >&2; exit 1; }
+    # Pi-hole's updater starts and enables its DNS server. Here that server runs only while
+    # Ethernet Share's ad-free is on (the hotspot's own DNS is dnsmasq), so it goes back to
+    # how it was found, whether the update worked or not.
+    was_active="$(systemctl is-active pihole-FTL 2>/dev/null || true)"
+    was_enabled="$(systemctl is-enabled pihole-FTL 2>/dev/null || true)"
+    restore_ftl() {
+        [[ "$was_enabled" == enabled ]] || systemctl disable pihole-FTL >/dev/null 2>&1 || true
+        [[ "$was_active" == active ]] || systemctl stop pihole-FTL 2>/dev/null || true
+    }
+    trap restore_ftl EXIT
     pihole -up
     ;;
   raspotify)
