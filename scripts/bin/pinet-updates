@@ -1,0 +1,529 @@
+#!/usr/bin/env python3
+"""PINET Updates -- one window that shows what on this Pi has a newer version,
+lets you pick which modules to update, and updates those on a tap. Same e-ink
+style as Ethernet Share.
+
+Each row is one module: what is installed, what is the latest, and a Select
+key that is only live when there is something newer. "Update selected" runs
+the chosen ones one after another. Nothing updates by itself: an update writes
+to the SD card and may restart a service, so it is started on purpose, after a
+confirm.
+
+A module is one entry in MODULES: how to read what is installed and what is
+the latest, and its name for `sudo pinet-update <key>`, which does the work
+(rupal has passwordless sudo on this appliance, like Ethernet Share). The
+parsing is pure and unit-tested (tests/test_pinet_updates.py); the GUI imports
+gi lazily so those tests need no display.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pinet_eink_theme import CSS, LOGO_PATHS
+
+UPDATE = "/usr/local/sbin/pinet-update"
+PINET_REPO = "/opt/pinet"
+# /opt/pinet belongs to root; reading it as rupal needs git told that is fine.
+GIT = ["git", "-c", "safe.directory=" + PINET_REPO, "-C", PINET_REPO]
+SPOTIFAST = "/opt/spotifast/spotifast"
+SPOTIFAST_LATEST = "https://github.com/crmne/spotifast/releases/latest"
+RAD = "/mnt/pinet-media/radicle/bin/rad"
+RAD_LATEST = "https://files.radicle.dev/releases/latest/radicle.json"
+APT_LISTS = "/var/lib/apt/lists"
+STATE = "/var/lib/pinet-update"   # written by pinet-update: the installed PINET commit, the list refresh time
+
+
+def _out(argv, timeout=40):
+    # LC_ALL=C: the parsers below read English output, whatever the desktop's language is
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
+                              check=False, env=dict(os.environ, LC_ALL="C")).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _curl(*args):
+    return _out(["curl", "-fsSL", "--max-time", "20", *args])
+
+
+# ---------------------------------------------------------------- reading versions (pure)
+def tool_version(text, name):
+    """`<name> --version` ("spotifast 0.17.1", "rad 1.10.3 (7e1c...)") -> the
+    version, else "". Pure."""
+    parts = text.split()
+    return parts[1] if len(parts) >= 2 and parts[0] == name else ""
+
+
+def version_from_release_url(url):
+    """Where GitHub's /releases/latest lands (".../releases/tag/v0.17.1") ->
+    "0.17.1", else "". Pure."""
+    m = re.search(r"/releases/tag/v(\d+(?:\.\d+)+)\s*$", url)
+    return m.group(1) if m else ""
+
+
+def version_from_json(text):
+    """The "version" of Radicle's latest-release file, else "". Pure."""
+    try:
+        v = json.loads(text).get("version", "")
+    except (ValueError, AttributeError):
+        return ""
+    return v if isinstance(v, str) and re.fullmatch(r"\d+(?:\.\d+)+", v) else ""
+
+
+def sha_from_git(text):
+    """The commit id at the start of `git rev-parse HEAD` or `git ls-remote`
+    output, else "". Pure."""
+    first = text.split()[0] if text.split() else ""
+    return first if re.fullmatch(r"[0-9a-f]{40}", first) else ""
+
+
+def pihole_versions(text):
+    """`pihole version` (Core, Web and FTL lines, "... is v6.4.3 (Latest: v6.6)")
+    -> (installed, latest), each "core / web / ftl". ("", "") when it can't be
+    read; latest is "" when Pi-hole doesn't know it. Pure."""
+    found = re.findall(r"version is v?([\w.]+) \(Latest: v?([^)]+)\)", text)
+    if not found:
+        return "", ""
+    latest = [l for _, l in found]
+    return " / ".join(i for i, _ in found), "" if any(not l[0].isdigit() for l in latest) else " / ".join(latest)
+
+
+def apt_policy(text):
+    """`apt-cache policy <pkg>` -> (installed, candidate); "" for "(none)". Pure."""
+    def grab(key):
+        m = re.search(r"^\s*" + key + r":\s*(\S+)", text, re.M)
+        return "" if not m or m.group(1) == "(none)" else m.group(1)
+    return grab("Installed"), grab("Candidate")
+
+
+def parse_preview(text):
+    """`pinet-update system-preview` ("ready=3 guarded=2 held=14") -> (ready,
+    left alone). ready: packages a system update installs. Left alone: the
+    guarded ones (kernel, firmware, desktop) plus those apt holds back. None
+    when it can't be read. Pure."""
+    kv = dict(re.findall(r"(\w+)=(\d+)", text))
+    if "ready" not in kv:
+        return None
+    return int(kv["ready"]), int(kv.get("guarded", 0)) + int(kv.get("held", 0))
+
+
+def age_text(seconds):
+    """How old the package lists are, in words; None when nobody knows. Pure."""
+    if seconds is None:
+        return "an unknown day"
+    days = int(seconds // 86400)
+    return "today" if days < 1 else "yesterday" if days == 1 else f"{days} days ago"
+
+
+def strip_ansi(text):
+    """Installers colour their output for a terminal; the Output box is not one. Pure."""
+    return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+
+
+def short(version):
+    """A commit id is shown by its first 7 characters and a Debian version
+    without its build suffix; anything else as it is. Pure."""
+    if re.fullmatch(r"[0-9a-f]{40}", version):
+        return version[:7]
+    return version.split("~")[0]
+
+
+# ---------------------------------------------------------------- what a row says (pure)
+def row_state(installed, latest, installable=True):
+    """(what the row says, whether it can be selected). Pure."""
+    if not installed and not installable:
+        return "Not installed", False
+    if not latest:
+        return "Can't check (no internet?)", False
+    if not installed:
+        return "Not installed: Update installs it", True
+    if installed == latest:
+        return "Up to date", False
+    return "Update available", True
+
+
+def versions_text(installed, latest):
+    """"0.14.2 → 0.17.1" when they differ, just the installed one when not. Pure."""
+    if installed and latest and installed != latest:
+        if short(installed) == short(latest):   # they differ only in the part short() drops
+            return f"{installed}  →  {latest}"
+        return f"{short(installed)}  →  {short(latest)}"
+    return short(installed or latest) or "—"
+
+
+def versioned(installed, latest, installable=True):
+    """The three things a row shows for a module with a version. Pure."""
+    return (versions_text(installed, latest),) + row_state(installed, latest, installable)
+
+
+def system_row(preview, lists_age):
+    """The same three for the system packages row. Pure."""
+    counts = parse_preview(preview)
+    if counts is None:
+        return "—", "Can't check", False
+    ready, left = counts
+    note = f"lists from {age_text(lists_age)}" + (f", {left} left alone" if left else "")
+    if ready:
+        return f"{ready} package{'s' if ready != 1 else ''}", f"Update available ({note})", True
+    return "—", f"Up to date ({note})", False
+
+
+def root_readonly(mounts):
+    """True when /proc/mounts says / is mounted read-only -- what this Pi's SD
+    card does when it fails. An update then can only make things worse. Pure."""
+    ro = False
+    for line in mounts.splitlines():
+        f = line.split()
+        if len(f) >= 4 and f[1] == "/":
+            ro = "ro" in f[3].split(",")   # the last mount on / is the live one
+    return ro
+
+
+# ---------------------------------------------------------------- the modules
+def _lists_age():
+    """Seconds since the package lists were refreshed. pinet-update stamps each refresh;
+    the lists folder itself only changes when a refresh brings something new."""
+    for path in (os.path.join(STATE, "lists"), APT_LISTS):
+        try:
+            return time.time() - os.path.getmtime(path)
+        except OSError:
+            pass
+    return None
+
+
+def _pinet_installed():
+    """The PINET commit that is installed: what pinet-update recorded after its last
+    full install, else (never updated from here) what the checkout is at."""
+    try:
+        recorded = sha_from_git(open(os.path.join(STATE, "pinet")).read())
+    except OSError:
+        recorded = ""
+    return recorded or sha_from_git(_out(GIT + ["rev-parse", "HEAD"]))
+
+
+# key: the name `pinet-update` knows it by. check(): (versions, status, selectable).
+# preselect: ticked for you when there is an update -- only the quick, contained ones.
+MODULES = (
+    {"key": "pinet", "name": "PINET software", "preselect": True,
+     "about": "Desktop apps, Media Centre, message board",
+     "check": lambda: versioned(_pinet_installed(),
+                                sha_from_git(_out(GIT + ["ls-remote", "origin", "refs/heads/main"])), False),
+     "warn": "the message board restarts, so the hotspot shows an error for a few seconds"},
+    {"key": "spotifast", "name": "Spotifast", "preselect": True,
+     "about": "The Spotify player in Media Centre",
+     "check": lambda: versioned(tool_version(_out([SPOTIFAST, "--version"]), "spotifast"),
+                                version_from_release_url(_curl("-I", "-o", "/dev/null", "-w", "%{url_effective}",
+                                                               SPOTIFAST_LATEST))),
+     "warn": "close Spotifast first if it is open"},
+    {"key": "radicle", "name": "Radicle", "preselect": True,
+     "about": "The node that mirrors your GitHub repos",
+     "check": lambda: versioned(tool_version(_out([RAD, "--version"]), "rad"),
+                                version_from_json(_curl(RAD_LATEST)), False),
+     "warn": "the Radicle node restarts"},
+    {"key": "pihole", "name": "Pi-hole", "preselect": False,
+     "about": "Ad-blocking for Ethernet Share (core / web / FTL)",
+     "check": lambda: versioned(*pihole_versions(_out(["pihole", "version"])), False),
+     "warn": "ad-blocking stops for a minute or two"},
+    {"key": "raspotify", "name": "Raspotify", "preselect": False,
+     "about": "Spotify Connect",
+     "check": lambda: versioned(*apt_policy(_out(["apt-cache", "policy", "raspotify"])), False),
+     "warn": "Spotify Connect stops while it installs"},
+    {"key": "system", "name": "System packages", "preselect": False,
+     "about": "Debian and Raspberry Pi OS; kernel, firmware and desktop are left alone",
+     "check": lambda: system_row(_out([UPDATE, "system-preview"], 120), _lists_age()),
+     "warn": "this is the slow one and writes the most to the SD card"},
+)
+
+
+def run_gui():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk, Gio, GLib, Gdk, GdkPixbuf
+
+    class Window(Gtk.Window):
+        def __init__(self):
+            super().__init__(title="PINET Updates")
+            self.set_default_size(800, 448)
+            self.maximize()   # the DSI panel is 800x480
+            self.proc = None
+            self.checking = False
+            self.queue = []      # rows still to update in this run
+            self.failed = []
+            self.pending = 0     # version checks still out
+            self.presetting = False
+            prov = Gtk.CssProvider()
+            prov.load_from_data(CSS)
+            Gtk.StyleContext.add_provider_for_screen(
+                Gdk.Screen.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            self._build()
+            self.connect("delete-event", self._on_close)
+            self.connect("destroy", lambda *_: Gtk.main_quit())
+            self._check()
+
+        def _on_close(self, *_):
+            """Closing mid-update would cut the installer off from its output and can
+            leave a package half installed: the window stays until it is done."""
+            if self.proc is None:
+                return False
+            self._dialog(Gtk.MessageType.WARNING, Gtk.ButtonsType.OK, "An update is still running",
+                         "Wait for it to finish: stopping part-way can leave things half installed.")
+            return True
+
+        def _cls(self, w, *names):
+            for n in names:
+                w.get_style_context().add_class(n)
+            return w
+
+        # -- layout --
+        def _build(self):
+            root = self._cls(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "root")
+            self.add(root)
+            bar = self._cls(Gtk.Box(spacing=10), "titlebar")
+            for path in LOGO_PATHS:
+                if os.path.exists(path):
+                    try:
+                        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, -1, 42, True)
+                        bar.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
+                        break
+                    except GLib.Error:
+                        pass
+            tb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            tb.set_valign(Gtk.Align.CENTER)
+            tb.pack_start(self._cls(Gtk.Label(label="UPDATES", xalign=0), "app-title"), False, False, 0)
+            tb.pack_start(self._cls(Gtk.Label(label="PICK WHAT TO UPDATE", xalign=0), "app-sub"), False, False, 0)
+            bar.pack_start(tb, False, False, 0)
+            self.go = self._cls(Gtk.Button(label="Update selected"), "ghost")
+            self.again = self._cls(Gtk.Button(label="Check again"), "ghost")
+            for b, width in ((self.go, 190), (self.again, 130)):
+                b.set_valign(Gtk.Align.CENTER)
+                b.set_size_request(width, 44)
+                bar.pack_end(b, False, False, 0)
+            self.go.connect("clicked", lambda *_: self._on_update())
+            # Check again also refreshes the package lists, which the first look skips:
+            # that writes to the SD card, so it happens only when asked for.
+            self.again.connect("clicked", lambda *_: self._run_lists())
+            root.pack_start(bar, False, False, 0)
+
+            body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            body.set_margin_top(10); body.set_margin_bottom(10)
+            body.set_margin_start(14); body.set_margin_end(14)
+            root.pack_start(body, True, True, 0)
+            # Six modules don't fit above the output on 480 px: the list scrolls.
+            rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            self.rows = [self._row(m) for m in MODULES]
+            for r in self.rows:
+                rows.pack_start(r["box"], False, False, 0)
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.add(rows)
+            rows.set_focus_vadjustment(scroll.get_vadjustment())   # a focused row scrolls into view
+            body.pack_start(scroll, True, True, 0)
+
+            pane = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            head = self._cls(Gtk.Box(spacing=6), "pane-bar")
+            head.pack_start(self._cls(Gtk.Label(label="OUTPUT", xalign=0), "pane-title"), True, True, 0)
+            pane.pack_start(head, False, False, 0)
+            term = self._cls(Gtk.ScrolledWindow(), "term")
+            term.set_size_request(-1, 84)
+            self.view = Gtk.TextView(editable=False, cursor_visible=False, monospace=True,
+                                     wrap_mode=Gtk.WrapMode.WORD_CHAR)
+            self.view.set_left_margin(10); self.view.set_top_margin(6)
+            self.view.set_right_margin(10); self.view.set_bottom_margin(6)
+            self.buf = self.view.get_buffer()
+            term.add(self.view)
+            pane.pack_start(term, False, False, 0)
+            body.pack_start(pane, False, False, 0)
+
+        def _row(self, mod):
+            box = self._cls(Gtk.Box(spacing=12), "card")
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text.set_margin_top(8); text.set_margin_bottom(8); text.set_margin_start(14)
+            text.pack_start(self._cls(Gtk.Label(label=mod["name"], xalign=0), "tool-name"), False, False, 0)
+            text.pack_start(self._cls(Gtk.Label(label=mod["about"], xalign=0), "tool-desc"), False, False, 0)
+            box.pack_start(text, True, True, 0)
+            state = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            state.set_valign(Gtk.Align.CENTER)
+            versions = self._cls(Gtk.Label(label="", xalign=1), "tool-name")
+            status = self._cls(Gtk.Label(label="", xalign=1), "tool-desc")
+            state.pack_start(versions, False, False, 0)
+            state.pack_start(status, False, False, 0)
+            box.pack_start(state, False, False, 0)
+            # A toggle, not a small checkbox: a thumb-sized target that inverts when chosen.
+            pick = self._cls(Gtk.ToggleButton(label="Select"), "ghost")
+            pick.set_size_request(120, 46)
+            pick.set_valign(Gtk.Align.CENTER)
+            pick.set_margin_end(12)
+            # choice: what the user last set this row to themselves (None: not touched)
+            row = {"mod": mod, "box": box, "versions": versions, "status": status, "pick": pick,
+                   "choice": None}
+            pick.connect("toggled", lambda *_: self._picked(row))
+            box.pack_start(pick, False, False, 0)
+            return row
+
+        def _picked(self, row):
+            row["pick"].set_label("Selected" if row["pick"].get_active() else "Select")
+            if not self.presetting:
+                row["choice"] = row["pick"].get_active()
+            self._sync()
+
+        def _selected(self):
+            return [r for r in self.rows if r["pick"].get_active() and r["pick"].get_sensitive()]
+
+        def _sync(self):
+            """The header keys follow what is going on."""
+            busy = self.checking or self.proc is not None
+            n = len(self._selected())
+            self.go.set_label(f"Update selected ({n})" if n else "Update selected")
+            self.go.set_sensitive(not busy and n > 0)
+            self.again.set_sensitive(not busy)
+
+        # -- checking --
+        def _check(self):
+            if self.checking or self.proc is not None:
+                return
+            self.checking = True
+            for r in self.rows:
+                r["status"].set_text("Checking…")
+                r["pick"].set_sensitive(False)
+            self._sync()
+            self.pending = len(self.rows)
+            def work(r):   # network and apt reads: off the GTK thread, all rows at once
+                try:
+                    found = r["mod"]["check"]()
+                except Exception:   # a module that can't be read must not take the window down
+                    found = ("—", "Can't check", False)
+                GLib.idle_add(self._checked_one, r, found)
+            for r in self.rows:
+                threading.Thread(target=work, args=(r,), daemon=True).start()
+
+        def _checked_one(self, row, found):
+            versions, status, live = found
+            row["versions"].set_text(versions)
+            row["status"].set_text(status)
+            row["live"] = live
+            self.pending -= 1
+            if self.pending == 0:
+                self._checked_all()
+            return False
+
+        def _checked_all(self):
+            self.checking = False
+            self.presetting = True   # these toggles are ours, not the user's
+            for r in self.rows:
+                live = r.get("live", False)
+                r["pick"].set_sensitive(live)
+                # what the user chose stays chosen across a re-check; untouched rows get the default
+                want = r["mod"]["preselect"] if r["choice"] is None else r["choice"]
+                r["pick"].set_active(live and want)
+            self.presetting = False
+            self._sync()
+
+        # -- updating --
+        def _on_update(self):
+            chosen = self._selected()
+            if not chosen:
+                return
+            try:
+                broken = root_readonly(open("/proc/mounts").read())
+            except OSError:
+                broken = False
+            if broken:
+                self._dialog(Gtk.MessageType.ERROR, Gtk.ButtonsType.OK, "The SD card is read-only",
+                             "Nothing can be installed like this. Restart the Pi; if it "
+                             "happens again the card is failing and needs replacing.")
+                return
+            lines = "\n".join(f"•  {r['mod']['name']}: {r['mod']['warn']}" for r in chosen)
+            if self._dialog(Gtk.MessageType.QUESTION, Gtk.ButtonsType.OK_CANCEL,
+                            f"Update {len(chosen)} module{'s' if len(chosen) != 1 else ''}?",
+                            f"{lines}\n\nKeep the Pi powered until it finishes.") != Gtk.ResponseType.OK:
+                return
+            self.queue, self.failed = list(chosen), []
+            for r in self.rows:
+                r["choice"] = None   # a finished run starts the choices afresh
+            self._next()
+
+        def _next(self):
+            if not self.queue:
+                if self.failed:
+                    self._dialog(Gtk.MessageType.ERROR, Gtk.ButtonsType.OK,
+                                 "Not everything updated",
+                                 ", ".join(self.failed) + " did not update. The reason is in "
+                                 "the Output box. The other modules were not affected.")
+                self._check()   # the rows now show what is really installed
+                return
+            row = self.queue.pop(0)
+            self._run(["sudo", "-n", UPDATE, row["mod"]["key"]], row["mod"]["name"])
+
+        def _run_lists(self):
+            if self.checking or self.proc is not None:
+                return
+            self.queue, self.failed = [], []
+            self._run(["sudo", "-n", UPDATE, "lists"], "The package lists")
+
+        def _run(self, argv, name):
+            for r in self.rows:
+                r["pick"].set_sensitive(False)
+            self._append(f"$ {' '.join(argv)}\n")
+            try:
+                self.proc = Gio.Subprocess.new(
+                    argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
+            except GLib.Error as exc:
+                self._append(f"[failed: {exc.message}]\n")
+                self.failed.append(name)
+                self._next()
+                return
+            self._sync()
+            stream = Gio.DataInputStream.new(self.proc.get_stdout_pipe())
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self._on_line, stream)
+            self.proc.wait_async(None, self._on_exit, name)
+
+        def _on_line(self, stream, res, _data):
+            try:
+                line, _ = stream.read_line_finish_utf8(res)
+            except GLib.Error:
+                return
+            if line is None:
+                return
+            self._append(line + "\n")
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self._on_line, stream)
+
+        def _on_exit(self, proc, res, name):
+            try:
+                proc.wait_finish(res)
+                code = proc.get_exit_status()
+            except GLib.Error:
+                code = 1
+            self.proc = None
+            self._append(f"[{name}: {'done' if code == 0 else 'failed, code ' + str(code)}]\n\n")
+            if code != 0:
+                self.failed.append(name)
+            self._next()   # one module failing doesn't stop the ones after it
+
+        # -- helpers --
+        def _append(self, text):
+            self.buf.insert(self.buf.get_end_iter(), strip_ansi(text))
+            self.view.scroll_to_iter(self.buf.get_end_iter(), 0.0, False, 0, 0)
+
+        def _dialog(self, kind, buttons, title, body):
+            d = Gtk.MessageDialog(transient_for=self, modal=True, message_type=kind,
+                                  buttons=buttons, text=title)
+            d.format_secondary_text(body)
+            for resp in (Gtk.ResponseType.OK, Gtk.ResponseType.CANCEL):
+                b = d.get_widget_for_response(resp)
+                if b is not None:
+                    b.set_size_request(140, 48)   # thumb-sized on the touchscreen
+            answer = d.run()
+            d.destroy()
+            return answer
+
+    Window().show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    run_gui()

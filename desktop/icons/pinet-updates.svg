@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <title>Updates</title>
+  <path d="M9 4 H44 V39 L39 44 H4 V9 Z" fill="#0b0d12" fill-opacity="0.55" stroke="#e8e8e8" stroke-opacity="0.38" stroke-width="1.4"/>
+  <path d="M4 14 V9 L9 4 H14 M34 44 H39 L44 39 V34" stroke="#e8e8e8" stroke-width="1.8"/>
+  <!-- a turning arrow: fetch the new version -->
+  <path d="M33.5 17.5 A11.5 11.5 0 1 0 35.5 24" stroke="#e8e8e8" stroke-width="5.6" stroke-opacity="0.10"/>
+  <path d="M33.5 17.5 A11.5 11.5 0 1 0 35.5 24" stroke="#e8e8e8" stroke-width="2.4"/>
+  <path d="M34 10.5 V18 H26.5" stroke="#e8e8e8" stroke-width="2.4"/>
+  <!-- down into place -->
+  <path d="M24 19 V29 M20 25.5 L24 29.5 L28 25.5" stroke="#e8e8e8" stroke-width="2.2"/>
+</svg>

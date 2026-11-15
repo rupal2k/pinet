@@ -1,0 +1,112 @@
+#!/bin/bash
+# Update one module of this Pi. This is what the Updates app (pinet-updates)
+# runs for each module that was selected; by hand it is
+#   sudo pinet-update pinet|spotifast|radicle|pihole|raspotify|system|lists
+#
+#   pinet      pull /opt/pinet, then install the message board and scripts from it
+#   spotifast  the latest Spotifast release (pinet-install-spotifast)
+#   radicle    the latest Radicle release, then restart the node
+#   pihole     Pi-hole's own updater
+#   raspotify  the raspotify package only
+#   system     the Debian / Raspberry Pi OS packages, except the ones in GUARDED
+#              (kernel, firmware, the labwc desktop): those can stop this kiosk
+#              booting to its desktop, so they wait for a hand-run upgrade
+#   lists      refresh the package lists, so raspotify and system show what is new
+#
+#   system-preview   (no sudo) what `system` would do: "ready=N guarded=N held=N"
+set -euo pipefail
+export LC_ALL=C DEBIAN_FRONTEND=noninteractive
+
+REPO=/opt/pinet
+RAD_HOME=/mnt/pinet-media/radicle
+STATE=/var/lib/pinet-update     # pinet: the commit that is installed; lists: when they were refreshed
+# Never upgraded from here, held back or not: what boots the Pi and draws its desktop.
+GUARDED='^(linux-|raspi-firmware|rpi-eeprom|firmware-|labwc|wf-panel|rpd-|lightdm|raspberrypi-ui|raspberrypi-sys-mods)'
+# Never stop to ask about a config file: PINET's own (hostapd, dnsmasq, raspotify) stay.
+APT=(apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+
+# package names a plain upgrade would install, one per line
+upgradable() { apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | awk '$1 == "Inst" { print $2 }'; }
+
+if [[ "${1:-}" == system-preview ]]; then
+    names="$(upgradable)"
+    held="$(apt-get -s -o Debug::NoLocking=1 upgrade 2>/dev/null | sed -n 's/.* and \([0-9][0-9]*\) not upgraded.*/\1/p')"
+    guarded="$(grep -cE "$GUARDED" <<<"$names" || true)"
+    total="$(grep -c . <<<"$names" || true)"
+    echo "ready=$((total - guarded)) guarded=$guarded held=${held:-0}"
+    exit 0
+fi
+
+[[ "$(id -u)" -eq 0 ]] || { echo "Run with sudo" >&2; exit 1; }
+# This Pi's SD card goes read-only when it fails: installing then only makes it worse.
+if awk '$2 == "/" { o = $4 } END { exit !(o ~ /(^|,)ro(,|$)/) }' /proc/mounts; then
+    echo "The SD card is read-only: nothing can be installed. Restart the Pi first." >&2
+    exit 1
+fi
+mkdir -p "$STATE"
+
+case "${1:-}" in
+  pinet)
+    [[ -d "$REPO/.git" ]] || { echo "$REPO is not a git checkout" >&2; exit 1; }
+    before="$(git -C "$REPO" rev-parse HEAD)"
+    # What is installed is recorded apart from the checkout: if the pull works and the
+    # install below fails, Updates still shows an update and it can be run again.
+    [[ -s "$STATE/pinet" ]] || echo "$before" > "$STATE/pinet"
+    # Fast-forward only: a checkout edited on the Pi is left alone rather than merged.
+    git -C "$REPO" pull --ff-only
+    after="$(git -C "$REPO" rev-parse HEAD)"
+    # The CA certificate is this Pi's own (install.sh generates it): never the repo's copy.
+    rsync -a --exclude='data/' --exclude='static/pinet-ca.crt' "$REPO/pinet-board/" /opt/pinet-board/
+    chown -R root:root /opt/pinet-board
+    chown -R pinet-board:pinet-board /opt/pinet-board/data
+    # Files only: a stray __pycache__ in scripts/bin would stop `install dir/*`.
+    find "$REPO/scripts/bin"  -maxdepth 1 -type f -exec install -m 755 -t /usr/local/bin  {} +
+    find "$REPO/scripts/sbin" -maxdepth 1 -type f -exec install -m 755 -t /usr/local/sbin {} +
+    # try-restart: a board that was stopped on purpose (pinet-stop, power shedding) stays stopped.
+    systemctl try-restart pinet-board
+    echo "$after" > "$STATE/pinet"
+    echo "PINET ${before:0:7} -> ${after:0:7} (desktop icons and systemd units are install.sh's job)"
+    ;;
+  spotifast)
+    exec /usr/local/sbin/pinet-install-spotifast
+    ;;
+  radicle)
+    [[ -x "$RAD_HOME/bin/rad" ]] || { echo "Radicle is not installed in $RAD_HOME" >&2; exit 1; }
+    owner="$(stat -c %U "$RAD_HOME")"
+    tmp="$(mktemp -d)"; chmod 755 "$tmp"; trap 'rm -rf "$tmp"' EXIT
+    # Radicle's installer checks the release archive against its signing keys itself.
+    curl -fsSL -o "$tmp/install.sh" https://radicle.xyz/install
+    sudo -u "$owner" env RAD_HOME="$RAD_HOME" sh "$tmp/install.sh" --no-modify-path
+    systemctl restart radicle-node
+    sudo -u "$owner" env RAD_HOME="$RAD_HOME" "$RAD_HOME/bin/rad" --version
+    ;;
+  pihole)
+    command -v pihole >/dev/null || { echo "Pi-hole is not installed" >&2; exit 1; }
+    pihole -up
+    ;;
+  raspotify)
+    apt-get update -q
+    touch "$STATE/lists"
+    "${APT[@]}" install --only-upgrade raspotify
+    ;;
+  system)
+    apt-get update -q
+    touch "$STATE/lists"
+    # Hold the guarded packages for this run only, then let go of the ones held here.
+    mapfile -t hold < <(comm -23 <(upgradable | grep -E "$GUARDED" | sort -u) <(apt-mark showhold | sort -u))
+    if (( ${#hold[@]} )); then
+        apt-mark hold "${hold[@]}" >/dev/null
+        trap 'apt-mark unhold "${hold[@]}" >/dev/null' EXIT
+        echo "Left alone (kernel, firmware, desktop): ${hold[*]}"
+    fi
+    "${APT[@]}" upgrade
+    ;;
+  lists)
+    apt-get update -q
+    touch "$STATE/lists"
+    ;;
+  *)
+    echo "usage: sudo ${0##*/} pinet|spotifast|radicle|pihole|raspotify|system|lists" >&2
+    exit 2
+    ;;
+esac

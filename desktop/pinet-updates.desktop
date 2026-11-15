@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Updates
+Comment=See which modules have a newer version (PINET, Spotifast, Radicle, Pi-hole, Raspotify, system packages), pick some, and update them on a tap
+Exec=/usr/local/bin/pinet-updates
+Icon=/home/rupal/.local/share/icons/pinet-updates.svg
+Terminal=false
+Categories=Utility;

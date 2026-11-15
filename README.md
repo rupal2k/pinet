@@ -525,6 +525,25 @@ built-in Ethernet jack (`eth0`):
 
 </details>
 
+### Updates
+
+The **Updates** desktop icon (`pinet-updates`) lists the modules that can be updated, shows the
+installed and the latest version of each, and updates the ones you select. Nothing updates by itself.
+
+| Module | Latest version comes from | What an update does |
+| --- | --- | --- |
+| PINET software | `main` of this repo | pulls `/opt/pinet`, reinstalls the scripts and the message board |
+| Spotifast | its GitHub releases | `pinet-install-spotifast` |
+| Radicle | radicle.dev's release file | Radicle's own signed installer, then restarts the node |
+| Pi-hole | `pihole version` | `pihole -up` |
+| Raspotify | the apt package lists | upgrades that one package |
+| System packages | the apt package lists | a plain `apt upgrade` with the kernel, firmware and desktop packages held for the run (the `GUARDED` list in `pinet-update`), so they are never installed from here |
+
+**Check again** also refreshes the apt package lists. Each module can be run by hand with
+`sudo pinet-update <module>`. The helper refuses to install anything while the SD card is
+read-only, and the window will not close while an update is running. A PINET update installs the
+scripts and the message board only: new desktop icons and systemd units still come from `install.sh`.
+
 ### Power Management and Battery Guard
 
 <details>
